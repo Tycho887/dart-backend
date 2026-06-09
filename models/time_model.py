@@ -335,18 +335,26 @@ def select_best_time_model(
         )
 
         active_x_scale = x_scale_vec[active_mask]
+        
+        # Apply the boolean mask to the bounds arrays
+        lower_bounds, upper_bounds = config.qmc_bounds
+        active_bounds = (
+            np.array(lower_bounds)[active_mask], 
+            np.array(upper_bounds)[active_mask]
+        )
 
         result = least_squares(
             res_func,
             x0_active,
             jac=jac_func,
-            loss="linear",
+            loss=config.loss,
             x_scale=active_x_scale,
-            method="lm",
+            method=config.method,
             f_scale=config.f_scale,
             ftol=1e-12,
             xtol=1e-12,
             gtol=1e-12,
+            bounds=active_bounds  # Update this line
         )
 
         obs_residuals = result.fun[:n_samples]

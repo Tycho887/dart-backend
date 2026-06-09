@@ -55,13 +55,13 @@ if __name__ == "__main__":
         reg_weights=np.array([1e-5, 1e-4, 1e-5]),
         penalty_weight=1.0,
         N_degrees=1.0,
-        method="lm",
+        method="dogbox",
         loss="linear",
         f_scale=500.0,
         model_type="auto",      # Enable 1/2/3-param comparison
         criterion="BIC",        # Use BIC (good for n > ~40)
-        use_qmc=False,
-        qmc_samples=20,
+        use_qmc=True,
+        qmc_samples=128,
     )
 
     t0 = time.time()

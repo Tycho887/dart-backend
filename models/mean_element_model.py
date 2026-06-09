@@ -21,7 +21,9 @@ def update_TLE(x: np.ndarray, line1: str, line2: str) -> tuple[str, str]:
     new_nodeo = x[1]
     new_ecco = x[2]
     new_argpo = x[3]
-    new_mo = x[4]
+    
+    # Force Mean Anomaly to strictly reside within [0, 2*pi]
+    new_mo = x[4] % (2 * np.pi)
     new_no_kozai = x[5]
 
     sat.sgp4init(
@@ -325,8 +327,8 @@ def qmc_initialize_mean_elements(
     n_passes = pass_indicators.shape[1]
     n_params = 2 + n_passes
 
-    lower_bounds = [sat.mo - 0.1, sat.no_kozai - 0.002] + [-15000.0] * n_passes
-    upper_bounds = [sat.mo + 0.1, sat.no_kozai + 0.002] + [15000.0] * n_passes
+    # Unpack the synchronized boundaries from the configuration object
+    lower_bounds, upper_bounds = config.qmc_bounds
 
     sampler = qmc.LatinHypercube(d=n_params, seed=42)
     raw_samples = sampler.random(n=n_samples)
@@ -440,16 +442,25 @@ def solve_mean_elements(data: Data, config: Config, line1: str, line2: str, fc_G
         eps_vec=eps_vec,
     )
 
+    lb_mo = max(0.0, sat.mo - 0.5)
+    ub_mo = min(2 * np.pi, sat.mo + 0.5)
+    
+    lower_bounds = [lb_mo, sat.no_kozai - 0.002] + [-15000.0] * n_passes
+    upper_bounds = [ub_mo, sat.no_kozai + 0.002] + [15000.0] * n_passes
+    mean_element_bounds = (lower_bounds, upper_bounds)
+
+    # Execute the bounded solver using the synchronized configuration boundaries
     opt_res = least_squares(
         res_wrapper,
         config.x0,
         jac=jac_wrapper,
-        loss="linear",  # kept linear for ideal test scenarios
+        loss=config.loss,
         x_scale=x_scale_vec,
-        method="lm",
+        method=config.method,
         ftol=1e-12,
         xtol=1e-12,
         gtol=1e-12,
+        bounds=config.qmc_bounds  # Direct reference to the synchronized config bounds
     )
 
     n_samples = len(data.obs_doppler)

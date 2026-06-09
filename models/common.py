@@ -27,7 +27,7 @@ class Config:
     penalty_weight: float = 1e4
     N_degrees: float = 1.0
     reg_weights: np.ndarray = field(default_factory=lambda: np.array([1.0, 0.1, 0.1]))
-    method: str = "lm"
+    method: str = "dogbox"  # Updated from "lm"
     loss: str = "linear"
     f_scale: float = 500.0
     scale_by_jacobian: bool = True
@@ -37,7 +37,7 @@ class Config:
     criterion: str = "BIC"            # "AIC", "BIC", "AICc"
     use_qmc: bool = True
     qmc_bounds: Tuple[Tuple[float, float, float], Tuple[float, float, float]] = field(
-        default_factory=lambda: ((-120.0, -1e5, 1.7), (0.0, 1e5, 2.2))
+        default_factory=lambda: ((-120.0, -1e5, 1), (0.0, 1e5, 10))
     )
     qmc_samples: int = 20
 

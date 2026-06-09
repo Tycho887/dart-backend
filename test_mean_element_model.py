@@ -83,19 +83,33 @@ if __name__ == "__main__":
         obs_doppler=obs_doppler[dropout_mask],
         obs_pointing=pointing_clean[dropout_mask]
     )
-    
     # ---------------------------------------------------------
-    # 3. Configure and Execute Solver
+    # 3. Configure and Execute Solver with Unified Bounds
     # ---------------------------------------------------------
+    # Extract the exact number of passes present in the final observation data
+    pass_indicators_actual = get_pass_indicators(obs_data.time_array)
+    n_passes_actual = pass_indicators_actual.shape[1]
+    n_params_total = 2 + n_passes_actual
+
+    # Formulate boundaries matching the mean element vector: [mo, no_kozai, bias_1, ..., bias_N]
+    # Guard the Mean Anomaly bounds to ensure compliance with SGP4 constraints [0, 2*pi]
+    lb_mo = max(0.0, sat.mo - 0.1)
+    ub_mo = min(2 * np.pi, sat.mo + 0.1)
+
+    lower_bounds = [lb_mo, sat.no_kozai - 0.002] + [-15000.0] * n_passes_actual
+    upper_bounds = [ub_mo, sat.no_kozai + 0.002] + [15000.0] * n_passes_actual
+
     config = Config(
         penalty_weight=1.0,
         N_degrees=1.0,
         loss="huber",      # Enabled Huber loss for Laplacian outliers
-        f_scale=100.0,     # Outliers beyond 500 Hz will be downweighted linearly
-        method="dogbox",
-        reg_weights=np.zeros(5),
+        f_scale=100.0,     # Outliers beyond 100 Hz are downweighted
+        method="dogbox",   # Bounded optimization algorithm
+        reg_weights=np.zeros(n_params_total),
         scale_by_jacobian=True,
+        qmc_bounds=(lower_bounds, upper_bounds)  # Injecting the unified constraints
     )
+
     t0 = time.time()
     print("Starting Least Squares Optimization (Mean Element Model)...")
     
