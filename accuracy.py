@@ -61,13 +61,14 @@ def load_and_clean_data(root_dir: str, sat_id: str) -> pl.DataFrame:
 
 
 def create_od_data(pass_df: pl.DataFrame) -> tuple[Data, float]:
+    """Maps a single pass DataFrame into the solver's Data dataclass."""
     tle_line1 = pass_df['tle_line1'][0]
     tle_line2 = pass_df['tle_line2'][0]
     sat_tle = sk.TLE.from_lines([tle_line1, tle_line2])
     
     lat = pass_df['station_lat'][0]
     lon = pass_df['station_lon'][0]
-    alt = pass_df['station_alt'][0]
+    alt = pass_df['station_alt'][0]  
     
     fc_hz = pass_df['expected_frequency'][0]
     fc_GHz = fc_hz / 1e9
@@ -79,8 +80,55 @@ def create_od_data(pass_df: pl.DataFrame) -> tuple[Data, float]:
     time_array = np.array([sk.time.from_datetime(dt) for dt in py_datetimes])
     
     obs_doppler = pass_df['lr1_receiver1_actualCarrierFrequencyOffset'].to_numpy()
+    
+    # ---------------------------------------------------------
+    # POINTING VECTOR TRANSFORMATION: Topocentric -> ITRF -> GCRF
+    # ---------------------------------------------------------
+    
+    # 1. Extract Azimuth and Elevation
+    az_deg = pass_df['antenna1_position_azimuth'].to_numpy()
+    el_deg = pass_df['antenna1_position_elevation'].to_numpy()
+    
+    az_rad = np.radians(az_deg)
+    el_rad = np.radians(el_deg)
+    
+    # 2. Calculate Topocentric ENU unit vectors
+    # Azimuth is measured clockwise from North (0 rad) to East (pi/2 rad)
+    E = np.sin(az_rad) * np.cos(el_rad)
+    N = np.cos(az_rad) * np.cos(el_rad)
+    U = np.sin(el_rad)
+    
+    enu_vectors = np.column_stack((E, N, U))
+    
+    # 3. Transform ENU to ITRF (Earth-Centered, Earth-Fixed)
+    lat_rad = np.radians(lat)
+    lon_rad = np.radians(lon)
+    
+    sin_lat, cos_lat = np.sin(lat_rad), np.cos(lat_rad)
+    sin_lon, cos_lon = np.sin(lon_rad), np.cos(lon_rad)
+    
+    # Rotation matrix from local tangent plane to Earth-fixed frame
+    R_enu_to_itrf = np.array([
+        [-sin_lon, -sin_lat * cos_lon, cos_lat * cos_lon],
+        [ cos_lon, -sin_lat * sin_lon, cos_lat * sin_lon],
+        [     0.0,            cos_lat,            sin_lat]
+    ])
+    
+    # Apply rotation (dot product broadcasts over the N vectors)
+    itrf_vectors = (R_enu_to_itrf @ enu_vectors.T).T 
+    
+    # 4. Transform ITRF to GCRF using satkit's Earth rotation models
     obs_pointing = np.zeros((len(time_array), 3))
     
+    for i, t in enumerate(time_array):
+        # Fetch the Earth rotation quaternion for the specific timestamp
+        q_itrf2gcrf = sk.frametransform.qitrf2gcrf(t)
+        
+        # Apply quaternion rotation to the ITRF pointing vector
+        obs_pointing[i] = q_itrf2gcrf * itrf_vectors[i]
+        
+    # ---------------------------------------------------------
+        
     od_data = Data(
         time_array=time_array,
         tle=sat_tle,
@@ -135,13 +183,16 @@ if __name__ == "__main__":
             
             config = Config(
                 x0=np.array([0.0, 0.0, fc_GHz]),
-                qmc_bounds=((-60.0, -1e5, fc_GHz - 0.5), (0.0, 1e5, fc_GHz + 0.5)),
-                reg_weights=np.array([2e-5, 1e-5, 1e-5]),
-                penalty_weight=1.0,
-                f_scale=500.0,
-                N_degrees=5.0,  
-                method="trf",
-                loss="cauchy",
+                qmc_bounds=(
+                    (-60.0, -1e5, fc_GHz - 0.5),  # Lower bounds
+                    (0.0, 1e5, fc_GHz + 0.5)       # Upper bounds
+                ),
+                reg_weights=np.array([5e-7, 1e-5, 1e-3]),
+                penalty_weight=1200,
+                f_scale=700,
+                N_degrees=4,  
+                method="dogbox",
+                loss="soft_l1",
                 model_type="2-param",
                 criterion="AIC",
                 use_qmc=True,
