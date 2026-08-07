@@ -1,0 +1,30 @@
+[
+  {
+    "mode": "doppler",
+    "healthy": true,
+    "reason": null,
+    "true_offset_s": 60.0,
+    "lock_offset_s": 50.0,
+    "final_offset_s": 60.0044942002235,
+    "offset_error_s": 0.0044942002234975575,
+    "max_visible_position_error_km": 0.034088445102876286,
+    "accepted_updates": 553,
+    "rejected_updates": 402,
+    "reacquisitions": 0,
+    "probes": 486
+  },
+  {
+    "mode": "doppler_phase",
+    "healthy": true,
+    "reason": null,
+    "true_offset_s": 60.0,
+    "lock_offset_s": 50.0,
+    "final_offset_s": 60.04905311641888,
+    "offset_error_s": 0.049053116418882325,
+    "max_visible_position_error_km": 0.3720828880334673,
+    "accepted_updates": 553,
+    "rejected_updates": 402,
+    "reacquisitions": 0,
+    "probes": 486
+  }
+]

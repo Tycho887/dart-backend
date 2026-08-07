@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dart-rf"
+version = "0.2.0"
+description = "Passive-RF orbit estimation and LEOP antenna acquisition"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "filterpy>=1.4.5",
+    "numpy>=2.2",
+    "polars>=1.31",
+    "satkit>=0.20.2",
+    "sgp4>=2.25",
+    "scipy>=1.15",
+]
+
+[project.optional-dependencies]
+api = ["fastapi>=0.115", "uvicorn>=0.34"]
+plot = ["matplotlib>=3.10"]
+
+[dependency-groups]
+dev = ["pytest>=8.3", "pytest-cov>=6.0"]
+
+[project.scripts]
+dart = "dart.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dart"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["dart"]

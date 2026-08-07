@@ -1,0 +1,16 @@
+e544460350871849e1e117cd2e5a1a8eca5de33f672095bdc9578d54f67f2744  deprecated/dart-v1/data/forest16.parquet
+450d04da44ec705fa91cab1ec6806ef1dfc7301fe7553c839d02310a06556a9a  deprecated/dart-v1/data/forest17.parquet
+2238fa95b14a11c2da07aab8947a8869a49b69829987f5d7baf9c5212950afed  deprecated/dart-v1/data/forest18.parquet
+9ba45a9482f87e56c67f5d7755485b4168a1d4d0052e380fa8aac80aba5cede6  deprecated/dart-v1/data/forest19.parquet
+59de6be48cbc66b3fc73742604b6c80a1589043202b6200ba9f3651b4d3479bf  deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw/FOREST-16-BESTXYZ-position.csv
+d3528eb24489b33fc9dd86033df19832740340acb7b94edc21caa55546f4d817  deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw/FOREST-16-BESTXYZ-time.csv
+1078412ff3021ffae41fdff4b7e55265c26ab9b2bd3cedc15b810aee494680b2  deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw/FOREST-16-BESTXYZ-velocity.csv
+1ddf8281461869ed98e25161b3afc210889e51a021ed7d37c1302b407b8cf157  deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw/FOREST-17-BESTXYZ-position.csv
+ae6e61dedf053b2eddb4cedc6d6408c3d70f2695a803260750a51ef2e9948817  deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw/FOREST-17-BESTXYZ-time.csv
+fe433abb921a301f6fc9858a6282e98342739e4835b5ffec3e0fdefb5c9f4312  deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw/FOREST-17-BESTXYZ-velocity.csv
+460ddc8774ec6035030afa451299d55b286ec7b21fae6f3c838552f80fa1880d  deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw/FOREST-18-BESTXYZ-position.csv
+2b8a1ee4eec2dc39d20179fd9dbdca2a39156f27562e414b53eac2a06b1d94b5  deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw/FOREST-18-BESTXYZ-time.csv
+a99f72d7beb6116dd16f642be91366d2d242aba6ec0cfda884cc3505ed41fcca  deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw/FOREST-18-BESTXYZ-velocity.csv
+430ba36370d882797d5685db7841a922adc439c248a90e2bf77fc7f90348476f  deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw/FOREST-19-BESTXYZ-position.csv
+3b2d63d6a4a2bad406e34f444cba2e0bad3958e4ac2ab5d1e9c4fa47d4ae89eb  deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw/FOREST-19-BESTXYZ-time.csv
+03c697ff572cbebbf023e7c7e011bc5dcd599d79eb6848e2e1f670a59333a5eb  deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw/FOREST-19-BESTXYZ-velocity.csv
