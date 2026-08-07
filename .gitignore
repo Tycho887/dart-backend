@@ -150,7 +150,10 @@ activemq-data/
 *.sage.py
 
 # Environments
-.env
+.[Ee][Nn][Vv]
+.[Ee][Nn][Vv].*
+*.[Ee][Nn][Vv]
+*.[Ee][Nn][Vv].*
 .envrc
 .venv
 env/
@@ -218,7 +221,23 @@ tempCodeRunnerFile.py
 # are versioned by the unified project.
 /data/
 /reports/generated/
-*.parquet
+*.[Pp][Aa][Rr][Qq][Uu][Ee][Tt]
+
+# Raw GPS/GNSS inputs and receiver logs must remain local.  Match data
+# directories rather than source modules such as src/dart/io/gps.py.
+**/[Gg][Pp][Ss]/
+**/[Gg][Nn][Ss][Ss]/
+**/*[Gg][Pp][Ss]*[Dd][Aa][Tt][Aa]*/
+**/*[Gg][Nn][Ss][Ss]*[Dd][Aa][Tt][Aa]*/
+**/*[Gg][Pp][Ss]*.[Cc][Ss][Vv]
+**/*[Gg][Pp][Ss]*.[Jj][Ss][Oo][Nn]
+**/*[Gg][Pp][Ss]*.[Jj][Ss][Oo][Nn][Ll]
+**/*[Gg][Nn][Ss][Ss]*.[Cc][Ss][Vv]
+**/*[Gg][Nn][Ss][Ss]*.[Jj][Ss][Oo][Nn]
+**/*[Gg][Nn][Ss][Ss]*.[Jj][Ss][Oo][Nn][Ll]
+*.[Gg][Pp][Xx]
+*.[Nn][Mm][Ee][Aa]
+*.[Uu][Bb][Xx]
 
 # Local experiment output
 /artifacts/
