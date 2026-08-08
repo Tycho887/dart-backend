@@ -1,6 +1,6 @@
 import pytest
 
-from dart.gateway.metadata import normalize_contact, normalize_ephemeris
+from dart.services.orchestrator.acquisition import normalize_contact, normalize_ephemeris
 
 
 def test_contact_metadata_is_flattened_for_the_dashboard():

@@ -8,7 +8,7 @@ import pytest
 from azure.kusto.data.exceptions import KustoError, KustoUnsupportedApiError
 
 from dart.contracts import Cartesian3, DatasetQuery
-from dart.gateway import providers
+from dart.services.orchestrator import acquisition as providers
 
 
 class FakeBuilder:

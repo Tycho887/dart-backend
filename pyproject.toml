@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "dart-rf"
 version = "0.2.0"
-description = "Passive-RF orbit estimation and LEOP antenna acquisition"
+description = "Service-oriented passive-RF orbit determination"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
@@ -18,12 +18,10 @@ dependencies = [
 
 [project.optional-dependencies]
 api = ["fastapi>=0.115", "uvicorn>=0.34"]
-gateway = [
+orchestrator = [
     "azure-kusto-data>=6.0.4",
     "psycopg[binary]>=3.2",
 ]
-plot = ["matplotlib>=3.10"]
-research = ["polars>=1.31"]
 
 [dependency-groups]
 dev = [
@@ -31,34 +29,24 @@ dev = [
     "httpx>=0.28",
     "pytest>=8.3",
     "pytest-cov>=6.0",
-    "polars>=1.31",
     "ruff>=0.12",
     "ty>=0.0.1a19",
 ]
 
 [project.scripts]
-dart = "dart.cli:main"
-dart-gateway = "dart.api.gateway:main"
-dart-worker = "dart.gateway.worker_main:main"
-dart-optimizer = "dart.api.optimizer:main"
-dart-postprocessor = "dart.api.postprocessor:main"
+dart-orchestrator = "dart.services.orchestrator.api:main"
+dart-worker = "dart.services.orchestrator.worker:main"
+dart-solver = "dart.services.solver.api:main"
+dart-postprocessor = "dart.services.postprocessor.service:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dart"]
-exclude = [
-    "src/dart/control/**",
-    "src/dart/legacy/**",
-    "src/dart/validation/**",
-    "src/dart/estimation/batch.py",
-    "src/dart/estimation/ukf.py",
-    "src/dart/simulation.py",
-]
 
 [tool.hatch.build.targets.wheel.force-include]
-"migrations/001_processing_runs.sql" = "dart/gateway/schema.sql"
-"contracts/openapi/orchestrator-v0.1.json" = "dart/wire/openapi/orchestrator-v0.1.json"
-"contracts/openapi/postprocessor-v0.1.json" = "dart/wire/openapi/postprocessor-v0.1.json"
-"contracts/openapi/solver-v0.1.json" = "dart/wire/openapi/solver-v0.1.json"
+"deploy/database/001_processing_runs.sql" = "dart/services/orchestrator/schema.sql"
+"contracts/openapi/orchestrator-v0.1.json" = "dart/openapi/orchestrator-v0.1.json"
+"contracts/openapi/postprocessor-v0.1.json" = "dart/openapi/postprocessor-v0.1.json"
+"contracts/openapi/solver-v0.1.json" = "dart/openapi/solver-v0.1.json"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -71,14 +59,8 @@ markers = [
 target-version = "py313"
 line-length = 100
 extend-exclude = [
-    "legacy",
+    "research",
     "skillset",
-    "src/dart/legacy",
-    "src/dart/control",
-    "src/dart/estimation/batch.py",
-    "src/dart/estimation/ukf.py",
-    "src/dart/simulation.py",
-    "src/dart/validation",
 ]
 
 [tool.ruff.lint]
@@ -88,15 +70,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
 "tests/**/*.py" = ["S101"]
 
 [tool.ty.src]
-exclude = [
-    "legacy",
-    "src/dart/control",
-    "src/dart/estimation/batch.py",
-    "src/dart/estimation/ukf.py",
-    "src/dart/legacy",
-    "src/dart/simulation.py",
-    "src/dart/validation",
-]
+exclude = ["research"]
 
 [tool.coverage.run]
 source = ["dart"]

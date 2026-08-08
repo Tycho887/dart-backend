@@ -46,30 +46,17 @@ class Cartesian3(ContractModel):
         return [self.x, self.y, self.z]
 
 
-class PointingSource(StrEnum):
-    MEASURED = "measured"
-    COMMANDED = "commanded"
-    UNKNOWN = "unknown"
-
-
 class Measurement(ContractModel):
-    """One self-contained passive-RF observation in the public AoS schema."""
+    """One self-contained production Doppler observation."""
 
     measurement_id: str = Field(min_length=1, max_length=200)
     pass_id: str = Field(min_length=1, max_length=200)
     spacecraft_id: str = Field(min_length=1, max_length=200)
     station_id: str = Field(min_length=1, max_length=200)
     time_tag: datetime
-    doppler_hz: FiniteFloat | None = None
-    phase_difference_rad: FiniteFloat | None = None
-    phase_calibration_provenance: str | None = Field(default=None, max_length=500)
+    doppler_hz: FiniteFloat
     ebn0_db: FiniteFloat | None = None
-    antenna_azimuth_deg: FiniteFloat | None = None
-    antenna_elevation_deg: FiniteFloat | None = None
-    pointing_source: PointingSource = PointingSource.UNKNOWN
     station_position_itrf_m: Cartesian3
-    phase_baseline_itrf_m: Cartesian3 | None = None
-    applied_offset_s: FiniteFloat | None = None
     valid: bool = True
     quality_flags: list[str] = Field(default_factory=list)
 
@@ -78,19 +65,6 @@ class Measurement(ContractModel):
         if self.time_tag.tzinfo is None or self.time_tag.utcoffset() is None:
             raise ValueError("time_tag must include a timezone")
         object.__setattr__(self, "time_tag", self.time_tag.astimezone(UTC))
-        if self.doppler_hz is None and self.phase_difference_rad is None:
-            raise ValueError("a measurement requires at least one recognized observable")
-        if self.phase_difference_rad is not None and self.phase_baseline_itrf_m is None:
-            raise ValueError("phase_difference_rad requires phase_baseline_itrf_m")
-        if (self.antenna_azimuth_deg is None) != (self.antenna_elevation_deg is None):
-            raise ValueError("azimuth and elevation must be supplied together")
-        if self.antenna_azimuth_deg is not None and not 0.0 <= self.antenna_azimuth_deg < 360.0:
-            raise ValueError("antenna_azimuth_deg must be in [0, 360)")
-        if (
-            self.antenna_elevation_deg is not None
-            and not -90.0 <= self.antenna_elevation_deg <= 90.0
-        ):
-            raise ValueError("antenna_elevation_deg must be in [-90, 90]")
         return self
 
 
@@ -102,7 +76,6 @@ class TLEData(ContractModel):
 
 class ObservableChannel(StrEnum):
     DOPPLER = "doppler"
-    PHASE_DIFFERENCE = "phase_difference"
 
 
 class OptimizerModel(StrEnum):
@@ -241,12 +214,10 @@ class BatchRequest(ContractModel):
             previous = station_positions.setdefault(item.station_id, item.station_position_itrf_m)
             if previous != item.station_position_itrf_m:
                 raise ValueError("a station_id must have one fixed ITRF position per request")
-        valid_doppler = [
-            item for item in self.measurements if item.valid and item.doppler_hz is not None
-        ]
+        valid_doppler = [item for item in self.measurements if item.valid]
         if not valid_doppler:
             model = self.optimizer_data.metaparameters.model.value
-            raise ValueError(f"{model} consumes Doppler; phase-only input is not supported")
+            raise ValueError(f"{model} requires at least one valid Doppler observation")
         if self.optimizer_data.metaparameters.model is OptimizerModel.MEAN_ELEMENTS_TWO_PARAMETER:
             if len({item.station_id for item in valid_doppler}) != 1:
                 raise ValueError("mean_elements_two_parameter requires one station")

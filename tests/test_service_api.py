@@ -3,11 +3,10 @@ import asyncio
 import httpx
 import pytest
 
-from dart.api.gateway import app as gateway_app
-from dart.api.optimizer import app as optimizer_app
-from dart.api.postprocessor import app as quality_app
-from dart.api.problems import ProblemError, ProblemType
-from dart.api.security import _require
+from dart.services.http import ProblemError, ProblemType, require_bearer
+from dart.services.orchestrator.api import app as gateway_app
+from dart.services.postprocessor.service import app as quality_app
+from dart.services.solver.api import app as optimizer_app
 
 
 async def _post_json(application, path: str, payload: object, headers: dict[str, str]):
@@ -30,19 +29,19 @@ async def _request(application, method: str, path: str, headers: dict[str, str] 
 def test_internal_services_require_bearer(monkeypatch):
     monkeypatch.setenv("DART_INTERNAL_BEARER_TOKEN", "internal-test-token")
     with pytest.raises(ProblemError) as missing:
-        _require(None, "DART_INTERNAL_BEARER_TOKEN")
+        require_bearer(None, "DART_INTERNAL_BEARER_TOKEN")
     assert missing.value.status == 401
     assert missing.value.problem_type is ProblemType.AUTHENTICATION
-    _require("Bearer internal-test-token", "DART_INTERNAL_BEARER_TOKEN")
+    require_bearer("Bearer internal-test-token", "DART_INTERNAL_BEARER_TOKEN")
 
 
 def test_gateway_routes_require_public_bearer(monkeypatch):
-    monkeypatch.setenv("DART_GATEWAY_BEARER_TOKEN", "gateway-test-token")
+    monkeypatch.setenv("DART_ORCHESTRATOR_BEARER_TOKEN", "orchestrator-test-token")
     with pytest.raises(ProblemError) as invalid:
-        _require("Bearer wrong", "DART_GATEWAY_BEARER_TOKEN")
+        require_bearer("Bearer wrong", "DART_ORCHESTRATOR_BEARER_TOKEN")
     assert invalid.value.status == 401
     assert invalid.value.problem_type is ProblemType.AUTHENTICATION
-    _require("Bearer gateway-test-token", "DART_GATEWAY_BEARER_TOKEN")
+    require_bearer("Bearer orchestrator-test-token", "DART_ORCHESTRATOR_BEARER_TOKEN")
 
 
 def test_openapi_exposes_versioned_contracts():
@@ -100,6 +99,11 @@ def test_invalid_http_body_uses_rfc_9457_problem_details(monkeypatch):
 
 def test_large_semantic_solver_error_stays_a_bounded_domain_problem(monkeypatch) -> None:
     monkeypatch.setenv("DART_INTERNAL_BEARER_TOKEN", "internal-test-token")
+
+    def fail_with_large_detail(_request) -> None:
+        raise ValueError("invalid semantic solver request: " + "x" * 4_000)
+
+    monkeypatch.setattr("dart.services.solver.api.solve_batch", fail_with_large_detail)
     measurements = [
         {
             "measurement_id": f"measurement-{index}",
@@ -107,7 +111,7 @@ def test_large_semantic_solver_error_stays_a_bounded_domain_problem(monkeypatch)
             "spacecraft_id": "spacecraft-1",
             "station_id": "station-1",
             "time_tag": "2026-08-08T00:00:00Z",
-            "phase_difference_rad": 1.0,
+            "doppler_hz": 1.0,
             "station_position_itrf_m": {"x": 1.0, "y": 2.0, "z": 3.0},
         }
         for index in range(80)
@@ -196,7 +200,7 @@ def test_unexpected_errors_use_non_leaking_rfc_9457_problem_details(application)
 
 
 def test_gateway_rejects_explicit_null_for_non_nullable_query_default(monkeypatch):
-    monkeypatch.setenv("DART_GATEWAY_BEARER_TOKEN", "gateway-test-token")
+    monkeypatch.setenv("DART_ORCHESTRATOR_BEARER_TOKEN", "orchestrator-test-token")
 
     status, response_headers, body = asyncio.run(
         _post_json(
@@ -211,7 +215,7 @@ def test_gateway_rejects_explicit_null_for_non_nullable_query_default(monkeypatc
                 },
                 "nominal_carrier_frequency_hz": 2.2e9,
             },
-            {"Authorization": "Bearer gateway-test-token"},
+            {"Authorization": "Bearer orchestrator-test-token"},
         )
     )
 
@@ -221,14 +225,14 @@ def test_gateway_rejects_explicit_null_for_non_nullable_query_default(monkeypatc
 
 
 def test_gateway_rejects_malformed_run_id_before_storage_access(monkeypatch) -> None:
-    monkeypatch.setenv("DART_GATEWAY_BEARER_TOKEN", "gateway-test-token")
+    monkeypatch.setenv("DART_ORCHESTRATOR_BEARER_TOKEN", "orchestrator-test-token")
 
     response = asyncio.run(
         _request(
             gateway_app,
             "GET",
             "/v0/runs/not-a-uuid",
-            {"Authorization": "Bearer gateway-test-token"},
+            {"Authorization": "Bearer orchestrator-test-token"},
         )
     )
 

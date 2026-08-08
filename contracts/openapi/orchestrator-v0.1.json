@@ -1,34 +1,6 @@
 {
   "components": {
     "schemas": {
-      "BatchRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "measurements": {
-            "items": {
-              "$ref": "#/components/schemas/Measurement"
-            },
-            "minItems": 1,
-            "title": "Measurements",
-            "type": "array"
-          },
-          "optimizer_data": {
-            "$ref": "#/components/schemas/OptimizerData"
-          },
-          "schema_version": {
-            "const": "0.1",
-            "default": "0.1",
-            "title": "Schema Version",
-            "type": "string"
-          }
-        },
-        "required": [
-          "measurements",
-          "optimizer_data"
-        ],
-        "title": "BatchRequest",
-        "type": "object"
-      },
       "BatchResult": {
         "additionalProperties": false,
         "allOf": [
@@ -1218,98 +1190,11 @@
       },
       "Measurement": {
         "additionalProperties": false,
-        "allOf": [
-          {
-            "anyOf": [
-              {
-                "properties": {
-                  "doppler_hz": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "doppler_hz"
-                ]
-              },
-              {
-                "properties": {
-                  "phase_difference_rad": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "phase_difference_rad"
-                ]
-              }
-            ]
-          },
-          {
-            "if": {
-              "properties": {
-                "phase_difference_rad": {
-                  "type": "number"
-                }
-              },
-              "required": [
-                "phase_difference_rad"
-              ]
-            },
-            "then": {
-              "required": [
-                "phase_baseline_itrf_m"
-              ]
-            }
-          }
-        ],
-        "description": "One self-contained passive-RF observation in the public AoS schema.",
+        "description": "One self-contained production Doppler observation.",
         "properties": {
-          "antenna_azimuth_deg": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Antenna Azimuth Deg"
-          },
-          "antenna_elevation_deg": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Antenna Elevation Deg"
-          },
-          "applied_offset_s": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Applied Offset S"
-          },
           "doppler_hz": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Doppler Hz"
+            "title": "Doppler Hz",
+            "type": "number"
           },
           "ebn0_db": {
             "anyOf": [
@@ -1334,46 +1219,6 @@
             "minLength": 1,
             "title": "Pass Id",
             "type": "string"
-          },
-          "phase_baseline_itrf_m": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Cartesian3"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "phase_calibration_provenance": {
-            "anyOf": [
-              {
-                "maxLength": 500,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Phase Calibration Provenance"
-          },
-          "phase_difference_rad": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Phase Difference Rad"
-          },
-          "pointing_source": {
-            "$ref": "#/components/schemas/PointingSource",
-            "default": "unknown"
           },
           "quality_flags": {
             "default": [],
@@ -1415,6 +1260,7 @@
           "spacecraft_id",
           "station_id",
           "time_tag",
+          "doppler_hz",
           "station_position_itrf_m"
         ],
         "title": "Measurement",
@@ -1452,8 +1298,7 @@
       },
       "ObservableChannel": {
         "enum": [
-          "doppler",
-          "phase_difference"
+          "doppler"
         ],
         "title": "ObservableChannel",
         "type": "string"
@@ -1573,60 +1418,6 @@
         "title": "OptimizerConfiguration",
         "type": "object"
       },
-      "OptimizerData": {
-        "additionalProperties": false,
-        "description": "One stateless optimizer invocation and its explicit forward model.",
-        "properties": {
-          "metaparameters": {
-            "discriminator": {
-              "mapping": {
-                "mean_elements_two_parameter": "#/$defs/MeanElementsTwoParameterMetaparameters",
-                "time_offset": "#/$defs/TimeOffsetMetaparameters",
-                "time_offset_frequency_pass_bias": "#/$defs/TimeOffsetFrequencyPassBiasMetaparameters",
-                "time_offset_pass_bias": "#/$defs/TimeOffsetPassBiasMetaparameters"
-              },
-              "propertyName": "model"
-            },
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/TimeOffsetMetaparameters"
-              },
-              {
-                "$ref": "#/components/schemas/TimeOffsetPassBiasMetaparameters"
-              },
-              {
-                "$ref": "#/components/schemas/TimeOffsetFrequencyPassBiasMetaparameters"
-              },
-              {
-                "$ref": "#/components/schemas/MeanElementsTwoParameterMetaparameters"
-              }
-            ],
-            "title": "Metaparameters"
-          },
-          "nominal_carrier_frequency_hz": {
-            "exclusiveMinimum": 0.0,
-            "title": "Nominal Carrier Frequency Hz",
-            "type": "number"
-          },
-          "reference_tle": {
-            "$ref": "#/components/schemas/TLEData"
-          },
-          "spacecraft_id": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Spacecraft Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "reference_tle",
-          "spacecraft_id",
-          "nominal_carrier_frequency_hz",
-          "metaparameters"
-        ],
-        "title": "OptimizerData",
-        "type": "object"
-      },
       "OptimizerModel": {
         "description": "One concrete production forward model selected by an optimizer request.",
         "enum": [
@@ -1669,49 +1460,6 @@
         ],
         "title": "PipelineStage",
         "type": "string"
-      },
-      "PointingSource": {
-        "enum": [
-          "measured",
-          "commanded",
-          "unknown"
-        ],
-        "title": "PointingSource",
-        "type": "string"
-      },
-      "QualityRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "reference_oem": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/OemDocument"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "result": {
-            "$ref": "#/components/schemas/BatchResult"
-          },
-          "schema_version": {
-            "const": "0.1",
-            "default": "0.1",
-            "title": "Schema Version",
-            "type": "string"
-          },
-          "selection_criterion": {
-            "$ref": "#/components/schemas/InformationCriterion"
-          }
-        },
-        "required": [
-          "result",
-          "selection_criterion"
-        ],
-        "title": "QualityRequest",
-        "type": "object"
       },
       "QualityResult": {
         "additionalProperties": false,

@@ -26,17 +26,15 @@ from dart.contracts import (
     TimeOffsetParameters,
     TLEData,
 )
-from dart.gateway import jobs
-from dart.gateway.selection import expected_selection_score
-from dart.gateway.tdm import measurements_to_tdm
+from dart.services.orchestrator import persistence as jobs
+from dart.services.orchestrator.acquisition import measurements_to_tdm
+from dart.services.orchestrator.persistence import expected_selection_score
 
-pytestmark = pytest.mark.skipif(
-    "DART_DATABASE_URL" not in os.environ,
-    reason="requires an isolated TimescaleDB",
-)
+pytestmark = pytest.mark.live_integration
 
 
 def test_timescale_candidate_queue_and_channel_residuals():
+    assert os.getenv("DART_DATABASE_URL"), "DART_DATABASE_URL is required for TimescaleDB tests"
     jobs.initialize()
     request = RunRequest(
         query=DatasetQuery(contact_ids=["contact-test"]),

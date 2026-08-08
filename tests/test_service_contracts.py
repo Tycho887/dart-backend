@@ -13,7 +13,9 @@ import satkit as sk
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from sgp4.api import Satrec
 
-from dart.api.gateway_conversion import gateway_dataset_query_to_domain
+from dart import contract_projection as gateway_wire
+from dart import contract_projection as postprocessor_wire
+from dart import contract_projection as solver_wire
 from dart.contracts import (
     BatchRequest,
     BatchResult,
@@ -38,16 +40,13 @@ from dart.contracts import (
     TimeOffsetPassBiasParameters,
     TLEData,
 )
-from dart.geometry import tle_state_gcrf
-from dart.quality import assess_quality
-from dart.services.optimizer import solve_batch
-from dart.simulation import observations_from_truth, phase_shifted_tle_truth
-from dart.types import MeasurementMode, Station, TLEContext
-from dart.wire import gateway as gateway_wire
-from dart.wire import postprocessor as postprocessor_wire
-from dart.wire import solver as solver_wire
-from dart.wire.gateway import RunRequest as GatewayRunRequest
-from dart.wire.solver import BatchResult as SolverBatchResult
+from dart.frames import Station, tle_relative_geometry, tle_state_gcrf
+from dart.services.postprocessor.service import assess_quality
+from dart.services.solver.api import solve_batch
+from dart.services.solver.numerical import doppler_offset_hz
+
+GatewayRunRequest = gateway_wire.RunRequest
+SolverBatchResult = solver_wire.BatchResult
 
 LINES = [
     "0 STARLINK-30477",
@@ -122,7 +121,6 @@ def _synthetic_measurements(
 ) -> list[Measurement]:
     source_tle = _source_tle()
     station = Station("station-1", 42.0, -71.0, 100.0)
-    context = TLEContext(source_tle, station, carrier_hz)
     peak = sk.time.from_unixtime(1_712_653_465.642464)
     first_pass = [peak + sk.duration(seconds=float(value)) for value in np.arange(-120, 121, 10)]
     passes = [first_pass]
@@ -132,18 +130,17 @@ def _synthetic_measurements(
             [second_peak + sk.duration(seconds=float(value)) for value in np.arange(-120, 121, 10)]
         )
     epochs = [epoch for current_pass in passes for epoch in current_pass]
-    truth = phase_shifted_tle_truth(context, epochs, offset_s)
-    observations = observations_from_truth(context, epochs, truth, mode=MeasurementMode.DOPPLER)
     measurements = []
-    for index, observation in enumerate(observations):
+    for index, epoch in enumerate(epochs):
         pass_index = 0 if index < len(first_pass) else 1
-        assert observation.doppler_hz is not None
+        geometry = tle_relative_geometry(source_tle, station, epoch, offset_s)
+        doppler_hz = float(doppler_offset_hz(geometry.range_rate_m_s, carrier_hz))
         measurements.append(
             _measurement(
                 measurement_id=f"measurement-{index}",
                 pass_id=f"pass-{pass_index + 1}",
-                time_tag=observation.epoch.as_datetime(),
-                doppler_hz=float(observation.doppler_hz + pass_biases_hz[pass_index]),
+                time_tag=epoch.as_datetime(),
+                doppler_hz=doppler_hz + pass_biases_hz[pass_index],
             )
         )
     return measurements
@@ -182,7 +179,7 @@ def test_golden_messages_support_strict_json_validation(
     model.model_validate_json((CONTRACT_EXAMPLES / filename).read_bytes(), strict=True)
 
 
-def test_generated_service_wire_models_validate_golden_messages():
+def test_generated_contract_projection_validates_golden_messages():
     run_request = json.loads((CONTRACT_EXAMPLES / "run-request-v0.1.json").read_text())
     batch_request = json.loads((CONTRACT_EXAMPLES / "batch-request-v0.1.json").read_text())
     batch_result = json.loads((CONTRACT_EXAMPLES / "batch-result-v0.1.json").read_text())
@@ -198,13 +195,13 @@ def test_generated_service_wire_models_validate_golden_messages():
     assert postprocessor_wire.QualityResult.model_validate(quality_result).truth is None
 
 
-def test_wire_defaults_preserve_omission_and_reject_explicit_null():
+def test_projection_defaults_preserve_omission_and_reject_explicit_null():
     interval_query = gateway_wire.DatasetQuery(
         spacecraft_id="spacecraft-1",
         start_time="2026-01-01T00:00:00Z",
         end_time="2026-01-01T01:00:00Z",
     )
-    assert gateway_dataset_query_to_domain(interval_query).contact_ids == []
+    assert interval_query.contact_ids == []
 
     with pytest.raises(ValidationError):
         gateway_wire.DatasetQuery.model_validate(
@@ -234,7 +231,7 @@ def test_wire_defaults_preserve_omission_and_reject_explicit_null():
         )
 
 
-def test_wire_identifiers_require_uuid_values():
+def test_projection_identifiers_require_uuid_values():
     with pytest.raises(ValidationError):
         gateway_wire.RunCreated.model_validate({"run_id": "not-a-uuid"})
     with pytest.raises(ValidationError):
@@ -292,7 +289,9 @@ def test_wire_identifiers_require_uuid_values():
         [1.0, 2.0, 3.0],
     ],
 )
-def test_wire_bounds_require_two_numeric_values(model, payload, field, invalid_bounds) -> None:
+def test_projection_bounds_require_two_numeric_values(
+    model, payload, field, invalid_bounds
+) -> None:
     with pytest.raises(ValidationError):
         model.model_validate({**payload, field: invalid_bounds})
 
@@ -305,19 +304,9 @@ def test_wire_bounds_require_two_numeric_values(model, payload, field, invalid_b
             gateway_wire.OptimizerConfiguration,
             gateway_wire.SelectionScore,
         ),
-        (
-            solver_wire.TimeOffsetMetaparameters,
-            solver_wire.OptimizerConfiguration,
-            solver_wire.SelectionScore,
-        ),
-        (
-            postprocessor_wire.TimeOffsetMetaparameters,
-            postprocessor_wire.OptimizerConfiguration,
-            postprocessor_wire.SelectionScore,
-        ),
     ],
 )
-def test_generated_wire_models_preserve_strict_scalar_ranges(
+def test_generated_projection_preserves_strict_scalar_ranges(
     time_offset_metaparameters: type[BaseModel],
     optimizer_configuration: type[BaseModel],
     selection_score: type[BaseModel],
@@ -365,25 +354,9 @@ def test_generated_wire_models_preserve_strict_scalar_ranges(
             gateway_wire.MetricGroup,
             gateway_wire.Measurement,
         ),
-        (
-            solver_wire.TimeOffsetMetaparameters,
-            solver_wire.DatasetQuery,
-            solver_wire.TimeOffsetPassBiasMetaparameters,
-            solver_wire.Covariance,
-            solver_wire.MetricGroup,
-            solver_wire.Measurement,
-        ),
-        (
-            postprocessor_wire.TimeOffsetMetaparameters,
-            postprocessor_wire.DatasetQuery,
-            postprocessor_wire.TimeOffsetPassBiasMetaparameters,
-            postprocessor_wire.Covariance,
-            postprocessor_wire.MetricGroup,
-            postprocessor_wire.Measurement,
-        ),
     ],
 )
-def test_generated_wire_models_reject_coercive_scalar_values(
+def test_generated_projection_rejects_coercive_scalar_values(
     time_offset_metaparameters: type[BaseModel],
     dataset_query: type[BaseModel],
     time_offset_pass_bias_metaparameters: type[BaseModel],
@@ -425,7 +398,7 @@ def test_generated_wire_models_reject_coercive_scalar_values(
         )
 
 
-def test_all_optional_non_nullable_wire_fields_have_defaults_and_reject_null():
+def test_all_optional_non_nullable_projection_fields_reject_null():
     fields = (
         (gateway_wire.DatasetPacket, "provenance"),
         (gateway_wire.DatasetQuery, "contact_ids"),
@@ -442,20 +415,22 @@ def test_all_optional_non_nullable_wire_fields_have_defaults_and_reject_null():
             TypeAdapter(field.annotation).validate_python(None)
 
 
-def test_measurement_contract_retains_phase_for_future_models():
+def test_measurement_contract_is_doppler_only_and_rejects_research_fields():
     with pytest.raises(ValueError, match="timezone"):
         _measurement(time_tag=datetime(2026, 8, 7))
-    with pytest.raises(ValueError, match="phase_baseline"):
-        _measurement(doppler_hz=None, phase_difference_rad=0.2)
-
-    phase_only = _measurement(
-        doppler_hz=None,
-        phase_difference_rad=0.2,
-        phase_baseline_itrf_m=Cartesian3(x=1.0, y=0.0, z=0.0),
-        phase_calibration_provenance="calibration-2026-08-07",
-    )
-    with pytest.raises(ValueError, match="phase-only input"):
-        _request(OptimizerModel.TIME_OFFSET, [phase_only])
+    with pytest.raises(ValueError, match="Field required"):
+        Measurement.model_validate(
+            {
+                "measurement_id": "measurement-1",
+                "pass_id": "pass-1",
+                "spacecraft_id": "spacecraft-1",
+                "station_id": "station-1",
+                "time_tag": "2026-08-07T00:00:00Z",
+                "station_position_itrf_m": _position(),
+            }
+        )
+    with pytest.raises(ValueError, match="extra_forbidden"):
+        _measurement(phase_difference_rad=0.2)
 
 
 def test_optimizer_model_is_required_and_auto_is_not_a_contract_value():
@@ -470,22 +445,17 @@ def test_optimizer_model_is_required_and_auto_is_not_a_contract_value():
     assert "auto" not in {model.value for model in OptimizerModel}
 
 
-def test_time_offset_model_recovers_a_global_offset_and_marks_phase_unconsumed():
+def test_time_offset_model_recovers_a_global_offset():
     measurements = _synthetic_measurements(2.2e9, 8.0, [0.0])
-    measurements[0] = measurements[0].model_copy(
-        update={
-            "phase_difference_rad": 0.5,
-            "phase_baseline_itrf_m": Cartesian3(x=1.0, y=0.0, z=0.0),
-        }
-    )
     result = solve_batch(_request(OptimizerModel.TIME_OFFSET, measurements))
 
     assert isinstance(result.parameters, TimeOffsetParameters)
     assert abs(result.parameters.time_offset_s - 8.0) < 0.05
     assert result.covariance.parameter_order == ["time_offset_s"]
     assert result.consumed_channels == [ObservableChannel.DOPPLER]
-    assert result.residuals[0].channels[1].channel is ObservableChannel.PHASE_DIFFERENCE
-    assert not result.residuals[0].channels[1].consumed
+    assert [channel.channel for channel in result.residuals[0].channels] == [
+        ObservableChannel.DOPPLER
+    ]
 
 
 def test_time_offset_pass_bias_model_uses_input_pass_order():
@@ -667,10 +637,8 @@ def test_result_contract_enforces_covariance_pass_and_channel_consistency():
         )
     with pytest.raises(ValueError, match="pass_ids"):
         BatchResult.model_validate({**values, "pass_ids": ["wrong"]})
-    with pytest.raises(ValueError, match="consumed_channels"):
-        BatchResult.model_validate(
-            {**values, "consumed_channels": [ObservableChannel.PHASE_DIFFERENCE]}
-        )
+    with pytest.raises(ValueError, match="doppler"):
+        BatchResult.model_validate({**values, "consumed_channels": ["phase_difference"]})
     with pytest.raises(ValueError, match="observations_used"):
         BatchResult.model_validate(
             {
@@ -736,7 +704,6 @@ def test_mean_elements_two_parameter_model_is_a_production_result():
     truth_tle = _rebuild_truth_tle(source_tle, source.mo + 0.004, source.no_kozai + 2e-5)
     truth_elements = Satrec.twoline2rv(*truth_tle.to_2line())
     station = Station("station-1", 42.0, -71.0, 100.0)
-    truth_context = TLEContext(truth_tle, station, 2.2e9)
     peak = sk.time.from_unixtime(1_712_653_465.642464)
     first_pass = [peak + sk.duration(seconds=float(value)) for value in np.arange(-120, 121, 10)]
     second_peak = peak + sk.duration(seconds=6_000.0)
@@ -744,23 +711,16 @@ def test_mean_elements_two_parameter_model_is_a_production_result():
         second_peak + sk.duration(seconds=float(value)) for value in np.arange(-120, 121, 10)
     ]
     epochs = first_pass + second_pass
-    truth = phase_shifted_tle_truth(truth_context, epochs, 0.0)
-    observations = observations_from_truth(
-        truth_context,
-        epochs,
-        truth,
-        mode=MeasurementMode.DOPPLER,
-        frequency_bias_hz=200.0,
-    )
     measurements = []
-    for index, observation in enumerate(observations):
-        assert observation.doppler_hz is not None
+    for index, epoch in enumerate(epochs):
+        geometry = tle_relative_geometry(truth_tle, station, epoch)
+        doppler_hz = float(doppler_offset_hz(geometry.range_rate_m_s, 2.2e9)) + 200.0
         measurements.append(
             _measurement(
                 measurement_id=f"measurement-{index}",
                 pass_id="pass-1" if index < len(first_pass) else "pass-2",
-                time_tag=observation.epoch.as_datetime(),
-                doppler_hz=observation.doppler_hz,
+                time_tag=epoch.as_datetime(),
+                doppler_hz=doppler_hz,
             )
         )
     result = solve_batch(
@@ -781,7 +741,7 @@ def test_mean_elements_two_parameter_model_is_a_production_result():
 
 
 def _rebuild_truth_tle(tle: sk.TLE, mean_anomaly_rad: float, mean_motion_rad_min: float) -> sk.TLE:
-    from dart.estimation.mean_elements import rebuild_tle_mean_elements
+    from dart.services.solver.mean_element import rebuild_tle_mean_elements
 
     return rebuild_tle_mean_elements(tle, mean_anomaly_rad, mean_motion_rad_min)
 

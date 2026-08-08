@@ -19,7 +19,8 @@ from dart.contracts import (
     TimeOffsetMetaparameters,
     TLEData,
 )
-from dart.gateway import jobs, worker
+from dart.services.orchestrator import persistence as jobs
+from dart.services.orchestrator import worker
 
 
 class FakeCursor:

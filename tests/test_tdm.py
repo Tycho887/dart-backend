@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from dart.contracts import Cartesian3, Measurement, TdmDocument
-from dart.gateway.tdm import measurements_to_tdm
+from dart.services.orchestrator.acquisition import measurements_to_tdm
 
 
 def _measurement(doppler_hz: float = 2_500.0) -> Measurement:

@@ -8,8 +8,8 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from dart.api import gateway as gateway_api
-from dart.api.problems import ProblemType
+from dart.services.http import ProblemType
+from dart.services.orchestrator import api as gateway_api
 
 
 class _KogsPayloadClient:
@@ -41,7 +41,7 @@ async def _request(
     payload: object | None = None,
 ) -> httpx.Response:
     transport = httpx.ASGITransport(app=gateway_api.app, raise_app_exceptions=False)
-    headers = {"Authorization": "Bearer gateway-test-token"}
+    headers = {"Authorization": "Bearer orchestrator-test-token"}
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         return await client.request(method, path, json=payload, headers=headers)
 
@@ -74,7 +74,7 @@ def _assert_configuration_problem(response: httpx.Response, instance: str) -> No
 def test_contact_metadata_maps_invalid_kogs_number_to_upstream_problem(
     monkeypatch, value: str
 ) -> None:
-    monkeypatch.setenv("DART_GATEWAY_BEARER_TOKEN", "gateway-test-token")
+    monkeypatch.setenv("DART_ORCHESTRATOR_BEARER_TOKEN", "orchestrator-test-token")
     monkeypatch.setenv("DART_AUTO_MIGRATE", "false")
     monkeypatch.setattr(
         gateway_api,
@@ -97,7 +97,7 @@ def test_metadata_502_does_not_reflect_hostile_kogs_values(monkeypatch, path: st
         payload = {"contact": {"setup_duration": hostile_value}}
     else:
         payload = {"inline": hostile_value}
-    monkeypatch.setenv("DART_GATEWAY_BEARER_TOKEN", "gateway-test-token")
+    monkeypatch.setenv("DART_ORCHESTRATOR_BEARER_TOKEN", "orchestrator-test-token")
     monkeypatch.setenv("DART_AUTO_MIGRATE", "false")
     monkeypatch.setattr(gateway_api, "KogsClient", lambda: _KogsPayloadClient(payload))
 
@@ -108,7 +108,7 @@ def test_metadata_502_does_not_reflect_hostile_kogs_values(monkeypatch, path: st
 
 
 def test_ephemeris_metadata_maps_invalid_kogs_structure_to_upstream_problem(monkeypatch) -> None:
-    monkeypatch.setenv("DART_GATEWAY_BEARER_TOKEN", "gateway-test-token")
+    monkeypatch.setenv("DART_ORCHESTRATOR_BEARER_TOKEN", "orchestrator-test-token")
     monkeypatch.setenv("DART_AUTO_MIGRATE", "false")
     monkeypatch.setattr(
         gateway_api,
@@ -126,7 +126,7 @@ def test_ephemeris_metadata_maps_invalid_kogs_structure_to_upstream_problem(monk
 
 
 def test_dataset_query_maps_invalid_provider_packet_to_upstream_problem(monkeypatch) -> None:
-    monkeypatch.setenv("DART_GATEWAY_BEARER_TOKEN", "gateway-test-token")
+    monkeypatch.setenv("DART_ORCHESTRATOR_BEARER_TOKEN", "orchestrator-test-token")
     monkeypatch.setenv("DART_AUTO_MIGRATE", "false")
     monkeypatch.setattr(gateway_api, "AdxKogsProvider", lambda: _MalformedDatasetProvider())
 
@@ -151,7 +151,7 @@ def test_dataset_query_maps_invalid_provider_packet_to_upstream_problem(monkeypa
 def test_dataset_query_maps_provider_configuration_error_to_service_unavailable(
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("DART_GATEWAY_BEARER_TOKEN", "gateway-test-token")
+    monkeypatch.setenv("DART_ORCHESTRATOR_BEARER_TOKEN", "orchestrator-test-token")
     monkeypatch.setenv("DART_AUTO_MIGRATE", "false")
     monkeypatch.setattr(gateway_api, "AdxKogsProvider", lambda: _ConfigurationDatasetProvider())
 
@@ -177,7 +177,7 @@ def test_dataset_query_maps_provider_configuration_error_to_service_unavailable(
     ["/v0/metadata/contact/contact-1", "/v0/metadata/ephemeris/ephemeris-1"],
 )
 def test_kogs_configuration_error_maps_to_service_unavailable(monkeypatch, path: str) -> None:
-    monkeypatch.setenv("DART_GATEWAY_BEARER_TOKEN", "gateway-test-token")
+    monkeypatch.setenv("DART_ORCHESTRATOR_BEARER_TOKEN", "orchestrator-test-token")
     monkeypatch.setenv("DART_AUTO_MIGRATE", "false")
 
     def unavailable_client() -> object:

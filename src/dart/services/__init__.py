@@ -1,1 +1,1 @@
-"""Transport-independent DART application services."""
+"""Deployable DART service roles and their shared HTTP infrastructure."""

@@ -25,7 +25,7 @@ by adding a positive, explicitly supplied nominal carrier frequency. A request
 without a usable nominal frequency is rejected rather than emitted under an
 incorrect CCSDS keyword.
 
-Station ITRF coordinates, acquisition filters, ADX/KOGS provenance, raw and
-presented counts, and per-sample operational metadata are carried in the DART
-dataset envelope. Future phase observables require a separate reviewed profile;
+Station ITRF coordinates, acquisition filters, ADX/KOGS provenance, and raw and
+presented counts are carried in the DART dataset envelope. Future phase
+observables require a separate reviewed profile;
 they must not be represented as a superficially similar CCSDS observable.

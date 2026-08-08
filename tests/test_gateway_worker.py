@@ -11,6 +11,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pytest
 
+from dart import contract_projection
 from dart.contracts import (
     BatchRequest,
     BatchResult,
@@ -46,12 +47,10 @@ from dart.contracts import (
     TimeOffsetPassBiasParameters,
     TLEData,
 )
-from dart.gateway import jobs
-from dart.gateway import worker as worker_module
-from dart.gateway.selection import expected_selection_score
-from dart.gateway.tdm import measurements_to_tdm
-from dart.wire import postprocessor as postprocessor_wire
-from dart.wire import solver as solver_wire
+from dart.services.orchestrator import persistence as jobs
+from dart.services.orchestrator import worker as worker_module
+from dart.services.orchestrator.acquisition import measurements_to_tdm
+from dart.services.orchestrator.persistence import expected_selection_score
 
 LINES = (
     "1 57912U 23146X   24099.49439401  .00006757  00000+0  51475-3 0  9997",
@@ -140,7 +139,7 @@ class FakeServices:
         failed_model: OptimizerModel | None = None,
         retryable_failed_model: OptimizerModel | None = None,
         retryable_postprocess_model: OptimizerModel | None = None,
-        solve_failure: worker_module.OptimizationFailure | None = None,
+        solve_failure: worker_module.SolverFailure | None = None,
         postprocess_failure: worker_module.PostprocessingFailure | None = None,
         call_log: list[str] | None = None,
     ) -> None:
@@ -162,9 +161,9 @@ class FakeServices:
         if self.solve_failure is not None:
             raise self.solve_failure
         if model is self.failed_model:
-            raise worker_module.OptimizationFailure("planned optimizer failure", retryable=False)
+            raise worker_module.SolverFailure("planned solver failure", retryable=False)
         if model is self.retryable_failed_model:
-            raise worker_module.OptimizationFailure("temporary optimizer failure", retryable=True)
+            raise worker_module.SolverFailure("temporary solver failure", retryable=True)
         return _result(
             request.optimizer_data.metaparameters,
             request.measurements,
@@ -671,10 +670,10 @@ def test_http_service_client_classifies_semantic_and_infrastructure_errors(
 ) -> None:
     request = _request()
     packet = _packet(request)
-    client = worker_module.HttpServiceClient("token", "http://optimizer", "http://quality", 10.0)
+    client = worker_module.HttpServiceClient("token", "http://solver", "http://quality", 10.0)
 
     def raise_http_error(*_args: Any, **_kwargs: Any) -> None:
-        raise HTTPError("http://optimizer", status_code, "planned", Message(), None)
+        raise HTTPError("http://solver", status_code, "planned", Message(), None)
 
     monkeypatch.setattr(worker_module, "urlopen", raise_http_error)
     batch_request = worker_module.BatchRequest(
@@ -685,7 +684,7 @@ def test_http_service_client_classifies_semantic_and_infrastructure_errors(
         ),
     )
 
-    with pytest.raises(worker_module.OptimizationFailure) as failure:
+    with pytest.raises(worker_module.SolverFailure) as failure:
         client.solve(batch_request)
 
     assert failure.value.retryable is retryable
@@ -701,15 +700,14 @@ def test_http_service_client_classifies_semantic_and_infrastructure_errors(
 )
 @pytest.mark.parametrize(
     "failure_type",
-    [worker_module.OptimizationFailure, worker_module.PostprocessingFailure],
+    [worker_module.SolverFailure, worker_module.PostprocessingFailure],
 )
 def test_http_service_client_retries_partial_peer_responses(
     monkeypatch: pytest.MonkeyPatch,
     transport_error: Exception,
-    failure_type: type[worker_module.OptimizationFailure]
-    | type[worker_module.PostprocessingFailure],
+    failure_type: type[worker_module.SolverFailure] | type[worker_module.PostprocessingFailure],
 ) -> None:
-    client = worker_module.HttpServiceClient("token", "http://optimizer", "http://quality", 10.0)
+    client = worker_module.HttpServiceClient("token", "http://solver", "http://quality", 10.0)
 
     def return_broken_response(*_args: Any, **_kwargs: Any) -> _BrokenHttpResponse:
         return _BrokenHttpResponse(transport_error)
@@ -717,7 +715,7 @@ def test_http_service_client_retries_partial_peer_responses(
     monkeypatch.setattr(worker_module, "urlopen", return_broken_response)
 
     with pytest.raises(failure_type) as failure:
-        client._post("http://optimizer", b"{}", failure_type)
+        client._post("http://solver", b"{}", failure_type)
 
     assert failure.value.retryable
 
@@ -743,7 +741,7 @@ def test_http_service_client_exchanges_owning_wire_compatible_json(
     result = _result(run_request.candidate_metaparameters[0], packet.measurements)
     quality_request = QualityRequest(result=result, selection_criterion=InformationCriterion.BIC)
     quality_result = _quality_for_result(result, InformationCriterion.BIC)
-    client = worker_module.HttpServiceClient("token", "http://optimizer", "http://quality", 10.0)
+    client = worker_module.HttpServiceClient("token", "http://solver", "http://quality", 10.0)
     response_payloads = [
         result.model_dump_json().encode(),
         quality_result.model_dump_json().encode(),
@@ -764,8 +762,8 @@ def test_http_service_client_exchanges_owning_wire_compatible_json(
     postprocessor_payload = captured_requests[1].data
     assert isinstance(optimizer_payload, bytes)
     assert isinstance(postprocessor_payload, bytes)
-    solver_wire.BatchRequest.model_validate_json(optimizer_payload)
-    postprocessor_wire.QualityRequest.model_validate_json(postprocessor_payload)
+    contract_projection.BatchRequest.model_validate_json(optimizer_payload)
+    contract_projection.QualityRequest.model_validate_json(postprocessor_payload)
 
 
 def test_http_service_client_rejects_coercive_remote_response_scalars(
@@ -787,7 +785,7 @@ def test_http_service_client_rejects_coercive_remote_response_scalars(
         json.dumps(malformed_result).encode(),
         json.dumps(malformed_quality).encode(),
     ]
-    client = worker_module.HttpServiceClient("token", "http://optimizer", "http://quality", 10.0)
+    client = worker_module.HttpServiceClient("token", "http://solver", "http://quality", 10.0)
 
     def return_response(_request: Request, *, timeout: float) -> _HttpResponse:
         del timeout
@@ -795,7 +793,7 @@ def test_http_service_client_rejects_coercive_remote_response_scalars(
 
     monkeypatch.setattr(worker_module, "urlopen", return_response)
 
-    with pytest.raises(worker_module.OptimizationFailure, match="invalid BatchResult") as failure:
+    with pytest.raises(worker_module.SolverFailure, match="invalid BatchResult") as failure:
         client.solve(batch_request)
     assert not failure.value.retryable
     with pytest.raises(

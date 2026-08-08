@@ -6,7 +6,7 @@ import pytest
 from azure.kusto.data import KustoClient, KustoConnectionStringBuilder
 
 from dart.contracts import DatasetQuery
-from dart.gateway.providers import ADX_DATABASE, AdxKogsProvider
+from dart.services.orchestrator.acquisition import ADX_DATABASE, AdxKogsProvider
 
 pytestmark = pytest.mark.live_integration
 

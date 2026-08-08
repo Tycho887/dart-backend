@@ -723,98 +723,11 @@
     },
     "Measurement": {
       "additionalProperties": false,
-      "allOf": [
-        {
-          "anyOf": [
-            {
-              "properties": {
-                "doppler_hz": {
-                  "type": "number"
-                }
-              },
-              "required": [
-                "doppler_hz"
-              ]
-            },
-            {
-              "properties": {
-                "phase_difference_rad": {
-                  "type": "number"
-                }
-              },
-              "required": [
-                "phase_difference_rad"
-              ]
-            }
-          ]
-        },
-        {
-          "if": {
-            "properties": {
-              "phase_difference_rad": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "phase_difference_rad"
-            ]
-          },
-          "then": {
-            "required": [
-              "phase_baseline_itrf_m"
-            ]
-          }
-        }
-      ],
-      "description": "One self-contained passive-RF observation in the public AoS schema.",
+      "description": "One self-contained production Doppler observation.",
       "properties": {
-        "antenna_azimuth_deg": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Antenna Azimuth Deg"
-        },
-        "antenna_elevation_deg": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Antenna Elevation Deg"
-        },
-        "applied_offset_s": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Applied Offset S"
-        },
         "doppler_hz": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Doppler Hz"
+          "title": "Doppler Hz",
+          "type": "number"
         },
         "ebn0_db": {
           "anyOf": [
@@ -839,46 +752,6 @@
           "minLength": 1,
           "title": "Pass Id",
           "type": "string"
-        },
-        "phase_baseline_itrf_m": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Cartesian3"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "phase_calibration_provenance": {
-          "anyOf": [
-            {
-              "maxLength": 500,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Phase Calibration Provenance"
-        },
-        "phase_difference_rad": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Phase Difference Rad"
-        },
-        "pointing_source": {
-          "$ref": "#/$defs/PointingSource",
-          "default": "unknown"
         },
         "quality_flags": {
           "default": [],
@@ -920,6 +793,7 @@
         "spacecraft_id",
         "station_id",
         "time_tag",
+        "doppler_hz",
         "station_position_itrf_m"
       ],
       "title": "Measurement",
@@ -957,8 +831,7 @@
     },
     "ObservableChannel": {
       "enum": [
-        "doppler",
-        "phase_difference"
+        "doppler"
       ],
       "title": "ObservableChannel",
       "type": "string"
@@ -1173,15 +1046,6 @@
         "persistence"
       ],
       "title": "PipelineStage",
-      "type": "string"
-    },
-    "PointingSource": {
-      "enum": [
-        "measured",
-        "commanded",
-        "unknown"
-      ],
-      "title": "PointingSource",
       "type": "string"
     },
     "QualityRequest": {
