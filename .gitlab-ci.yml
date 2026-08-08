@@ -7,25 +7,39 @@ default:
   image: python:3.13-slim
   before_script:
     - pip install --no-cache-dir uv
-    - uv sync --frozen --extra api --extra gateway --extra research
+    - uv sync --frozen --extra api --extra orchestrator
 
 quality:
   stage: quality
   script:
-    - uv run ruff format --check .
-    - uv run ruff check .
+    - uv run ruff format --check src tests tools
+    - uv run ruff check src tests tools
     - uv run ty check
-    - uv run python scripts/synchronize_openapi_components.py --check
-    - uv run python scripts/apply_contract_schema_rules.py --check
-    - uv run python scripts/generate_wire_models.py --check
-    - uv run python scripts/refresh_openapi_contracts.py --check
-    - uv run python scripts/export_contracts.py --check
-    - git diff --exit-code -- contracts src/dart/wire
+    - uv run python tools/contracts/synchronize_openapi.py --check
+    - uv run python tools/contracts/apply_schema_rules.py --check
+    - uv run python tools/contracts/generate_projection.py --check
+    - uv run python tools/contracts/check_openapi.py --check
+    - uv run python tools/contracts/check_contracts.py --check
+    - git diff --exit-code -- contracts src/dart/contract_projection.py
+
+research_quality:
+  stage: quality
+  script:
+    - uv sync --project research --frozen
+    - uv run --project research ruff format --check research/src research/tests
+    - uv run --project research ruff check research/src research/tests
+    - uv run --project research ty check research/src
 
 unit_tests:
   stage: test
   script:
     - uv run pytest -m "not live_integration" --cov=dart
+
+research_tests:
+  stage: test
+  script:
+    - uv sync --project research --frozen
+    - uv run --project research pytest research/tests
 
 live_integrations:
   stage: integration

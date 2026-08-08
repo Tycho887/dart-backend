@@ -33,7 +33,7 @@ uv run pytest -m "not live_integration"
   catch `Exception` around an entire scientific workflow.
 
 `T | None` is valid only when absence is a real state in the domain, such as an
-optional phase observation or absent reference ephemeris. It must not select an
+absent reference ephemeris. It must not select an
 algorithm, input representation, or side effect. When two behaviors exist,
 define two functions.
 

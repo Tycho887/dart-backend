@@ -18,18 +18,19 @@ CCSDS TDM KVN is the canonical tracking-data artifact. The DART TDM profile:
   carrier is present;
 - records participant/station identifiers and places station ITRF coordinates,
   acquisition filters, raw/presented counts, and source provenance in the DART
-  envelope;
+  dataset envelope;
 - does not assign a CCSDS keyword to a custom observable with different
   semantics.
 
 Reference and propagated Cartesian state histories use CCSDS OEM. A fitted
 mean-element orbit uses OMM when it can be represented without loss. Offset
-fits, covariance, residuals, solver diagnostics, and future phase observables
-use versioned DART schemas with explicit units, frames, and parameter order.
+fits, covariance, residuals, and solver diagnostics use versioned DART schemas
+with explicit units, frames, and parameter order. Future phase input requires a
+separate reviewed contract.
 
 ## Service APIs
 
-- API proxy: `POST /v0/datasets/query`
+- Orchestrator acquisition: `POST /v0/datasets/query`
 - Solver: `POST /v0/solve/batch`
 - Postprocessor: `POST /v0/postprocess`
 - Orchestrator: `POST /v0/runs`, `GET /v0/runs/{run_id}`, and
@@ -93,18 +94,11 @@ Run responses expose every candidate's result, quality, status, and typed
 error plus `selected_candidate_id`; they do not collapse a multi-model run to
 an ambiguous singular solver result.
 
-The measurement envelope can carry `phase_difference_rad`, its ITRF baseline,
-and calibration provenance. This preserves phase data for a future reviewed
-model, but phase-only requests now fail explicitly rather than being silently
-misinterpreted by a Doppler solver.
-
 `contracts/` contains the reviewed language-neutral schemas and golden
-messages. Each service owns its generated local wire representation and is
-tested against those messages. An API adapter validates its wire model before
-one explicit conversion to the internal semantic domain; no service imports a
-different service's Python request or response model.
+messages. All Python services use one generated projection and validate their
+own semantic domain; no service imports another service's Python models.
 
-The measurement envelope retains phase-difference fields and provenance for a
-future reviewed solver model. Future input artifacts must be added as a
-versioned discriminated contract variant rather than changing the meaning of a
-current Doppler request.
+The production `Measurement` is Doppler-only and contains no pointing, applied
+control offset, phase baseline, or phase-calibration fields. Future observables
+must be added as a versioned discriminated contract rather than changing the
+meaning of the current Doppler request.

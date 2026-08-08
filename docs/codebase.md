@@ -1,84 +1,61 @@
 # DART codebase guide
 
-## Production path
+## Production modules
 
 ```text
 RunRequest
     │
     ▼
-gateway API + durable worker
-    │
-    ├── ADX/KOGS provider ──> DatasetPacket + hashed CCSDS TDM
-    ├── batch solver ───────> state, covariance, residuals, diagnostics
-    └── postprocessor ──────> versioned residual/reference metrics
-    │
-    ▼
-TimescaleDB run inputs, solver results, residual hypertable, metric sets
+orchestrator API ──> durable worker ──> TimescaleDB
+                         │
+             ┌───────────┼───────────┐
+             ▼           ▼           ▼
+         ADX/KOGS      solver    postprocessor
 ```
 
-Production modules:
-
-| Module | One responsibility |
+| Module | Responsibility |
 | --- | --- |
-| `dart.api.gateway` | Public v0 run API and ADX/KOGS proxy routes. |
-| `dart.gateway.worker` | Execute one claimed `batch_od` run. |
-| `dart.gateway.jobs` | Durable queue and all database writes. |
-| `dart.gateway.providers` | Translate ADX/KOGS data into validated measurements. |
-| `dart.gateway.tdm` | Serialize the supported CCSDS TDM profile. |
-| `dart.api.optimizer` | HTTP adapter for the stateless solver. |
-| `dart.services.optimizer` | Dispatch explicit time-offset or mean-element batch solves. |
-| `dart.estimation.multimodel` | Time/bias/carrier batch model selection. |
-| `dart.estimation.mean_elements` | Multi-pass mean-element batch fit. |
-| `dart.api.postprocessor` | HTTP adapter for postprocessing. |
-| `dart.quality` | Residual metrics and digest-checked OEM scoring. |
-| `dart.wire` | Generated service-local projections of the reviewed v0 contracts. |
-| `dart.contracts` | Internal semantic validation domain used behind explicit wire conversions. |
+| `dart.services.orchestrator.api` | Public run, dataset, and metadata HTTP API. |
+| `dart.services.orchestrator.worker` | Execute one claimed `batch_od` run. |
+| `dart.services.orchestrator.persistence` | Durable queue, leases, artifacts, and all database writes. |
+| `dart.services.orchestrator.acquisition` | ADX/KOGS acquisition and CCSDS TDM serialization. |
+| `dart.services.solver.api` | Solver HTTP API and explicit model dispatch. |
+| `dart.services.solver.time_offset` | Time, carrier, and per-pass-bias fits. |
+| `dart.services.solver.mean_element` | Two-element multi-pass fit. |
+| `dart.services.solver.numerical` | Shared robust numerical operations. |
+| `dart.services.postprocessor.service` | Residual metrics, selection scores, and OEM scoring. |
+| `dart.contract_projection` | The only generated Python contract projection. |
+| `dart.contracts` | Service-independent semantic validation. |
+| `dart.frames` | Shared TEME/GCRF/ITRF propagation and station operations. |
 
-The authoritative cross-service definitions are reviewed under `contracts/`.
-New code must not deepen cross-service Python coupling or bypass the explicit
-wire-to-domain conversion.
+The neutral definitions under `contracts/` are authoritative. No production
+service imports another service's Python models.
 
 ## Persistence
 
-`migrations/001_processing_runs.sql` is the canonical disposable pre-v1
-baseline. Wheel builds package that same file as `dart.gateway/schema.sql`;
-there is no second hand-maintained source copy.
+`deploy/database/001_processing_runs.sql` is the canonical disposable pre-v1
+baseline. The wheel packages that exact file as
+`dart/services/orchestrator/schema.sql`.
 
-- `pipeline_runs` and `pipeline_stage_events` hold workflow state.
-- `run_inputs` holds source orbit/configuration and immutable TDM evidence.
-- `run_candidates` holds stable-order candidate metaparameters and status.
-- `solver_results` holds one immutable result per candidate.
-- `solver_residuals` is a Timescale hypertable with candidate-keyed,
-  observable-channel rows.
-- `metric_sets` and `metric_values` hold immutable candidate quality and
-  selection results.
+The schema stores immutable run inputs, candidate results, normalized residuals,
+metric sets, stage events, and lease state. `dart_run_results` is the selected
+candidate read surface used by Grafana.
 
-The `dart_run_results` view is the stable selected-candidate read surface for
-Grafana.
+## Research boundary
 
-## Research quarantine
+`research/` is an independent Python project with its own `pyproject.toml`,
+`uv.lock`, source tree, tests, references, and reports. Production modules may
+not import `dart_research`. Production wheels and both image targets are tested
+to contain neither research nor legacy modules.
 
-`dart.control`, `dart.estimation.ukf`, `dart.simulation`, `dart.validation`,
-`dart.legacy`, the repository `legacy/` directory, and experimental reports are
-not production service dependencies. They are excluded from the production
-Ruff/ty scope and have no production HTTP routes. A module must satisfy the
-current contracts, typing/lint gates, and validation criteria before promotion.
-
-## Commands
+## Maintenance commands
 
 ```bash
-uv sync --extra api --extra gateway --extra research
-uv run ruff format --check .
-uv run ruff check .
-uv run ty check
-uv run pytest -m "not live_integration"
-uv run pytest
-uv run python scripts/verify_production_images.py
+uv run python tools/contracts/check_contracts.py --check
+uv run python tools/contracts/check_openapi.py --check
+uv run python tools/release/verify_production_images.py
 ```
 
-The final command includes real ADX/KOGS integration. Missing external
-credentials are an intentional failure. Grafana inspection and writes use
-`scripts/grafana_dashboard.py`; live credentials and an unambiguous dashboard
-UID are mandatory for authenticated operations. The image verifier requires a
-Docker daemon; it builds both production targets and rejects any image that can
-resolve a quarantined research module.
+Grafana inspection and writes use `tools/grafana/dashboard.py`. Authenticated
+work requires runtime credentials and an unambiguous dashboard UID; the live
+API remains authoritative.

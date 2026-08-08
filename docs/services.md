@@ -2,15 +2,15 @@
 
 ## Runtime roles
 
-### API proxy
+### Orchestrator API
 
-The API proxy owns the ADX and KOGS access used by durable runs. It validates
+The orchestrator API owns the ADX and KOGS access used by durable runs. It validates
 query selection, applies the recorded filters, resolves station coordinates,
 and emits both the hashed CCSDS TDM artifact and its validated DART projection.
 It does not solve or persist scientific results.
 
 The Initial Processing dashboard's `Most Recent Passes` panel is an intentional
-exception: it is a direct, read-only Grafana ADX query, not a gateway API call
+exception: it is a direct, read-only Grafana ADX query, not an orchestrator API call
 or a processing action. Its provisioned datasource uses server-side
 `AZURE_ADX_CLUSTER_ENDPOINT`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, and
 `AZURE_TENANT_ID`; none of those values belong in dashboard JSON or browser
@@ -43,7 +43,7 @@ Endpoint: `POST /v0/postprocess`.
 
 ### Orchestrator
 
-The gateway API and worker form the orchestrator deployment. The public API
+The API and worker form the orchestrator deployment. The public API
 creates and reads durable `batch_od` runs. The worker claims runs with
 `FOR UPDATE SKIP LOCKED`, calls the three scientific/data stages over HTTP,
 and performs all Timescale/PostgreSQL writes.
@@ -74,15 +74,15 @@ run's persistence stage.
 
 ## Authentication and Grafana
 
-The external gateway and internal services use separate bearer credentials.
-The ingress serves Grafana at its root and exposes the gateway only beneath
-same-origin `/dart-api/`. It strips that prefix before proxying to the gateway,
+The external orchestrator and internal services use separate bearer credentials.
+The ingress serves Grafana at its root and exposes the orchestrator only beneath
+same-origin `/dart-api/`. It strips that prefix before proxying to the orchestrator,
 injects the external bearer credential server-side, preserves a non-empty client
 `Idempotency-Key`, and generates Nginx's unique `$request_id` only when one is
 absent. Before allowing that path,
 an internal Grafana `/api/user` subrequest validates only Grafana's default
 `grafana_session` cookie; ingress clears browser cookies before proxying to the
-gateway. Dashboard JSON and browser traffic therefore contain no service secret
+orchestrator. Dashboard JSON and browser traffic therefore contain no service secret
 or durable-run credential.
 
 Business Forms 6.3.5 exposes only a static, Grafana-variable-interpolated
@@ -96,7 +96,7 @@ per-submission key mechanism.
 
 This local Compose deployment is a single-admin trust boundary: any authenticated
 Grafana session can use `/dart-api/`. The ingress does not map Grafana roles,
-organizations, or dashboard permissions to gateway authorization. Multi-user
+organizations, or dashboard permissions to orchestrator authorization. Multi-user
 deployments must add role-aware authorization before granting untrusted Grafana
 accounts access.
 

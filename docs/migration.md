@@ -1,45 +1,36 @@
 # Migration provenance
 
-The unified project is assembled in the workspace-root repository from two
-legacy working trees.  They remain read-only and ignored until numerical and
-behavioral parity has been established.
+The full pre-cleanup repository state, including previously untracked legacy
+files, is preserved in Git:
 
-| Source | Recorded revision | Role retained |
-| --- | --- | --- |
-| `deprecated/dart-v1` | `572c172` plus local working changes | Doppler model, batch phase-shift fit, FOREST loader, BESTXYZ scoring |
-| `deprecated/autofinder` | `9dee99a` plus local working changes | Henault world model, dither acquisition, live control behavior |
-| `legacy/dash` | `446f29f` | ADX/KOGS gateway, Grafana integration, time/bias/carrier model selection, and Timescale persistence reference |
+- branch: `archive/pre-cleanup-2026-08-08`
+- commit: `876305a` (`archive: preserve pre-cleanup state`)
 
-No nested `.git`, `.venv`, cache, generated plot, or bundled research PDF is
-copied into the unified repository.  Full FOREST telemetry and GPS exports
-remain external inputs.  The original trees should only be removed after the
-root package passes both legacy-regression and new end-to-end validation.
+The production refactor is developed on
+`refactor/production-service-layout`. No branch is pushed as part of the local
+cleanup.
 
-Production services use the canonical AoS Measurement contract and CCSDS OEM
-reference scoring. FOREST and BESTXYZ names are confined to `dart.legacy` and
-historical reports; no production endpoint selects a named satellite family.
+Removed or relocated historical surfaces include `legacy/dash`,
+`legacy/forest_experiments`, `src/dart/legacy`, the former `src/dart/control`,
+`src/dart/validation`, and duplicated service/wire packages. Research code and
+evidence now live only under `research/`; deployment assets live under
+`deploy/`; repository utilities live under `tools/`.
 
-## Durable-run baseline reset
+There is no pre-v1 compatibility layer and no installed general-purpose DART
+CLI. HTTP/OpenAPI is the supported automation surface.
 
-`migrations/001_processing_runs.sql` is the canonical disposable pre-v1
-TimescaleDB baseline. It stores a run's shared acquisition once, then stores
-each candidate result, generic observable-channel residuals, metrics, and
-selection separately. The wheel packages that same source as the gateway schema
-resource; there is no second hand-maintained SQL copy.
+## Database reset
 
-Before applying the baseline to an existing database, export valuable runs and
-dashboard-visible result data, recreate the DART database, apply the baseline,
-and validate `dart_run_results` plus candidate result queries. Rollback is
-restoring the export into the prior database, not a compatibility migration.
+`deploy/database/001_processing_runs.sql` is the canonical disposable pre-v1
+TimescaleDB baseline. Before applying it to an existing database, export any
+valuable runs and dashboard-visible results. Rollback means restoring that
+export into the prior database, not running a compatibility migration.
 
-## Intentional behavior changes
+## Intentional behavior
 
-- Every estimator uses the same full Satkit frame/state transformation.
-- The public offset sign follows the GPS-validated Dart convention
-  (`SGP4(t + offset_s)`).  Backends with a lag-positive convention must set
-  their sign conversion explicitly.
-- Measurement-noise configuration is a standard deviation; covariance uses
-  its square.
-- Phase is optional and its innovation is circular.
-- Antenna encoder commands are visibility/control metadata, not independent
-  orbit observations.
+- Production observations are Doppler-only; phase, control geometry, GPS, and
+  FOREST-specific fields remain research concerns.
+- Every production propagation path uses the centralized Satkit frame/state
+  transformations in `dart.frames`.
+- The public offset convention remains `SGP4(t + offset_s)`.
+- The source orbit and acquired observations remain immutable.
