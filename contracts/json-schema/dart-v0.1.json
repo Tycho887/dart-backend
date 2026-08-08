@@ -1,0 +1,1980 @@
+{
+  "$defs": {
+    "BatchRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "measurements": {
+          "items": {
+            "$ref": "#/$defs/Measurement"
+          },
+          "minItems": 1,
+          "title": "Measurements",
+          "type": "array"
+        },
+        "optimizer_data": {
+          "$ref": "#/$defs/OptimizerData"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "measurements",
+        "optimizer_data"
+      ],
+      "title": "BatchRequest",
+      "type": "object"
+    },
+    "BatchResult": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "model": {
+                "const": "time_offset"
+              }
+            },
+            "required": [
+              "model"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/TimeOffsetParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "model": {
+                "const": "time_offset_pass_bias"
+              }
+            },
+            "required": [
+              "model"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/TimeOffsetPassBiasParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "model": {
+                "const": "time_offset_frequency_pass_bias"
+              }
+            },
+            "required": [
+              "model"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/TimeOffsetFrequencyPassBiasParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "model": {
+                "const": "mean_elements_two_parameter"
+              }
+            },
+            "required": [
+              "model"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/MeanElementsTwoParameterParameters"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "consumed_channels": {
+          "items": {
+            "$ref": "#/$defs/ObservableChannel"
+          },
+          "minItems": 1,
+          "title": "Consumed Channels",
+          "type": "array"
+        },
+        "corrected_tle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TLEData"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "covariance": {
+          "$ref": "#/$defs/Covariance"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/FitDiagnostics"
+        },
+        "effective_carrier_frequency_hz": {
+          "exclusiveMinimum": 0.0,
+          "title": "Effective Carrier Frequency Hz",
+          "type": "number"
+        },
+        "model": {
+          "$ref": "#/$defs/OptimizerModel"
+        },
+        "parameters": {
+          "discriminator": {
+            "mapping": {
+              "mean_elements_two_parameter": "#/$defs/MeanElementsTwoParameterParameters",
+              "time_offset": "#/$defs/TimeOffsetParameters",
+              "time_offset_frequency_pass_bias": "#/$defs/TimeOffsetFrequencyPassBiasParameters",
+              "time_offset_pass_bias": "#/$defs/TimeOffsetPassBiasParameters"
+            },
+            "propertyName": "model"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TimeOffsetParameters"
+            },
+            {
+              "$ref": "#/$defs/TimeOffsetPassBiasParameters"
+            },
+            {
+              "$ref": "#/$defs/TimeOffsetFrequencyPassBiasParameters"
+            },
+            {
+              "$ref": "#/$defs/MeanElementsTwoParameterParameters"
+            }
+          ],
+          "title": "Parameters"
+        },
+        "pass_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Pass Ids",
+          "type": "array"
+        },
+        "reference_tle": {
+          "$ref": "#/$defs/TLEData"
+        },
+        "residuals": {
+          "items": {
+            "$ref": "#/$defs/ResidualRecord"
+          },
+          "minItems": 1,
+          "title": "Residuals",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "effective_carrier_frequency_hz",
+        "reference_tle",
+        "parameters",
+        "covariance",
+        "residuals",
+        "diagnostics",
+        "consumed_channels",
+        "pass_ids"
+      ],
+      "title": "BatchResult",
+      "type": "object"
+    },
+    "CandidateRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "format": "uuid",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "candidate_index": {
+          "minimum": 0,
+          "title": "Candidate Index",
+          "type": "integer"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StageError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "metaparameters": {
+          "discriminator": {
+            "mapping": {
+              "mean_elements_two_parameter": "#/$defs/MeanElementsTwoParameterMetaparameters",
+              "time_offset": "#/$defs/TimeOffsetMetaparameters",
+              "time_offset_frequency_pass_bias": "#/$defs/TimeOffsetFrequencyPassBiasMetaparameters",
+              "time_offset_pass_bias": "#/$defs/TimeOffsetPassBiasMetaparameters"
+            },
+            "propertyName": "model"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TimeOffsetMetaparameters"
+            },
+            {
+              "$ref": "#/$defs/TimeOffsetPassBiasMetaparameters"
+            },
+            {
+              "$ref": "#/$defs/TimeOffsetFrequencyPassBiasMetaparameters"
+            },
+            {
+              "$ref": "#/$defs/MeanElementsTwoParameterMetaparameters"
+            }
+          ],
+          "title": "Metaparameters"
+        },
+        "quality": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QualityResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BatchResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "$ref": "#/$defs/CandidateStatus"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "candidate_index",
+        "metaparameters",
+        "status"
+      ],
+      "title": "CandidateRecord",
+      "type": "object"
+    },
+    "CandidateStatus": {
+      "enum": [
+        "pending",
+        "optimizing",
+        "postprocessing",
+        "succeeded",
+        "unhealthy",
+        "ineligible",
+        "failed"
+      ],
+      "title": "CandidateStatus",
+      "type": "string"
+    },
+    "Cartesian3": {
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z"
+      ],
+      "title": "Cartesian3",
+      "type": "object"
+    },
+    "Covariance": {
+      "additionalProperties": false,
+      "properties": {
+        "matrix": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "minItems": 1,
+          "title": "Matrix",
+          "type": "array"
+        },
+        "parameter_order": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Parameter Order",
+          "type": "array"
+        }
+      },
+      "required": [
+        "parameter_order",
+        "matrix"
+      ],
+      "title": "Covariance",
+      "type": "object"
+    },
+    "DatasetPacket": {
+      "additionalProperties": false,
+      "properties": {
+        "measurements": {
+          "items": {
+            "$ref": "#/$defs/Measurement"
+          },
+          "title": "Measurements",
+          "type": "array"
+        },
+        "presented_count": {
+          "minimum": 0,
+          "title": "Presented Count",
+          "type": "integer"
+        },
+        "provenance": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "title": "Provenance",
+          "type": "object"
+        },
+        "query": {
+          "$ref": "#/$defs/DatasetQuery"
+        },
+        "raw_count": {
+          "minimum": 0,
+          "title": "Raw Count",
+          "type": "integer"
+        },
+        "rejected_count": {
+          "minimum": 0,
+          "title": "Rejected Count",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "stations": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Cartesian3"
+          },
+          "title": "Stations",
+          "type": "object"
+        },
+        "tdm": {
+          "$ref": "#/$defs/TdmDocument"
+        }
+      },
+      "required": [
+        "tdm",
+        "measurements",
+        "stations",
+        "query",
+        "raw_count",
+        "presented_count",
+        "rejected_count"
+      ],
+      "title": "DatasetPacket",
+      "type": "object"
+    },
+    "DatasetQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "contact_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Contact Ids",
+          "type": "array"
+        },
+        "end_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Time"
+        },
+        "maximum_doppler_hz": {
+          "default": 100000.0,
+          "title": "Maximum Doppler Hz",
+          "type": "number"
+        },
+        "minimum_doppler_hz": {
+          "default": -100000.0,
+          "title": "Minimum Doppler Hz",
+          "type": "number"
+        },
+        "minimum_ebn0_db": {
+          "default": 0.0,
+          "title": "Minimum Ebn0 Db",
+          "type": "number"
+        },
+        "minimum_elevation_deg": {
+          "default": 1.0,
+          "title": "Minimum Elevation Deg",
+          "type": "number"
+        },
+        "require_lock": {
+          "default": false,
+          "title": "Require Lock",
+          "type": "boolean"
+        },
+        "spacecraft_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spacecraft Id"
+        },
+        "start_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Time"
+        }
+      },
+      "title": "DatasetQuery",
+      "type": "object"
+    },
+    "EvidenceClass": {
+      "enum": [
+        "residual_only",
+        "reference_ephemeris"
+      ],
+      "title": "EvidenceClass",
+      "type": "string"
+    },
+    "FitDiagnostics": {
+      "additionalProperties": false,
+      "properties": {
+        "at_bound": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "At Bound"
+        },
+        "healthy": {
+          "title": "Healthy",
+          "type": "boolean"
+        },
+        "jacobian_condition": {
+          "anyOf": [
+            {
+              "minimum": 1.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Jacobian Condition"
+        },
+        "jacobian_rank": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Jacobian Rank"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "observations_used": {
+          "minimum": 0,
+          "title": "Observations Used",
+          "type": "integer"
+        },
+        "robust_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Robust Cost"
+        },
+        "success": {
+          "title": "Success",
+          "type": "boolean"
+        },
+        "weighted_ssr": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weighted Ssr"
+        }
+      },
+      "required": [
+        "success",
+        "healthy",
+        "message",
+        "observations_used"
+      ],
+      "title": "FitDiagnostics",
+      "type": "object"
+    },
+    "InformationCriterion": {
+      "enum": [
+        "bic",
+        "aic",
+        "aicc"
+      ],
+      "title": "InformationCriterion",
+      "type": "string"
+    },
+    "MeanElementsTwoParameterMetaparameters": {
+      "additionalProperties": false,
+      "description": "Metaparameters for mean anomaly, mean motion, and pass biases.",
+      "properties": {
+        "doppler_standard_deviation_hz": {
+          "default": 500.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Doppler Standard Deviation Hz",
+          "type": "number"
+        },
+        "mean_anomaly_half_width_rad": {
+          "default": 0.5,
+          "exclusiveMinimum": 0.0,
+          "title": "Mean Anomaly Half Width Rad",
+          "type": "number"
+        },
+        "mean_motion_half_width_rad_min": {
+          "default": 0.002,
+          "exclusiveMinimum": 0.0,
+          "title": "Mean Motion Half Width Rad Min",
+          "type": "number"
+        },
+        "model": {
+          "const": "mean_elements_two_parameter",
+          "title": "Model",
+          "type": "string"
+        },
+        "pass_bias_bounds_hz": {
+          "default": [
+            -100000.0,
+            100000.0
+          ],
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Pass Bias Bounds Hz",
+          "type": "array"
+        },
+        "qmc_samples": {
+          "default": 64,
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Qmc Samples",
+          "type": "integer"
+        },
+        "robust_loss": {
+          "default": "cauchy",
+          "enum": [
+            "linear",
+            "soft_l1",
+            "huber",
+            "cauchy",
+            "arctan"
+          ],
+          "title": "Robust Loss",
+          "type": "string"
+        },
+        "robust_scale_hz": {
+          "default": 500.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Robust Scale Hz",
+          "type": "number"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "title": "MeanElementsTwoParameterMetaparameters",
+      "type": "object"
+    },
+    "MeanElementsTwoParameterParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "mean_anomaly_rad": {
+          "title": "Mean Anomaly Rad",
+          "type": "number"
+        },
+        "mean_motion_rad_min": {
+          "exclusiveMinimum": 0.0,
+          "title": "Mean Motion Rad Min",
+          "type": "number"
+        },
+        "model": {
+          "const": "mean_elements_two_parameter",
+          "default": "mean_elements_two_parameter",
+          "title": "Model",
+          "type": "string"
+        },
+        "pass_biases": {
+          "items": {
+            "$ref": "#/$defs/PassDopplerBias"
+          },
+          "minItems": 1,
+          "title": "Pass Biases",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mean_anomaly_rad",
+        "mean_motion_rad_min",
+        "pass_biases"
+      ],
+      "title": "MeanElementsTwoParameterParameters",
+      "type": "object"
+    },
+    "Measurement": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "properties": {
+                "doppler_hz": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "doppler_hz"
+              ]
+            },
+            {
+              "properties": {
+                "phase_difference_rad": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "phase_difference_rad"
+              ]
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "phase_difference_rad": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "phase_difference_rad"
+            ]
+          },
+          "then": {
+            "required": [
+              "phase_baseline_itrf_m"
+            ]
+          }
+        }
+      ],
+      "description": "One self-contained passive-RF observation in the public AoS schema.",
+      "properties": {
+        "antenna_azimuth_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Antenna Azimuth Deg"
+        },
+        "antenna_elevation_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Antenna Elevation Deg"
+        },
+        "applied_offset_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applied Offset S"
+        },
+        "doppler_hz": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Doppler Hz"
+        },
+        "ebn0_db": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ebn0 Db"
+        },
+        "measurement_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Measurement Id",
+          "type": "string"
+        },
+        "pass_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Pass Id",
+          "type": "string"
+        },
+        "phase_baseline_itrf_m": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cartesian3"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "phase_calibration_provenance": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phase Calibration Provenance"
+        },
+        "phase_difference_rad": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phase Difference Rad"
+        },
+        "pointing_source": {
+          "$ref": "#/$defs/PointingSource",
+          "default": "unknown"
+        },
+        "quality_flags": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Quality Flags",
+          "type": "array"
+        },
+        "spacecraft_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Spacecraft Id",
+          "type": "string"
+        },
+        "station_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Station Id",
+          "type": "string"
+        },
+        "station_position_itrf_m": {
+          "$ref": "#/$defs/Cartesian3"
+        },
+        "time_tag": {
+          "format": "date-time",
+          "title": "Time Tag",
+          "type": "string"
+        },
+        "valid": {
+          "default": true,
+          "title": "Valid",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "measurement_id",
+        "pass_id",
+        "spacecraft_id",
+        "station_id",
+        "time_tag",
+        "station_position_itrf_m"
+      ],
+      "title": "Measurement",
+      "type": "object"
+    },
+    "MetricGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "metrics": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Metrics",
+          "type": "object"
+        }
+      },
+      "required": [
+        "metrics"
+      ],
+      "title": "MetricGroup",
+      "type": "object"
+    },
+    "ObservableChannel": {
+      "enum": [
+        "doppler",
+        "phase_difference"
+      ],
+      "title": "ObservableChannel",
+      "type": "string"
+    },
+    "ObservableResidual": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/ObservableChannel"
+        },
+        "consumed": {
+          "title": "Consumed",
+          "type": "boolean"
+        },
+        "predicted": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Predicted"
+        },
+        "residual": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Residual"
+        },
+        "robust_weight": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Robust Weight"
+        }
+      },
+      "required": [
+        "channel",
+        "consumed"
+      ],
+      "title": "ObservableResidual",
+      "type": "object"
+    },
+    "OemDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "encoding": {
+          "$ref": "#/$defs/OemEncoding"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "encoding",
+        "content",
+        "sha256"
+      ],
+      "title": "OemDocument",
+      "type": "object"
+    },
+    "OemEncoding": {
+      "enum": [
+        "kvn",
+        "xml"
+      ],
+      "title": "OemEncoding",
+      "type": "string"
+    },
+    "OptimizerConfiguration": {
+      "additionalProperties": false,
+      "description": "Shared optimizer inputs that stay constant across a durable run.",
+      "properties": {
+        "nominal_carrier_frequency_hz": {
+          "exclusiveMinimum": 0.0,
+          "title": "Nominal Carrier Frequency Hz",
+          "type": "number"
+        },
+        "reference_tle": {
+          "$ref": "#/$defs/TLEData"
+        },
+        "spacecraft_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Spacecraft Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference_tle",
+        "spacecraft_id",
+        "nominal_carrier_frequency_hz"
+      ],
+      "title": "OptimizerConfiguration",
+      "type": "object"
+    },
+    "OptimizerData": {
+      "additionalProperties": false,
+      "description": "One stateless optimizer invocation and its explicit forward model.",
+      "properties": {
+        "metaparameters": {
+          "discriminator": {
+            "mapping": {
+              "mean_elements_two_parameter": "#/$defs/MeanElementsTwoParameterMetaparameters",
+              "time_offset": "#/$defs/TimeOffsetMetaparameters",
+              "time_offset_frequency_pass_bias": "#/$defs/TimeOffsetFrequencyPassBiasMetaparameters",
+              "time_offset_pass_bias": "#/$defs/TimeOffsetPassBiasMetaparameters"
+            },
+            "propertyName": "model"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TimeOffsetMetaparameters"
+            },
+            {
+              "$ref": "#/$defs/TimeOffsetPassBiasMetaparameters"
+            },
+            {
+              "$ref": "#/$defs/TimeOffsetFrequencyPassBiasMetaparameters"
+            },
+            {
+              "$ref": "#/$defs/MeanElementsTwoParameterMetaparameters"
+            }
+          ],
+          "title": "Metaparameters"
+        },
+        "nominal_carrier_frequency_hz": {
+          "exclusiveMinimum": 0.0,
+          "title": "Nominal Carrier Frequency Hz",
+          "type": "number"
+        },
+        "reference_tle": {
+          "$ref": "#/$defs/TLEData"
+        },
+        "spacecraft_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Spacecraft Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference_tle",
+        "spacecraft_id",
+        "nominal_carrier_frequency_hz",
+        "metaparameters"
+      ],
+      "title": "OptimizerData",
+      "type": "object"
+    },
+    "OptimizerModel": {
+      "description": "One concrete production forward model selected by an optimizer request.",
+      "enum": [
+        "time_offset",
+        "time_offset_pass_bias",
+        "time_offset_frequency_pass_bias",
+        "mean_elements_two_parameter"
+      ],
+      "title": "OptimizerModel",
+      "type": "string"
+    },
+    "PassDopplerBias": {
+      "additionalProperties": false,
+      "properties": {
+        "bias_hz": {
+          "title": "Bias Hz",
+          "type": "number"
+        },
+        "pass_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Pass Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pass_id",
+        "bias_hz"
+      ],
+      "title": "PassDopplerBias",
+      "type": "object"
+    },
+    "PipelineStage": {
+      "enum": [
+        "acquisition",
+        "optimization",
+        "postprocessing",
+        "selection",
+        "persistence"
+      ],
+      "title": "PipelineStage",
+      "type": "string"
+    },
+    "PointingSource": {
+      "enum": [
+        "measured",
+        "commanded",
+        "unknown"
+      ],
+      "title": "PointingSource",
+      "type": "string"
+    },
+    "QualityRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "reference_oem": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OemDocument"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "result": {
+          "$ref": "#/$defs/BatchResult"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "selection_criterion": {
+          "$ref": "#/$defs/InformationCriterion"
+        }
+      },
+      "required": [
+        "result",
+        "selection_criterion"
+      ],
+      "title": "QualityRequest",
+      "type": "object"
+    },
+    "QualityResult": {
+      "additionalProperties": false,
+      "properties": {
+        "convergence": {
+          "$ref": "#/$defs/MetricGroup"
+        },
+        "evidence_class": {
+          "$ref": "#/$defs/EvidenceClass"
+        },
+        "residuals": {
+          "$ref": "#/$defs/MetricGroup"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/SelectionScore"
+        },
+        "truth": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetricGroup"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "evidence_class",
+        "convergence",
+        "residuals",
+        "selection"
+      ],
+      "title": "QualityResult",
+      "type": "object"
+    },
+    "ResidualRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "channels": {
+          "items": {
+            "$ref": "#/$defs/ObservableResidual"
+          },
+          "minItems": 1,
+          "title": "Channels",
+          "type": "array"
+        },
+        "measurement_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Measurement Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "measurement_id",
+        "channels"
+      ],
+      "title": "ResidualRecord",
+      "type": "object"
+    },
+    "RunCreated": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/RunStatus",
+          "default": "queued"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "title": "RunCreated",
+      "type": "object"
+    },
+    "RunRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "minimum": 0,
+          "title": "Attempts",
+          "type": "integer"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/CandidateRecord"
+          },
+          "minItems": 1,
+          "title": "Candidates",
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "errors": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/StageError"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "request_sha256": {
+          "title": "Request Sha256",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "selected_candidate_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected Candidate Id"
+        },
+        "status": {
+          "$ref": "#/$defs/RunStatus"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "created_at",
+        "updated_at",
+        "attempts",
+        "request_sha256",
+        "candidates"
+      ],
+      "title": "RunRecord",
+      "type": "object"
+    },
+    "RunRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_metaparameters": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "mean_elements_two_parameter": "#/$defs/MeanElementsTwoParameterMetaparameters",
+                "time_offset": "#/$defs/TimeOffsetMetaparameters",
+                "time_offset_frequency_pass_bias": "#/$defs/TimeOffsetFrequencyPassBiasMetaparameters",
+                "time_offset_pass_bias": "#/$defs/TimeOffsetPassBiasMetaparameters"
+              },
+              "propertyName": "model"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/TimeOffsetMetaparameters"
+              },
+              {
+                "$ref": "#/$defs/TimeOffsetPassBiasMetaparameters"
+              },
+              {
+                "$ref": "#/$defs/TimeOffsetFrequencyPassBiasMetaparameters"
+              },
+              {
+                "$ref": "#/$defs/MeanElementsTwoParameterMetaparameters"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Candidate Metaparameters",
+          "type": "array"
+        },
+        "optimizer_configuration": {
+          "$ref": "#/$defs/OptimizerConfiguration"
+        },
+        "pipeline": {
+          "const": "batch_od",
+          "default": "batch_od",
+          "title": "Pipeline",
+          "type": "string"
+        },
+        "query": {
+          "$ref": "#/$defs/DatasetQuery"
+        },
+        "reference_oem": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OemDocument"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "selection_criterion": {
+          "$ref": "#/$defs/InformationCriterion",
+          "default": "bic"
+        }
+      },
+      "required": [
+        "query",
+        "optimizer_configuration",
+        "candidate_metaparameters"
+      ],
+      "title": "RunRequest",
+      "type": "object"
+    },
+    "RunResult": {
+      "additionalProperties": false,
+      "description": "Concrete selected-result response for a completed multi-candidate run.",
+      "properties": {
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/CandidateRecord"
+          },
+          "minItems": 1,
+          "title": "Candidates",
+          "type": "array"
+        },
+        "errors": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/StageError"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "selected_candidate": {
+          "$ref": "#/$defs/CandidateRecord"
+        },
+        "selected_candidate_id": {
+          "format": "uuid",
+          "title": "Selected Candidate Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/RunStatus"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "selected_candidate_id",
+        "selected_candidate",
+        "candidates"
+      ],
+      "title": "RunResult",
+      "type": "object"
+    },
+    "RunStatus": {
+      "enum": [
+        "queued",
+        "acquiring",
+        "optimizing",
+        "postprocessing",
+        "succeeded",
+        "partial",
+        "failed"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    },
+    "SelectionScore": {
+      "additionalProperties": false,
+      "description": "Comparable information-criterion score for one candidate fit.",
+      "properties": {
+        "criterion": {
+          "$ref": "#/$defs/InformationCriterion"
+        },
+        "eligible": {
+          "title": "Eligible",
+          "type": "boolean"
+        },
+        "fitted_parameter_count": {
+          "minimum": 1,
+          "title": "Fitted Parameter Count",
+          "type": "integer"
+        },
+        "observations": {
+          "minimum": 0,
+          "title": "Observations",
+          "type": "integer"
+        },
+        "residual_sum_squares_hz2": {
+          "minimum": 0.0,
+          "title": "Residual Sum Squares Hz2",
+          "type": "number"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score"
+        }
+      },
+      "required": [
+        "criterion",
+        "eligible",
+        "observations",
+        "fitted_parameter_count",
+        "residual_sum_squares_hz2"
+      ],
+      "title": "SelectionScore",
+      "type": "object"
+    },
+    "StageError": {
+      "additionalProperties": false,
+      "properties": {
+        "error_type": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Error Type",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/PipelineStage"
+        }
+      },
+      "required": [
+        "stage",
+        "error_type",
+        "message"
+      ],
+      "title": "StageError",
+      "type": "object"
+    },
+    "TLEData": {
+      "additionalProperties": false,
+      "properties": {
+        "line1": {
+          "maxLength": 100,
+          "minLength": 60,
+          "title": "Line1",
+          "type": "string"
+        },
+        "line2": {
+          "maxLength": 100,
+          "minLength": 60,
+          "title": "Line2",
+          "type": "string"
+        },
+        "name": {
+          "default": "DART-OBJECT",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "line1",
+        "line2"
+      ],
+      "title": "TLEData",
+      "type": "object"
+    },
+    "TdmDocument": {
+      "additionalProperties": false,
+      "description": "CCSDS TDM KVN artifact used as the reproducible observation input.",
+      "properties": {
+        "content": {
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "media_type": {
+          "const": "application/ccsds-tdm-kvn",
+          "default": "application/ccsds-tdm-kvn",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "content",
+        "sha256"
+      ],
+      "title": "TdmDocument",
+      "type": "object"
+    },
+    "TimeOffsetFrequencyPassBiasMetaparameters": {
+      "additionalProperties": false,
+      "description": "Metaparameters for time, shared carrier correction, and pass biases.",
+      "properties": {
+        "center_frequency_correction_bounds_hz": {
+          "default": [
+            -100000.0,
+            100000.0
+          ],
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Center Frequency Correction Bounds Hz",
+          "type": "array"
+        },
+        "doppler_standard_deviation_hz": {
+          "default": 500.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Doppler Standard Deviation Hz",
+          "type": "number"
+        },
+        "model": {
+          "const": "time_offset_frequency_pass_bias",
+          "title": "Model",
+          "type": "string"
+        },
+        "pass_bias_bounds_hz": {
+          "default": [
+            -100000.0,
+            100000.0
+          ],
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Pass Bias Bounds Hz",
+          "type": "array"
+        },
+        "qmc_samples": {
+          "default": 64,
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Qmc Samples",
+          "type": "integer"
+        },
+        "robust_loss": {
+          "default": "cauchy",
+          "enum": [
+            "linear",
+            "soft_l1",
+            "huber",
+            "cauchy",
+            "arctan"
+          ],
+          "title": "Robust Loss",
+          "type": "string"
+        },
+        "robust_scale_hz": {
+          "default": 500.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Robust Scale Hz",
+          "type": "number"
+        },
+        "time_offset_bounds_s": {
+          "default": [
+            -120.0,
+            120.0
+          ],
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Time Offset Bounds S",
+          "type": "array"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "title": "TimeOffsetFrequencyPassBiasMetaparameters",
+      "type": "object"
+    },
+    "TimeOffsetFrequencyPassBiasParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "center_frequency_correction_hz": {
+          "title": "Center Frequency Correction Hz",
+          "type": "number"
+        },
+        "model": {
+          "const": "time_offset_frequency_pass_bias",
+          "default": "time_offset_frequency_pass_bias",
+          "title": "Model",
+          "type": "string"
+        },
+        "pass_biases": {
+          "items": {
+            "$ref": "#/$defs/PassDopplerBias"
+          },
+          "minItems": 1,
+          "title": "Pass Biases",
+          "type": "array"
+        },
+        "time_offset_s": {
+          "title": "Time Offset S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "time_offset_s",
+        "center_frequency_correction_hz",
+        "pass_biases"
+      ],
+      "title": "TimeOffsetFrequencyPassBiasParameters",
+      "type": "object"
+    },
+    "TimeOffsetMetaparameters": {
+      "additionalProperties": false,
+      "description": "Metaparameters for a single global time-offset fit.",
+      "properties": {
+        "doppler_standard_deviation_hz": {
+          "default": 500.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Doppler Standard Deviation Hz",
+          "type": "number"
+        },
+        "model": {
+          "const": "time_offset",
+          "title": "Model",
+          "type": "string"
+        },
+        "qmc_samples": {
+          "default": 64,
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Qmc Samples",
+          "type": "integer"
+        },
+        "robust_loss": {
+          "default": "cauchy",
+          "enum": [
+            "linear",
+            "soft_l1",
+            "huber",
+            "cauchy",
+            "arctan"
+          ],
+          "title": "Robust Loss",
+          "type": "string"
+        },
+        "robust_scale_hz": {
+          "default": 500.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Robust Scale Hz",
+          "type": "number"
+        },
+        "time_offset_bounds_s": {
+          "default": [
+            -120.0,
+            120.0
+          ],
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Time Offset Bounds S",
+          "type": "array"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "title": "TimeOffsetMetaparameters",
+      "type": "object"
+    },
+    "TimeOffsetParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "const": "time_offset",
+          "default": "time_offset",
+          "title": "Model",
+          "type": "string"
+        },
+        "time_offset_s": {
+          "title": "Time Offset S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "time_offset_s"
+      ],
+      "title": "TimeOffsetParameters",
+      "type": "object"
+    },
+    "TimeOffsetPassBiasMetaparameters": {
+      "additionalProperties": false,
+      "description": "Metaparameters for global time offset and one Doppler bias per pass.",
+      "properties": {
+        "doppler_standard_deviation_hz": {
+          "default": 500.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Doppler Standard Deviation Hz",
+          "type": "number"
+        },
+        "model": {
+          "const": "time_offset_pass_bias",
+          "title": "Model",
+          "type": "string"
+        },
+        "pass_bias_bounds_hz": {
+          "default": [
+            -100000.0,
+            100000.0
+          ],
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Pass Bias Bounds Hz",
+          "type": "array"
+        },
+        "qmc_samples": {
+          "default": 64,
+          "maximum": 4096,
+          "minimum": 0,
+          "title": "Qmc Samples",
+          "type": "integer"
+        },
+        "robust_loss": {
+          "default": "cauchy",
+          "enum": [
+            "linear",
+            "soft_l1",
+            "huber",
+            "cauchy",
+            "arctan"
+          ],
+          "title": "Robust Loss",
+          "type": "string"
+        },
+        "robust_scale_hz": {
+          "default": 500.0,
+          "exclusiveMinimum": 0.0,
+          "title": "Robust Scale Hz",
+          "type": "number"
+        },
+        "time_offset_bounds_s": {
+          "default": [
+            -120.0,
+            120.0
+          ],
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Time Offset Bounds S",
+          "type": "array"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "title": "TimeOffsetPassBiasMetaparameters",
+      "type": "object"
+    },
+    "TimeOffsetPassBiasParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "const": "time_offset_pass_bias",
+          "default": "time_offset_pass_bias",
+          "title": "Model",
+          "type": "string"
+        },
+        "pass_biases": {
+          "items": {
+            "$ref": "#/$defs/PassDopplerBias"
+          },
+          "minItems": 1,
+          "title": "Pass Biases",
+          "type": "array"
+        },
+        "time_offset_s": {
+          "title": "Time Offset S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "time_offset_s",
+        "pass_biases"
+      ],
+      "title": "TimeOffsetPassBiasParameters",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/RunRequest"
+    },
+    {
+      "$ref": "#/$defs/RunRecord"
+    },
+    {
+      "$ref": "#/$defs/RunCreated"
+    },
+    {
+      "$ref": "#/$defs/RunResult"
+    },
+    {
+      "$ref": "#/$defs/DatasetPacket"
+    },
+    {
+      "$ref": "#/$defs/BatchRequest"
+    },
+    {
+      "$ref": "#/$defs/BatchResult"
+    },
+    {
+      "$ref": "#/$defs/QualityRequest"
+    },
+    {
+      "$ref": "#/$defs/QualityResult"
+    }
+  ]
+}

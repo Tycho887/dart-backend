@@ -19,4 +19,3 @@ def test_positive_offset_advances_orbital_phase(context):
     geometry = tle_relative_geometry(context.tle, context.station, epoch, 0.0)
     assert np.isfinite(geometry.range_rate_m_s)
     assert np.isclose(np.linalg.norm(geometry.line_of_sight_enu), 1.0)
-

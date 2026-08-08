@@ -62,46 +62,12 @@ retains the combined replay for traceability.
 - Pass-level summaries are primary; high-rate samples and overlapping GPS
   forecast epochs are not independent trials.
 
-## Reproduction map
+## Historical reproduction status
 
-```bash
-# Contact inventory / input traceability
-uv run dart inventory-forest \
-  --data-dir deprecated/dart-v1/data \
-  --raw-gps-dir deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw \
-  --output reports/reference/observation_inventory.json
-
-# One replay, written as an audit bundle plus two evidence-scoped reports
-uv run dart replay-forest \
-  --data-dir deprecated/dart-v1/data \
-  --raw-gps-dir deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw \
-  --satellites 16 17 18 19 \
-  --output reports/reference/forest_replay_audit.json \
-  --batch-report-output reports/production/doppler_batch_ls.json \
-  --ukf-report-output reports/experimental/ukf/ukf_replay.json
-
-# Henault-style paired Doppler / synthetic-phase trials
-uv run dart simulate-windows \
-  --data-dir deprecated/dart-v1/data \
-  --satellites 16 17 18 19 \
-  --tiers closure independent_dynamics \
-  --seeds 0 \
-  --output reports/experimental/henault_phase/window_simulation.json
-
-# Residual-block stress test: real Doppler residuals, synthetic phase
-uv run dart simulate-windows \
-  --data-dir deprecated/dart-v1/data \
-  --satellites 18 19 \
-  --calibration-satellites 16 17 \
-  --tiers empirical_residual \
-  --seeds 0 1 \
-  --output reports/experimental/henault_phase/empirical_window_simulation.json
-
-# Fully synthetic multi-pass state-model experiment
-uv run dart model-ablation \
-  --seeds 0 1 2 \
-  --output reports/experimental/henault_phase/model_ablation.json
-```
+The former research CLI is deliberately not installed or exposed by the
+production wheel. The committed historical reports remain provenance, but
+re-running them requires a separately reviewed research workspace; it is not a
+supported production workflow.
 
 Verify external inputs before reproduction:
 

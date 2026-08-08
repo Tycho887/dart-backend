@@ -1,0 +1,75 @@
+{
+  "schema_version": "0.1",
+  "model": "time_offset_pass_bias",
+  "effective_carrier_frequency_hz": 2200000000.0,
+  "reference_tle": {
+    "name": "DART-EXAMPLE",
+    "line1": "1 57912U 23146X   24099.49439401  .00006757  00000+0  51475-3 0  9997",
+    "line2": "2 57912  43.0018 157.5807 0001420 272.5369  87.5310 15.02537576 31746"
+  },
+  "parameters": {
+    "model": "time_offset_pass_bias",
+    "time_offset_s": 1.25,
+    "pass_biases": [
+      {
+        "pass_id": "contact-example",
+        "bias_hz": -12.0
+      }
+    ]
+  },
+  "covariance": {
+    "parameter_order": ["time_offset_s", "pass_bias_hz:contact-example"],
+    "matrix": [[0.04, 0.0], [0.0, 25.0]]
+  },
+  "residuals": [
+    {
+      "measurement_id": "contact-example:0",
+      "channels": [
+        {
+          "channel": "doppler",
+          "consumed": true,
+          "predicted": 1234.0,
+          "residual": 4.0,
+          "robust_weight": 0.99
+        }
+      ]
+    },
+    {
+      "measurement_id": "contact-example:1",
+      "channels": [
+        {
+          "channel": "doppler",
+          "consumed": true,
+          "predicted": 1217.0,
+          "residual": -2.0,
+          "robust_weight": 0.99
+        }
+      ]
+    },
+    {
+      "measurement_id": "contact-example:2",
+      "channels": [
+        {
+          "channel": "doppler",
+          "consumed": true,
+          "predicted": 1193.0,
+          "residual": 1.0,
+          "robust_weight": 1.0
+        }
+      ]
+    }
+  ],
+  "diagnostics": {
+    "success": true,
+    "healthy": true,
+    "message": "converged",
+    "observations_used": 3,
+    "weighted_ssr": 20.8,
+    "robust_cost": 10.4,
+    "jacobian_rank": 2,
+    "jacobian_condition": 4.2,
+    "at_bound": false
+  },
+  "consumed_channels": ["doppler"],
+  "pass_ids": ["contact-example"]
+}

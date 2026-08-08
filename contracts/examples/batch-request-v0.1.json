@@ -1,0 +1,30 @@
+{
+  "schema_version": "0.1",
+  "measurements": [
+    {
+      "measurement_id": "contact-example:0",
+      "pass_id": "contact-example",
+      "spacecraft_id": "DART-EXAMPLE",
+      "station_id": "station-example",
+      "time_tag": "2026-01-01T00:00:00Z",
+      "doppler_hz": 1234.0,
+      "station_position_itrf_m": {
+        "x": 1111.0,
+        "y": 2222.0,
+        "z": 3333.0
+      }
+    }
+  ],
+  "optimizer_data": {
+    "reference_tle": {
+      "name": "DART-EXAMPLE",
+      "line1": "1 57912U 23146X   24099.49439401  .00006757  00000+0  51475-3 0  9997",
+      "line2": "2 57912  43.0018 157.5807 0001420 272.5369  87.5310 15.02537576 31746"
+    },
+    "spacecraft_id": "DART-EXAMPLE",
+    "nominal_carrier_frequency_hz": 2200000000.0,
+    "metaparameters": {
+      "model": "time_offset"
+    }
+  }
+}

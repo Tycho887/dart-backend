@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from dart.cli import _batch_report_rows, _ukf_report_rows
+from dart.legacy.experiment_cli import _batch_report_rows, _ukf_report_rows
 
 
 def _summary() -> dict:

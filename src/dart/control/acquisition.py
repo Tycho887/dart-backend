@@ -76,9 +76,7 @@ def acquire(backend: AntennaBackend, config: DitherConfig = DitherConfig()) -> A
             matching_tag = (
                 observation.applied_offset_s is not None
                 and np.isclose(observation.applied_offset_s, offset_s, atol=1e-9)
-            ) or (
-                observation.applied_offset_s is None and not config.require_offset_tag
-            )
+            ) or (observation.applied_offset_s is None and not config.require_offset_tag)
             fresh = last_epoch_s is None or epoch_s > last_epoch_s
             if matching_tag and fresh:
                 last_epoch_s = epoch_s
@@ -113,7 +111,9 @@ def acquire(backend: AntennaBackend, config: DitherConfig = DitherConfig()) -> A
             candidate = best_offset + delta
             status, observation = probe(candidate)
             if status == "pass_over":
-                return AcquisitionResult(False, None, tuple(probes), "pass ended during fine dither")
+                return AcquisitionResult(
+                    False, None, tuple(probes), "pass ended during fine dither"
+                )
             if (
                 observation is not None
                 and observation.valid

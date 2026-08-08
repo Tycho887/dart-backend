@@ -11,7 +11,6 @@ from .control.interfaces import OffsetConvention
 from .geometry import (
     angular_separation_deg,
     relative_geometry_from_state,
-    station_state_gcrf,
     tle_relative_geometry,
 )
 from .measurements import doppler_offset_hz, interferometric_phase_rad
@@ -136,9 +135,7 @@ class InProcessAntenna:
         index = self.cursor
         self._history[index] = self._measure(index)
         self.cursor += 1
-        delay = (
-            int(self.rng.integers(1, 3)) if self.delivery_jitter else self.delivery_delay
-        )
+        delay = int(self.rng.integers(1, 3)) if self.delivery_jitter else self.delivery_delay
         served = index - delay
         return self._history[served] if served >= 0 else self._prewindow(served)
 
@@ -148,9 +145,7 @@ def phase_shifted_tle_truth(context: TLEContext, times: list, true_offset_s: flo
 
     states = []
     for epoch in times:
-        geometry = tle_relative_geometry(
-            context.tle, context.station, epoch, float(true_offset_s)
-        )
+        geometry = tle_relative_geometry(context.tle, context.station, epoch, float(true_offset_s))
         states.append(
             np.hstack(
                 (
@@ -198,9 +193,7 @@ def observations_from_truth(
 
     result: list[RFObservation] = []
     for index, (epoch, state) in enumerate(zip(times, truth_states_gcrf)):
-        geometry = relative_geometry_from_state(
-            context.station, epoch, state[:3], state[3:]
-        )
+        geometry = relative_geometry_from_state(context.station, epoch, state[:3], state[3:])
         phase = None
         if mode is MeasurementMode.DOPPLER_PHASE:
             if context.baseline is None:
@@ -227,4 +220,3 @@ def observations_from_truth(
             )
         )
     return result
-

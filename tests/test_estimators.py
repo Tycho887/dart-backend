@@ -1,212 +1,294 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import numpy as np
+import pytest
 import satkit as sk
-
-from dart.estimation import (
-    BatchConfig,
-    MeanElementConfig,
-    PassiveRFUKF,
-    UKFConfig,
-    fit_batch,
-    fit_mean_elements,
-    rebuild_tle_mean_elements,
-)
-from dart.simulation import observations_from_truth, phase_shifted_tle_truth
-from dart.types import MeasurementMode, RFObservation, TLEContext
 from sgp4.api import Satrec
 
-
-def _synthetic(context, visible_times, mode, offset=8.0, bias=300.0, phase=1.2):
-    truth = phase_shifted_tle_truth(context, visible_times, offset)
-    return observations_from_truth(
-        context,
-        visible_times,
-        truth,
-        mode=mode,
-        frequency_bias_hz=bias,
-        phase_bias_rad=phase,
-    )
+from dart.estimation import (
+    MeanElementsTwoParameterConfig,
+    fit_mean_elements_two_parameter,
+    rebuild_tle_mean_elements,
+)
+from dart.estimation.numerics import weighted_linear_algebra
+from dart.simulation import observations_from_truth, phase_shifted_tle_truth
+from dart.types import MeasurementMode, TLEContext
 
 
-def test_batch_recovers_doppler_offset(context, visible_times):
-    observations = _synthetic(context, visible_times, MeasurementMode.DOPPLER)
-    fit = fit_batch(
-        context,
-        observations,
-        BatchConfig(
-            doppler_std_hz=1.0,
-            offset_starts_s=(-30.0, 0.0, 30.0),
-            robust_loss="linear",
-        ),
-    )
-    assert fit.success
-    assert abs(fit.estimate.offset_s - 8.0) < 0.05
-    assert abs(fit.estimate.frequency_bias_hz - 300.0) < 1.0
-
-
-def test_ukf_supports_intermittent_phase(context, visible_times):
-    observations = _synthetic(context, visible_times, MeasurementMode.DOPPLER_PHASE)
-    filter_ = PassiveRFUKF(
-        context,
-        initial_offset_s=5.0,
-        phase_capable=True,
-        config=UKFConfig(
-            doppler_std_hz=5.0,
-            phase_std_rad=0.1,
-            gate_probability=0.999999,
-            initial_offset_std_s=5.0,
-            initial_frequency_std_hz=1_000.0,
-        ),
-    )
-    accepted = 0
-    estimate = None
-    for index, observation in enumerate(observations):
-        if index % 4 == 0:
-            observation = RFObservation(
-                epoch=observation.epoch,
-                station_id=observation.station_id,
-                doppler_hz=observation.doppler_hz,
-                phase_rad=None,
-                valid=observation.valid,
-                sequence=observation.sequence,
-            )
-        estimate = filter_.step(observation)
-        accepted += int(estimate.accepted)
-    assert estimate is not None
-    assert accepted > len(observations) // 2
-    assert abs(estimate.offset_s - 8.0) < 1.0
-    assert abs(estimate.frequency_bias_hz - 300.0) < 50.0
-    assert np.min(np.linalg.eigvalsh(estimate.covariance)) > 0.0
-
-
-def test_batch_supports_intermittent_phase(context, visible_times):
-    observations = _synthetic(context, visible_times, MeasurementMode.DOPPLER_PHASE)
-    intermittent = [
-        replace(observation, phase_rad=None) if index % 4 == 0 else observation
-        for index, observation in enumerate(observations)
-    ]
-    fit = fit_batch(
-        context,
-        intermittent,
-        BatchConfig(
-            doppler_std_hz=1.0,
-            phase_std_rad=0.05,
-            robust_loss="linear",
-        ),
-    )
-    assert fit.success
-    assert fit.observations_used == len(observations)
-    assert abs(fit.estimate.offset_s - 8.0) < 0.05
-    assert abs(fit.estimate.frequency_bias_hz - 300.0) < 1.0
-    assert abs(float(np.angle(np.exp(1j * (fit.estimate.phase_bias_rad - 1.2))))) < 0.01
-
-
-def test_batch_phase_jacobian_is_circular_at_branch_cut(context, visible_times):
-    observations = _synthetic(
-        context,
-        visible_times,
-        MeasurementMode.DOPPLER_PHASE,
-        phase=np.pi - 1e-6,
-    )
-    fit = fit_batch(
-        context,
-        observations,
-        BatchConfig(
-            doppler_std_hz=1.0,
-            phase_std_rad=0.1,
-            robust_loss="linear",
-            offset_starts_s=(0.0,),
-        ),
-    )
-    assert fit.success
-    assert abs(fit.estimate.offset_s - 8.0) < 0.05
-    phase_error = np.angle(
-        np.exp(1j * (fit.estimate.phase_bias_rad - (np.pi - 1e-6)))
-    )
-    assert abs(float(phase_error)) < 0.01
-
-
-def test_static_ukf_prediction_does_not_inflate_covariance(context):
-    filter_ = PassiveRFUKF(
-        context,
-        initial_offset_s=4.0,
-        config=UKFConfig(gate_probability=None),
-    )
-    state_before = filter_.x.copy()
-    covariance_before = filter_.P.copy()
-    filter_.predict()
-    np.testing.assert_allclose(filter_.x, state_before, atol=1e-12)
-    np.testing.assert_allclose(filter_.P, covariance_before, rtol=1e-12, atol=1e-10)
-
-
-def test_ukf_rejects_stale_epoch(context, visible_times):
-    observations = _synthetic(context, visible_times[:2], MeasurementMode.DOPPLER)
-    filter_ = PassiveRFUKF(context, 8.0)
-    filter_.step(observations[0])
-    stale = filter_.step(observations[0])
-    assert not stale.accepted
-    assert stale.reason == "stale measurement epoch"
-
-
-def test_mean_element_fit_retains_basic_dart_od(context, visible_times):
+def test_mean_elements_two_parameter_recovers_doppler_orbit(context, visible_times):
     line1, line2 = context.tle.to_2line()
     source = Satrec.twoline2rv(line1, line2)
-    truth_m = source.mo + 0.004
-    truth_n = source.no_kozai + 2e-5
-    truth_tle = rebuild_tle_mean_elements(context.tle, truth_m, truth_n)
+    truth_tle = rebuild_tle_mean_elements(context.tle, source.mo + 0.004, source.no_kozai + 2e-5)
     truth_elements = Satrec.twoline2rv(*truth_tle.to_2line())
-    truth_context = TLEContext(
-        truth_tle, context.station, context.carrier_hz, context.baseline
-    )
+    truth_context = TLEContext(truth_tle, context.station, context.carrier_hz)
     second_peak = visible_times[len(visible_times) // 2] + sk.duration(seconds=6_000.0)
     second_pass = [
-        second_peak + sk.duration(seconds=float(value))
-        for value in np.arange(-240, 241, 5)
+        second_peak + sk.duration(seconds=float(value)) for value in np.arange(-240, 241, 5)
     ]
-    multipass_times = visible_times + second_pass
-    truth_states = phase_shifted_tle_truth(truth_context, multipass_times, 0.0)
+    epochs = visible_times + second_pass
+    truth = phase_shifted_tle_truth(truth_context, epochs, 0.0)
     observations = observations_from_truth(
         truth_context,
-        multipass_times,
-        truth_states,
+        epochs,
+        truth,
         mode=MeasurementMode.DOPPLER,
         frequency_bias_hz=200.0,
     )
-    fit = fit_mean_elements(
+    pass_ids = ["pass-1"] * len(visible_times) + ["pass-2"] * len(second_pass)
+
+    fit = fit_mean_elements_two_parameter(
         context,
         observations,
-        MeanElementConfig(qmc_samples=8, robust_loss="linear"),
+        pass_ids,
+        MeanElementsTwoParameterConfig(
+            doppler_standard_deviation_hz=1.0,
+            mean_anomaly_half_width_rad=0.5,
+            mean_motion_half_width_rad_min=0.002,
+            pass_bias_bounds_hz=(-15_000.0, 15_000.0),
+            qmc_samples=8,
+            robust_loss="linear",
+            robust_scale_hz=700.0,
+        ),
     )
+
     assert fit.success
-    assert fit.passes_found == 2
     assert abs(fit.mean_anomaly_rad - truth_elements.mo) < 2e-4
     assert abs(fit.mean_motion_rad_min - truth_elements.no_kozai) < 2e-6
     np.testing.assert_allclose(fit.pass_biases_hz, 200.0, atol=10.0)
 
-    phase_observations = observations_from_truth(
-        truth_context,
-        multipass_times,
-        truth_states,
-        mode=MeasurementMode.DOPPLER_PHASE,
-        frequency_bias_hz=200.0,
-        phase_bias_rad=1.0,
-    )
-    phase_fit = fit_mean_elements(
+
+def test_mean_elements_projects_nonzero_pass_bias_bounds(context, visible_times):
+    second_peak = visible_times[len(visible_times) // 2] + sk.duration(seconds=6_000.0)
+    second_pass = [
+        second_peak + sk.duration(seconds=float(value)) for value in np.arange(-240, 241, 5)
+    ]
+    epochs = visible_times + second_pass
+    observations = observations_from_truth(
         context,
-        phase_observations,
-        MeanElementConfig(
-            doppler_std_hz=1.0,
-            phase_std_rad=0.05,
+        epochs,
+        phase_shifted_tle_truth(context, epochs, 0.0),
+        mode=MeasurementMode.DOPPLER,
+        frequency_bias_hz=200.0,
+    )
+
+    fit = fit_mean_elements_two_parameter(
+        context,
+        observations,
+        ["pass-1"] * len(visible_times) + ["pass-2"] * len(second_pass),
+        MeanElementsTwoParameterConfig(
+            doppler_standard_deviation_hz=1.0,
+            mean_anomaly_half_width_rad=0.5,
+            mean_motion_half_width_rad_min=0.002,
+            pass_bias_bounds_hz=(100.0, 400.0),
+            qmc_samples=0,
+            robust_loss="linear",
+            robust_scale_hz=700.0,
+        ),
+    )
+
+    assert fit.success
+    np.testing.assert_allclose(fit.pass_biases_hz, 200.0, atol=10.0)
+
+
+def test_mean_elements_requires_two_distinct_passes(context, visible_times):
+    observations = observations_from_truth(
+        context,
+        visible_times,
+        phase_shifted_tle_truth(context, visible_times, 0.0),
+        mode=MeasurementMode.DOPPLER,
+    )
+
+    with pytest.raises(ValueError, match="at least two distinct passes"):
+        fit_mean_elements_two_parameter(
+            context,
+            observations,
+            ["pass-1"] * len(observations),
+            MeanElementsTwoParameterConfig(
+                doppler_standard_deviation_hz=1.0,
+                mean_anomaly_half_width_rad=0.5,
+                mean_motion_half_width_rad_min=0.002,
+                pass_bias_bounds_hz=(-1_000.0, 1_000.0),
+                qmc_samples=0,
+                robust_loss="linear",
+                robust_scale_hz=700.0,
+            ),
+        )
+
+
+def test_mean_elements_recovers_circular_mean_anomaly_delta(context, visible_times):
+    line1, line2 = context.tle.to_2line()
+    source = Satrec.twoline2rv(line1, line2)
+    reference_tle = rebuild_tle_mean_elements(
+        context.tle,
+        2.0 * np.pi - 0.05,
+        source.no_kozai,
+    )
+    truth_tle = rebuild_tle_mean_elements(reference_tle, 0.05, source.no_kozai)
+    truth_elements = Satrec.twoline2rv(*truth_tle.to_2line())
+    reference_context = TLEContext(reference_tle, context.station, context.carrier_hz)
+    truth_context = TLEContext(truth_tle, context.station, context.carrier_hz)
+    truth_times = [
+        epoch + sk.duration(seconds=float((source.mo - 0.05) / source.no_kozai * 60.0))
+        for epoch in visible_times
+    ]
+    second_truth_times = [epoch + sk.duration(seconds=6_000.0) for epoch in truth_times]
+    epochs = truth_times + second_truth_times
+    observed = observations_from_truth(
+        truth_context,
+        epochs,
+        phase_shifted_tle_truth(truth_context, epochs, 0.0),
+        mode=MeasurementMode.DOPPLER,
+        frequency_bias_hz=200.0,
+    )
+    pairs = [
+        (observation, pass_id)
+        for observation, pass_id in zip(
+            observed,
+            ["pass-1"] * len(truth_times) + ["pass-2"] * len(second_truth_times),
+            strict=True,
+        )
+        if observation.valid
+    ]
+    observations = [observation for observation, _ in pairs]
+    pass_ids = [pass_id for _, pass_id in pairs]
+    assert len(observations) > 4
+
+    fit = fit_mean_elements_two_parameter(
+        reference_context,
+        observations,
+        pass_ids,
+        MeanElementsTwoParameterConfig(
+            doppler_standard_deviation_hz=1.0,
+            mean_anomaly_half_width_rad=0.2,
+            mean_motion_half_width_rad_min=0.002,
+            pass_bias_bounds_hz=(-1_000.0, 1_000.0),
             qmc_samples=8,
             robust_loss="linear",
+            robust_scale_hz=700.0,
         ),
-        mode=MeasurementMode.DOPPLER_PHASE,
-        initial_mean_elements=(fit.mean_anomaly_rad, fit.mean_motion_rad_min),
     )
-    assert phase_fit.success
-    assert abs(phase_fit.mean_anomaly_rad - truth_elements.mo) < 2e-4
-    assert abs(phase_fit.mean_motion_rad_min - truth_elements.no_kozai) < 2e-6
-    assert phase_fit.phase_biases_rad is not None
+
+    assert fit.success
+    circular_error = (fit.mean_anomaly_rad - truth_elements.mo + np.pi) % (2.0 * np.pi) - np.pi
+    assert abs(circular_error) < 2e-4
+
+
+def test_mean_elements_recovers_wrapped_anomaly_with_default_qmc_samples(context, visible_times):
+    line1, line2 = context.tle.to_2line()
+    source = Satrec.twoline2rv(line1, line2)
+    reference_tle = rebuild_tle_mean_elements(context.tle, 0.1, source.no_kozai)
+    truth_tle = rebuild_tle_mean_elements(reference_tle, 2.0 * np.pi - 0.1, source.no_kozai)
+    truth_elements = Satrec.twoline2rv(*truth_tle.to_2line())
+    reference_context = TLEContext(reference_tle, context.station, context.carrier_hz)
+    truth_context = TLEContext(truth_tle, context.station, context.carrier_hz)
+    phase_shift_s = (source.mo - truth_elements.mo) % (2.0 * np.pi) / source.no_kozai * 60.0
+    first_peak = visible_times[len(visible_times) // 2] + sk.duration(seconds=float(phase_shift_s))
+    first_pass = [
+        first_peak + sk.duration(seconds=float(value)) for value in np.arange(-120, 121, 10)
+    ]
+    second_peak = first_peak + sk.duration(seconds=6_000.0)
+    second_pass = [
+        second_peak + sk.duration(seconds=float(value)) for value in np.arange(-120, 121, 10)
+    ]
+    epochs = first_pass + second_pass
+    observations = observations_from_truth(
+        truth_context,
+        epochs,
+        phase_shifted_tle_truth(truth_context, epochs, 0.0),
+        mode=MeasurementMode.DOPPLER,
+        frequency_bias_hz=200.0,
+    )
+    assert len(observations) == 50
+    assert all(observation.valid for observation in observations)
+
+    fit = fit_mean_elements_two_parameter(
+        reference_context,
+        observations,
+        ["pass-1"] * len(first_pass) + ["pass-2"] * len(second_pass),
+        MeanElementsTwoParameterConfig(
+            doppler_standard_deviation_hz=1.0,
+            mean_anomaly_half_width_rad=0.5,
+            mean_motion_half_width_rad_min=0.002,
+            pass_bias_bounds_hz=(-15_000.0, 15_000.0),
+            qmc_samples=64,
+            robust_loss="linear",
+            robust_scale_hz=700.0,
+        ),
+    )
+
+    circular_error = (fit.mean_anomaly_rad - truth_elements.mo + np.pi) % (2.0 * np.pi) - np.pi
+    assert fit.success
+    assert fit.healthy
+    assert abs(circular_error) < 2e-4
+
+
+def test_mean_elements_turns_invalid_broad_mean_motion_candidates_into_value_errors(
+    context, visible_times
+):
+    second_peak = visible_times[len(visible_times) // 2] + sk.duration(seconds=6_000.0)
+    second_pass = [
+        second_peak + sk.duration(seconds=float(value)) for value in np.arange(-240, 241, 5)
+    ]
+    epochs = visible_times + second_pass
+    observations = observations_from_truth(
+        context,
+        epochs,
+        phase_shifted_tle_truth(context, epochs, 0.0),
+        mode=MeasurementMode.DOPPLER,
+    )
+
+    try:
+        fit = fit_mean_elements_two_parameter(
+            context,
+            observations,
+            ["pass-1"] * len(visible_times) + ["pass-2"] * len(second_pass),
+            MeanElementsTwoParameterConfig(
+                doppler_standard_deviation_hz=1.0,
+                mean_anomaly_half_width_rad=0.5,
+                mean_motion_half_width_rad_min=1.0,
+                pass_bias_bounds_hz=(-1_000.0, 1_000.0),
+                qmc_samples=8,
+                robust_loss="linear",
+                robust_scale_hz=700.0,
+            ),
+        )
+    except ValueError as error:
+        assert "mean-element" in str(error)
+    else:
+        assert fit.mean_motion_rad_min > 0.0
+
+
+def test_weighted_linear_algebra_applies_robust_weights_once_to_raw_jacobian():
+    diagnostics = weighted_linear_algebra(
+        np.asarray([[2.0], [3.0]]),
+        np.asarray([2.0, 4.0]),
+        np.asarray([0.25, 1.0]),
+    )
+
+    np.testing.assert_allclose(diagnostics.covariance, [[1.7]])
+    assert diagnostics.rank == 1
+    assert diagnostics.condition == 1.0
+
+
+def test_mean_elements_two_parameter_rejects_underconstrained_input(context, visible_times):
+    observations = observations_from_truth(
+        context,
+        visible_times[:3],
+        phase_shifted_tle_truth(context, visible_times[:3], 0.0),
+        mode=MeasurementMode.DOPPLER,
+    )
+    with pytest.raises(ValueError, match="fitted parameters"):
+        fit_mean_elements_two_parameter(
+            context,
+            observations,
+            ["pass-1", "pass-2", "pass-2"],
+            MeanElementsTwoParameterConfig(
+                doppler_standard_deviation_hz=1.0,
+                mean_anomaly_half_width_rad=0.5,
+                mean_motion_half_width_rad_min=0.002,
+                pass_bias_bounds_hz=(-15_000.0, 15_000.0),
+                qmc_samples=0,
+                robust_loss="linear",
+                robust_scale_hz=700.0,
+            ),
+        )

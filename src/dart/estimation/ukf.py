@@ -36,11 +36,14 @@ class UKFConfig:
             raise ValueError("measurement standard deviations must be positive")
         if self.gate_probability is not None and not 0.0 < self.gate_probability < 1.0:
             raise ValueError("gate_probability must be between zero and one")
-        if min(
-            self.process_offset_std_s,
-            self.process_frequency_std_hz,
-            self.process_phase_std_rad,
-        ) < 0.0:
+        if (
+            min(
+                self.process_offset_std_s,
+                self.process_frequency_std_hz,
+                self.process_phase_std_rad,
+            )
+            < 0.0
+        ):
             raise ValueError("process standard deviations cannot be negative")
 
 
@@ -66,9 +69,7 @@ class PassiveRFUKF:
         self.context = context
         self.config = config
         self.model = MeasurementModel() if model is None else model
-        self.mode = (
-            MeasurementMode.DOPPLER_PHASE if phase_capable else MeasurementMode.DOPPLER
-        )
+        self.mode = MeasurementMode.DOPPLER_PHASE if phase_capable else MeasurementMode.DOPPLER
         self.dimension = 3 if phase_capable else 2
         self.x = np.zeros(self.dimension)
         self.x[0] = float(initial_offset_s)
@@ -146,7 +147,9 @@ class PassiveRFUKF:
         return self._sigma_points()
 
     @staticmethod
-    def _measurement_mean(values: np.ndarray, weights: np.ndarray, mode: MeasurementMode) -> np.ndarray:
+    def _measurement_mean(
+        values: np.ndarray, weights: np.ndarray, mode: MeasurementMode
+    ) -> np.ndarray:
         mean = weights @ values
         if mode is MeasurementMode.DOPPLER_PHASE:
             reference = values[0, 1]
@@ -178,8 +181,7 @@ class PassiveRFUKF:
                 self.dimension == 3
                 and observation.phase_rad is not None
                 and self._accepted_updates >= self.config.phase_activation_updates
-                and np.sqrt(max(0.0, self.P[0, 0]))
-                <= self.config.phase_activation_offset_std_s
+                and np.sqrt(max(0.0, self.P[0, 0])) <= self.config.phase_activation_offset_std_s
             )
             else MeasurementMode.DOPPLER
         )

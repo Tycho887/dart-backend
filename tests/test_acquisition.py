@@ -52,6 +52,7 @@ class UntaggedBackend(VisibilityBackend):
 def test_dither_locks_at_valid_run_center():
     result = acquire(VisibilityBackend(), DitherConfig(max_sweeps=1))
     assert result.locked
+    assert result.offset_s is not None
     assert abs(result.offset_s - 30.0) <= 1.0
 
 
@@ -59,6 +60,7 @@ def test_sign_adapter_translates_legacy_positive_lag():
     backend = LagBackend(true_offset=-30.0)
     result = acquire(SignConvertingBackend(backend), DitherConfig(max_sweeps=1))
     assert result.locked
+    assert result.offset_s is not None
     assert abs(result.offset_s - 30.0) <= 1.0
 
 

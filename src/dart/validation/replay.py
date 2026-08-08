@@ -8,8 +8,8 @@ import numpy as np
 
 from ..estimation import BatchConfig, PassiveRFUKF, UKFConfig, fit_batch
 from ..geometry import tle_positions_itrf
-from ..io.forest import ForestPass
-from ..io.gps import GPSReference
+from ..legacy.forest import ForestPass
+from ..legacy.gps import GPSReference
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,7 +22,7 @@ class ErrorSummary:
     rms_km: float
 
     @classmethod
-    def from_values(cls, values: np.ndarray) -> "ErrorSummary":
+    def from_values(cls, values: np.ndarray) -> ErrorSummary:
         if not len(values):
             nan = float("nan")
             return cls(0, nan, nan, nan, nan, nan)
@@ -154,12 +154,8 @@ def replay_pass(
                 lower_h,
                 upper_h,
                 ErrorSummary.from_values(_position_errors_km(tle, subset, 0.0)),
-                ErrorSummary.from_values(
-                    _position_errors_km(tle, subset, final.offset_s)
-                ),
-                ErrorSummary.from_values(
-                    _position_errors_km(tle, subset, batch.estimate.offset_s)
-                ),
+                ErrorSummary.from_values(_position_errors_km(tle, subset, final.offset_s)),
+                ErrorSummary.from_values(_position_errors_km(tle, subset, batch.estimate.offset_s)),
             )
         )
 

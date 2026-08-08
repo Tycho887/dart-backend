@@ -3,10 +3,9 @@ from __future__ import annotations
 import datetime as dt
 
 import polars as pl
-
-from dart.io.forest import load_forest_passes
-
 from conftest import TEST_TLE_LINES
+
+from dart.legacy.forest import load_forest_passes
 
 
 def test_forest_loader_normalizes_pass(tmp_path):
@@ -14,8 +13,8 @@ def test_forest_loader_normalizes_pass(tmp_path):
     frame = pl.DataFrame(
         {
             "timestamp": [
-                dt.datetime(2026, 5, 3, 12, 0, tzinfo=dt.timezone.utc),
-                dt.datetime(2026, 5, 3, 12, 0, 1, tzinfo=dt.timezone.utc),
+                dt.datetime(2026, 5, 3, 12, 0, tzinfo=dt.UTC),
+                dt.datetime(2026, 5, 3, 12, 0, 1, tzinfo=dt.UTC),
             ],
             "contact_id": ["contact", "contact"],
             "groundStation": ["TROLL", "TROLL"],

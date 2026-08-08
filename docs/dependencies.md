@@ -19,26 +19,25 @@ uv run pytest
 | Dependency | Declared version | Use in the current package |
 | --- | --- | --- |
 | NumPy | `>=2.2` | State vectors, covariance matrices, geometry, statistics, and simulation. |
-| Polars | `>=1.31` | FOREST parquet loading, filtering, grouping, and inventory generation. |
 | Satkit | `>=0.20.2` | Time representation, SGP4 execution, frame/state transforms, station geometry, and independent numerical propagation. |
 | sgp4 | `>=2.25` | Low-level TLE element access and reconstruction of corrected mean-element TLEs. |
 | SciPy | `>=1.15` | Nonlinear least squares, Cholesky decomposition, chi-square gates, and quasi-Monte-Carlo initial sampling. |
-| FilterPy | `>=1.4.5` | Retained from the legacy Autofinder implementation. The current `src/dart` UKF is implemented locally and does not import FilterPy. |
-
-FilterPy is therefore a candidate for removal after compatibility and packaging checks; its presence should not be read as the implementation used by `PassiveRFUKF`.
 
 ## Optional and development dependencies
 
 | Group/extra | Packages | Purpose |
 | --- | --- | --- |
-| `api` | FastAPI, Uvicorn | Optional antenna-service integrations and legacy server workflows. The current HTTP backend client uses `urllib` from the standard library. |
+| `api` | FastAPI, Uvicorn | Versioned optimizer and postprocessor HTTP services. |
+| `gateway` | Azure Kusto client, Psycopg | ADX/KOGS acquisition and durable orchestration only. |
+| `research` | Polars | Quarantined FOREST readers and report reproduction. |
 | `plot` | Matplotlib | Optional analysis/plot generation; core reports do not require it. |
-| development | pytest, pytest-cov | Test execution and coverage. |
+| development | pytest, pytest-cov, Ruff, ty, Polars | Quality gates and research regression tests. |
 
 Install optional extras when required:
 
 ```bash
 uv sync --extra api
+uv sync --extra api --extra gateway
 uv sync --extra plot
 ```
 

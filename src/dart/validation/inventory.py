@@ -6,7 +6,7 @@ from pathlib import Path
 
 import polars as pl
 
-from ..io.forest import DOPPLER_COLUMN
+from ..legacy.forest import DOPPLER_COLUMN
 
 
 def forest_contact_inventory(

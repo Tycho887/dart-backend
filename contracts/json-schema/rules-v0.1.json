@@ -1,0 +1,79 @@
+{
+  "BatchResult": {
+    "allOf": [
+      {
+        "if": {
+          "properties": {"model": {"const": "time_offset"}},
+          "required": ["model"]
+        },
+        "then": {
+          "properties": {
+            "parameters": {"$ref": "#/components/schemas/TimeOffsetParameters"}
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {"model": {"const": "time_offset_pass_bias"}},
+          "required": ["model"]
+        },
+        "then": {
+          "properties": {
+            "parameters": {"$ref": "#/components/schemas/TimeOffsetPassBiasParameters"}
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "model": {"const": "time_offset_frequency_pass_bias"}
+          },
+          "required": ["model"]
+        },
+        "then": {
+          "properties": {
+            "parameters": {
+              "$ref": "#/components/schemas/TimeOffsetFrequencyPassBiasParameters"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {"model": {"const": "mean_elements_two_parameter"}},
+          "required": ["model"]
+        },
+        "then": {
+          "properties": {
+            "parameters": {
+              "$ref": "#/components/schemas/MeanElementsTwoParameterParameters"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "Measurement": {
+    "allOf": [
+      {
+        "anyOf": [
+          {
+            "properties": {"doppler_hz": {"type": "number"}},
+            "required": ["doppler_hz"]
+          },
+          {
+            "properties": {"phase_difference_rad": {"type": "number"}},
+            "required": ["phase_difference_rad"]
+          }
+        ]
+      },
+      {
+        "if": {
+          "properties": {"phase_difference_rad": {"type": "number"}},
+          "required": ["phase_difference_rad"]
+        },
+        "then": {"required": ["phase_baseline_itrf_m"]}
+      }
+    ]
+  }
+}

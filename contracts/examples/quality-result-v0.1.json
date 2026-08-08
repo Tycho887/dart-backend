@@ -1,0 +1,24 @@
+{
+  "schema_version": "0.1",
+  "evidence_class": "residual_only",
+  "convergence": {
+    "metrics": {
+      "success": true,
+      "iterations": 3
+    }
+  },
+  "residuals": {
+    "metrics": {
+      "rms_hz": 2.64575131,
+      "count": 3
+    }
+  },
+  "selection": {
+    "criterion": "bic",
+    "eligible": true,
+    "score": 16.514,
+    "observations": 3,
+    "fitted_parameter_count": 2,
+    "residual_sum_squares_hz2": 21.0
+  }
+}

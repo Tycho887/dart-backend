@@ -5,13 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import satkit as sk
 
 from .constants import SPEED_OF_LIGHT_M_S
-from .geometry import RelativeGeometry, tle_relative_geometry
-from .geometry import enu_basis, station_state_gcrf
+from .geometry import RelativeGeometry, enu_basis, station_state_gcrf, tle_relative_geometry
 from .types import MeasurementMode, RFObservation, TLEContext
-
-import satkit as sk
 
 
 def wrap_angle_rad(value):
@@ -115,6 +113,26 @@ def prepare_batch_cache(
     )
 
 
+def predict_cached_tle_doppler_hz(
+    context: TLEContext,
+    cache: BatchMeasurementCache,
+) -> np.ndarray:
+    """Predict unbiased Doppler from a TLE at cached observation epochs."""
+
+    position_teme, velocity_teme = sk.sgp4(context.tle, list(cache.epochs))
+    satellite_position = np.einsum(
+        "nij,nj->ni", cache.teme_position_to_gcrf, np.atleast_2d(position_teme)
+    )
+    satellite_velocity = np.einsum(
+        "nij,nj->ni", cache.teme_velocity_to_gcrf, np.atleast_2d(velocity_teme)
+    ) + np.einsum("nij,nj->ni", cache.teme_position_velocity_term, np.atleast_2d(position_teme))
+    relative_position = satellite_position - cache.station_position_gcrf_m
+    relative_velocity = satellite_velocity - cache.station_velocity_gcrf_m_s
+    ranges = np.linalg.norm(relative_position, axis=1)
+    range_rate = np.einsum("ni,ni->n", relative_position, relative_velocity) / ranges
+    return np.asarray(doppler_offset_hz(range_rate, context.carrier_hz))
+
+
 class MeasurementModel:
     """Predict optional passive-RF channels from a TLE and filter state."""
 
@@ -134,9 +152,7 @@ class MeasurementModel:
             context.tle, context.station, observation.epoch, float(state[0])
         )
         doppler = float(
-            doppler_offset_hz(
-                geometry.range_rate_m_s, context.carrier_hz, float(state[1])
-            )
+            doppler_offset_hz(geometry.range_rate_m_s, context.carrier_hz, float(state[1]))
         )
         if selected is MeasurementMode.DOPPLER:
             return MeasurementPrediction(np.array([doppler]), geometry)
@@ -161,18 +177,14 @@ class MeasurementModel:
         """Vectorized equivalent of :meth:`predict` for one station/pass."""
 
         state = np.asarray(state, dtype=float)
-        shifted_epochs = [
-            epoch + sk.duration(seconds=float(state[0])) for epoch in cache.epochs
-        ]
+        shifted_epochs = [epoch + sk.duration(seconds=float(state[0])) for epoch in cache.epochs]
         position_teme, velocity_teme = sk.sgp4(context.tle, shifted_epochs)
         satellite_position = np.einsum(
             "nij,nj->ni", cache.teme_position_to_gcrf, np.atleast_2d(position_teme)
         )
         satellite_velocity = np.einsum(
             "nij,nj->ni", cache.teme_velocity_to_gcrf, np.atleast_2d(velocity_teme)
-        ) + np.einsum(
-            "nij,nj->ni", cache.teme_position_velocity_term, np.atleast_2d(position_teme)
-        )
+        ) + np.einsum("nij,nj->ni", cache.teme_position_velocity_term, np.atleast_2d(position_teme))
         relative_position = satellite_position - cache.station_position_gcrf_m
         relative_velocity = satellite_velocity - cache.station_velocity_gcrf_m_s
         ranges = np.linalg.norm(relative_position, axis=1)

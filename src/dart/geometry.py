@@ -7,13 +7,50 @@ velocity vector as if frames were static.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 import numpy as np
 import satkit as sk
 
 from .types import Station
+
+
+def station_from_itrf(station_id: str, position_itrf_m: np.ndarray) -> Station:
+    """Convert a WGS-84 ITRF Cartesian position to a geodetic station."""
+
+    x, y, z = np.asarray(position_itrf_m, dtype=float)
+    if not np.isfinite([x, y, z]).all():
+        raise ValueError("station ITRF position must be finite")
+    semi_major_m = 6_378_137.0
+    flattening = 1.0 / 298.257223563
+    eccentricity_squared = flattening * (2.0 - flattening)
+    longitude = float(np.arctan2(y, x))
+    radius_xy = float(np.hypot(x, y))
+    if radius_xy == 0.0 and z == 0.0:
+        raise ValueError("station ITRF position cannot be the Earth centre")
+    latitude = float(np.arctan2(z, radius_xy * (1.0 - eccentricity_squared)))
+    altitude = 0.0
+    for _ in range(12):
+        sin_latitude = np.sin(latitude)
+        normal = semi_major_m / np.sqrt(1.0 - eccentricity_squared * sin_latitude**2)
+        cos_latitude = np.cos(latitude)
+        if abs(cos_latitude) < 1e-12:
+            altitude = abs(z) - normal * (1.0 - eccentricity_squared)
+        else:
+            altitude = radius_xy / cos_latitude - normal
+        denominator = radius_xy * (1.0 - eccentricity_squared * normal / (normal + altitude))
+        updated = float(np.arctan2(z, denominator))
+        if abs(updated - latitude) < 1e-13:
+            latitude = updated
+            break
+        latitude = updated
+    return Station(
+        station_id=station_id,
+        latitude_deg=float(np.degrees(latitude)),
+        longitude_deg=float(np.degrees(longitude)),
+        altitude_m=float(altitude),
+    )
 
 
 @dataclass(frozen=True, slots=True)

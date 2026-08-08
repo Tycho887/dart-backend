@@ -1,0 +1,781 @@
+{
+  "dashboard": {
+    "annotations": {
+      "list": []
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "id": 3774220890824704,
+    "links": [],
+    "liveNow": false,
+    "panels": [
+      {
+        "datasource": {
+          "type": "datasource",
+          "uid": "grafana"
+        },
+        "gridPos": {
+          "h": 58,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "id": 1,
+        "options": {
+          "buttonGroup": {
+            "orientation": "center",
+            "size": "md"
+          },
+          "confirmModal": {
+            "body": "Please confirm to update changed values",
+            "cancel": "Cancel",
+            "columns": {
+              "include": [
+                "name",
+                "oldValue",
+                "newValue"
+              ],
+              "name": "Label",
+              "newValue": "New Value",
+              "oldValue": "Old Value"
+            },
+            "confirm": "Confirm",
+            "elementDisplayMode": "modified",
+            "title": "Confirm update request"
+          },
+          "elementValueChanged": "",
+          "elements": [
+            {
+              "id": "lookup_contact_id",
+              "labelWidth": 28,
+              "section": "lookup",
+              "title": "Contact UUID",
+              "tooltip": "Enter the contact uuid to retrieve normalized metadata.",
+              "type": "string",
+              "uid": "34ab9ace-b199-5e82-9fee-d88f10dd3c57",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "id",
+              "labelWidth": 28,
+              "section": "identity",
+              "title": "Contact ID",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "69f81816-c934-5968-9687-9ee5df7e1799",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "reservation_id",
+              "labelWidth": 28,
+              "section": "identity",
+              "title": "Reservation ID",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "189f135f-6032-5805-987a-8119a8ab31e5",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "state",
+              "labelWidth": 28,
+              "section": "identity",
+              "title": "State",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "91c53038-286d-5bd8-8121-fee2d9265602",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "criticality",
+              "labelWidth": 28,
+              "section": "identity",
+              "title": "Criticality",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "d78f21b8-609c-5871-97ac-34504d793f49",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "external_ref",
+              "labelWidth": 28,
+              "section": "identity",
+              "title": "External Reference",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "6f7d63f7-8e53-5170-9539-83445e363b9c",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "spacecraft_id",
+              "labelWidth": 28,
+              "section": "relationships",
+              "title": "Spacecraft ID",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "9995bf21-d5d7-5bcb-80b1-31d3b4fc20eb",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "ephemeris_id",
+              "labelWidth": 28,
+              "section": "relationships",
+              "title": "Ephemeris ID",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "39031c13-d077-5bc1-8430-933ac7bb7fc1",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "mission_profile_id",
+              "labelWidth": 28,
+              "section": "relationships",
+              "title": "Mission Profile ID",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "f686fbe1-e4b7-5939-aeed-c03058c74592",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "system_id",
+              "labelWidth": 28,
+              "section": "relationships",
+              "title": "System ID",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "b38c3aa1-fd43-51b2-b9e7-e088767bc05f",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "station_id",
+              "labelWidth": 28,
+              "section": "relationships",
+              "title": "Station ID",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "32cdd087-703f-511e-9d89-5b63357ca98c",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "tenant_id",
+              "labelWidth": 28,
+              "section": "relationships",
+              "title": "Tenant ID",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "593eed56-520c-5ad1-9d3e-521d0100810b",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "start_time",
+              "labelWidth": 28,
+              "section": "timing",
+              "title": "Start Time",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "13292f0f-281e-5571-adc0-d920fca87c77",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "end_time",
+              "labelWidth": 28,
+              "section": "timing",
+              "title": "End Time",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "5e7b86b1-0e9d-5888-ad4f-cc069a30e6ec",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "setup_duration",
+              "labelWidth": 28,
+              "section": "timing",
+              "title": "Setup Duration",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "17c04d22-4b96-59d3-a1bb-16a6aa672b02",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "teardown_duration",
+              "labelWidth": 28,
+              "section": "timing",
+              "title": "Teardown Duration",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "453b1359-912a-5c28-8d2d-59de15413b2e",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "created_at",
+              "labelWidth": 28,
+              "section": "timing",
+              "title": "Created At",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "86660d1e-a4f9-5b54-beaa-69ec6611a85b",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "updated_at",
+              "labelWidth": 28,
+              "section": "timing",
+              "title": "Updated At",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "ef3b61c8-0952-51c6-8814-101e2c2e6ff4",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "ephemeris_mode",
+              "labelWidth": 28,
+              "section": "relationships",
+              "title": "Ephemeris Mode",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "0982a6da-d42a-574a-b918-802e1b08f7f5",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "signature_outcome",
+              "labelWidth": 28,
+              "section": "signature",
+              "title": "Signature Outcome",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "f3be73c1-5b0d-5ab8-b2eb-634241762b5b",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "signature_comment",
+              "labelWidth": 28,
+              "section": "signature",
+              "title": "Signature Comment",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "2efa041f-4c6c-5888-abcc-4b776ec87326",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "signature_contains_human_override",
+              "labelWidth": 28,
+              "section": "signature",
+              "title": "Human Override",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "8b7bc9f3-1c1d-5a87-94bf-0263d3ee1736",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "signature_last_impacting_principal_kind",
+              "labelWidth": 28,
+              "section": "signature",
+              "title": "Last Impacting Principal",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "271789fb-0fed-5eb6-b525-46de7b201518",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "properties_is_test",
+              "labelWidth": 28,
+              "section": "properties",
+              "title": "Test Contact",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "de7bdf1a-3f15-585d-b681-5f33f7a7400a",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "properties_is_internal",
+              "labelWidth": 28,
+              "section": "properties",
+              "title": "Internal Contact",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "c9aeb7da-20ee-581e-ada0-12d8793a61d3",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "properties_cfes",
+              "labelWidth": 28,
+              "section": "properties",
+              "title": "CFEs",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "57747868-1acf-53df-8977-ec63366f66d2",
+              "unit": "",
+              "value": ""
+            }
+          ],
+          "initial": {
+            "code": "",
+            "contentType": "application/json",
+            "datasource": "",
+            "getPayload": "return {};",
+            "highlight": false,
+            "highlightColor": "green",
+            "method": "-",
+            "payload": {},
+            "query": ""
+          },
+          "layout": {
+            "orientation": "vertical",
+            "padding": 16,
+            "sectionVariant": "default",
+            "sections": [
+              {
+                "id": "lookup",
+                "name": "Lookup"
+              },
+              {
+                "id": "identity",
+                "name": "Contact"
+              },
+              {
+                "id": "relationships",
+                "name": "Related Resources"
+              },
+              {
+                "id": "timing",
+                "name": "Timing"
+              },
+              {
+                "id": "signature",
+                "name": "Signature"
+              },
+              {
+                "id": "properties",
+                "name": "Properties"
+              }
+            ],
+            "variant": "split"
+          },
+          "reset": {
+            "backgroundColor": "purple",
+            "foregroundColor": "yellow",
+            "icon": "trash-alt",
+            "text": "Clear",
+            "variant": "secondary"
+          },
+          "resetAction": {
+            "code": "context.grafana.notifySuccess(['Metadata lookup', 'Form values cleared.']);",
+            "confirm": true,
+            "getPayload": "return {}",
+            "mode": "initial",
+            "payload": {}
+          },
+          "saveDefault": {
+            "icon": "save",
+            "text": "Save Default",
+            "variant": "hidden"
+          },
+          "submit": {
+            "backgroundColor": "purple",
+            "foregroundColor": "yellow",
+            "icon": "search",
+            "text": "Fetch Contact",
+            "variant": "primary"
+          },
+          "sync": true,
+          "update": {
+            "code": "const response = context.panel.response;\nif (!response || typeof response.json !== 'function') {\n  context.grafana.notifyError(['Metadata lookup', 'The server returned an unreadable response.']);\n  return;\n}\n\nreturn response.json()\n  .then((values) => {\n    if (!response.ok) {\n      context.grafana.notifyError([\n        'Metadata lookup',\n        values.detail ?? `Request failed with HTTP ${response.status}.`,\n      ]);\n      return;\n    }\n    if (!values || typeof values !== 'object' || Array.isArray(values)) {\n      context.grafana.notifyError(['Metadata lookup', 'The server returned no metadata.']);\n      return;\n    }\n\n    context.panel.onChangeElements(\n      context.panel.elements.map((element) => {\n        if (element.id.startsWith('lookup_')) {\n          return element;\n        }\n        return {\n          ...element,\n          value: values[element.id] ?? '',\n        };\n      })\n    );\n    context.grafana.notifySuccess(['Metadata lookup', 'Metadata loaded successfully.']);\n  })\n  .catch((error) => {\n    context.grafana.notifyError([\n      'Metadata lookup',\n      `Could not read the server response: ${error.message ?? error}`,\n    ]);\n  });",
+            "confirm": false,
+            "contentType": "application/json",
+            "getPayload": "const input = context.panel.elements.find((element) => element.id === 'lookup_contact_id');\nconst value = String(input?.value ?? '').trim();\nreturn { contact_id: value };",
+            "header": [],
+            "method": "POST",
+            "payload": {},
+            "payloadMode": "custom",
+            "url": "/dart-api/v0/metadata/contact"
+          },
+          "updateEnabled": "auto"
+        },
+        "pluginVersion": "6.3.5",
+        "targets": [
+          {
+            "datasource": {
+              "type": "datasource",
+              "uid": "grafana"
+            },
+            "queryType": "randomWalk",
+            "refId": "A"
+          }
+        ],
+        "title": "Contact Metadata",
+        "type": "volkovlabs-form-panel"
+      },
+      {
+        "datasource": {
+          "type": "datasource",
+          "uid": "grafana"
+        },
+        "gridPos": {
+          "h": 58,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
+        "id": 2,
+        "options": {
+          "buttonGroup": {
+            "orientation": "center",
+            "size": "md"
+          },
+          "confirmModal": {
+            "body": "Please confirm to update changed values",
+            "cancel": "Cancel",
+            "columns": {
+              "include": [
+                "name",
+                "oldValue",
+                "newValue"
+              ],
+              "name": "Label",
+              "newValue": "New Value",
+              "oldValue": "Old Value"
+            },
+            "confirm": "Confirm",
+            "elementDisplayMode": "modified",
+            "title": "Confirm update request"
+          },
+          "elementValueChanged": "",
+          "elements": [
+            {
+              "id": "lookup_ephemeris_id",
+              "labelWidth": 28,
+              "section": "lookup",
+              "title": "Ephemeris UUID",
+              "tooltip": "Enter the ephemeris uuid to retrieve normalized metadata.",
+              "type": "string",
+              "uid": "131f2199-a3b3-5325-8652-06c6bf8206df",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "ephemeris_uuid",
+              "labelWidth": 28,
+              "section": "identity",
+              "title": "Ephemeris UUID",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "5b2a080d-50fc-5cc8-9b64-b81d2f279edb",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "spacecraft_uuid",
+              "labelWidth": 28,
+              "section": "identity",
+              "title": "Spacecraft UUID",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "f5c4a7b6-2263-579b-bb03-6ccc8488e3a2",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "kind",
+              "labelWidth": 28,
+              "section": "identity",
+              "title": "Kind",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "c9297bcf-db75-5456-867c-113dd6bb30f7",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "origin",
+              "labelWidth": 28,
+              "section": "identity",
+              "title": "Origin",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "a5ecb4e7-e56c-5ada-97ef-1011c43ede9c",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "tenant_uuid",
+              "labelWidth": 28,
+              "section": "identity",
+              "title": "Tenant UUID",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "d1380e49-21dd-55fd-acf4-0c5767577fdd",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "is_cui",
+              "labelWidth": 28,
+              "section": "identity",
+              "title": "CUI",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "a5b633ee-a494-5c6d-89b9-7a72fe401e57",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "epoch",
+              "labelWidth": 28,
+              "section": "timing",
+              "title": "Epoch",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "f3d9822e-5738-5d57-b0f0-14a7ec495635",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "last_useable_at",
+              "labelWidth": 28,
+              "section": "timing",
+              "title": "Last Usable At",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "dc042c60-5d2c-5a4f-9ab4-beb01a8f595c",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "submitted_at",
+              "labelWidth": 28,
+              "section": "timing",
+              "title": "Submitted At",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "a6a4f81a-1591-5de0-b608-850319fea757",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "submitted_by",
+              "labelWidth": 28,
+              "section": "timing",
+              "title": "Submitted By",
+              "tooltip": "",
+              "type": "disabled",
+              "uid": "2856b963-0cd2-5f84-a8c9-504efcdc22ab",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "inline_tle",
+              "labelWidth": 28,
+              "rows": 4,
+              "section": "data",
+              "title": "Inline TLE",
+              "tooltip": "",
+              "type": "disabledTextarea",
+              "uid": "c06f12d0-3a32-53bc-808c-3b562e2afe18",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "inline_omm",
+              "labelWidth": 28,
+              "rows": 5,
+              "section": "data",
+              "title": "Inline OMM",
+              "tooltip": "",
+              "type": "disabledTextarea",
+              "uid": "837f343a-4b83-559c-8e61-8ff48f7a3766",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "inline_oem",
+              "labelWidth": 28,
+              "rows": 5,
+              "section": "data",
+              "title": "Inline OEM",
+              "tooltip": "",
+              "type": "disabledTextarea",
+              "uid": "9f96eb3b-9dd6-5ceb-b2d8-7217be1a2530",
+              "unit": "",
+              "value": ""
+            },
+            {
+              "id": "payload",
+              "labelWidth": 28,
+              "rows": 5,
+              "section": "data",
+              "title": "Payload",
+              "tooltip": "",
+              "type": "disabledTextarea",
+              "uid": "b3676f51-656b-5f5f-aa81-c9e413e5e4a9",
+              "unit": "",
+              "value": ""
+            }
+          ],
+          "initial": {
+            "code": "",
+            "contentType": "application/json",
+            "datasource": "",
+            "getPayload": "return {};",
+            "highlight": false,
+            "highlightColor": "green",
+            "method": "-",
+            "payload": {},
+            "query": ""
+          },
+          "layout": {
+            "orientation": "vertical",
+            "padding": 16,
+            "sectionVariant": "default",
+            "sections": [
+              {
+                "id": "lookup",
+                "name": "Lookup"
+              },
+              {
+                "id": "identity",
+                "name": "Ephemeris"
+              },
+              {
+                "id": "timing",
+                "name": "Lifecycle"
+              },
+              {
+                "id": "data",
+                "name": "Orbit Data"
+              }
+            ],
+            "variant": "split"
+          },
+          "reset": {
+            "backgroundColor": "purple",
+            "foregroundColor": "yellow",
+            "icon": "trash-alt",
+            "text": "Clear",
+            "variant": "secondary"
+          },
+          "resetAction": {
+            "code": "context.grafana.notifySuccess(['Metadata lookup', 'Form values cleared.']);",
+            "confirm": true,
+            "getPayload": "return {}",
+            "mode": "initial",
+            "payload": {}
+          },
+          "saveDefault": {
+            "icon": "save",
+            "text": "Save Default",
+            "variant": "hidden"
+          },
+          "submit": {
+            "backgroundColor": "purple",
+            "foregroundColor": "yellow",
+            "icon": "search",
+            "text": "Fetch Ephemeris",
+            "variant": "primary"
+          },
+          "sync": true,
+          "update": {
+            "code": "const response = context.panel.response;\nif (!response || typeof response.json !== 'function') {\n  context.grafana.notifyError(['Metadata lookup', 'The server returned an unreadable response.']);\n  return;\n}\n\nreturn response.json()\n  .then((values) => {\n    if (!response.ok) {\n      context.grafana.notifyError([\n        'Metadata lookup',\n        values.detail ?? `Request failed with HTTP ${response.status}.`,\n      ]);\n      return;\n    }\n    if (!values || typeof values !== 'object' || Array.isArray(values)) {\n      context.grafana.notifyError(['Metadata lookup', 'The server returned no metadata.']);\n      return;\n    }\n\n    context.panel.onChangeElements(\n      context.panel.elements.map((element) => {\n        if (element.id.startsWith('lookup_')) {\n          return element;\n        }\n        return {\n          ...element,\n          value: values[element.id] ?? '',\n        };\n      })\n    );\n    context.grafana.notifySuccess(['Metadata lookup', 'Metadata loaded successfully.']);\n  })\n  .catch((error) => {\n    context.grafana.notifyError([\n      'Metadata lookup',\n      `Could not read the server response: ${error.message ?? error}`,\n    ]);\n  });",
+            "confirm": false,
+            "contentType": "application/json",
+            "getPayload": "const input = context.panel.elements.find((element) => element.id === 'lookup_ephemeris_id');\nconst value = String(input?.value ?? '').trim();\nreturn { ephemeris_id: value };",
+            "header": [],
+            "method": "POST",
+            "payload": {},
+            "payloadMode": "custom",
+            "url": "/dart-api/v0/metadata/ephemeris"
+          },
+          "updateEnabled": "auto"
+        },
+        "pluginVersion": "6.3.5",
+        "targets": [
+          {
+            "datasource": {
+              "type": "datasource",
+              "uid": "grafana"
+            },
+            "queryType": "randomWalk",
+            "refId": "A"
+          }
+        ],
+        "title": "Ephemeris Metadata",
+        "type": "volkovlabs-form-panel"
+      }
+    ],
+    "preload": false,
+    "refresh": "",
+    "schemaVersion": 42,
+    "tags": [
+      "DASH",
+      "metadata",
+      "KOGS"
+    ],
+    "templating": {
+      "list": []
+    },
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "timezone": "browser",
+    "title": "Metadata Explorer",
+    "uid": "dc229649-0afe-4f12-8bde-7cbdd4f1cd6d",
+    "version": 5
+  },
+  "meta": {
+    "annotationsPermissions": {
+      "dashboard": {
+        "canAdd": true,
+        "canDelete": true,
+        "canEdit": true
+      }
+    },
+    "apiVersion": "v0alpha1",
+    "canAdmin": true,
+    "canDelete": true,
+    "canEdit": true,
+    "canSave": true,
+    "canStar": true,
+    "created": "2026-08-07T15:05:15+02:00",
+    "createdBy": "admin",
+    "expires": "0001-01-01T00:00:00Z",
+    "folderId": 0,
+    "folderTitle": "General",
+    "folderUid": "",
+    "folderUrl": "",
+    "hasAcl": false,
+    "isFolder": false,
+    "provisioned": false,
+    "provisionedExternalId": "",
+    "slug": "metadata-explorer",
+    "type": "db",
+    "updated": "2026-08-08T03:49:55+02:00",
+    "updatedBy": "admin",
+    "url": "/d/dc229649-0afe-4f12-8bde-7cbdd4f1cd6d/metadata-explorer",
+    "version": 5
+  }
+}

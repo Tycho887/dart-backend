@@ -44,7 +44,9 @@ class HTTPAntennaBackend:
         if "measurement_utc_s" in payload:
             return sk.time.from_unixtime(float(payload["measurement_utc_s"]))
         if "measurement_time" in payload:
-            value = dt.datetime.fromisoformat(str(payload["measurement_time"]).replace("Z", "+00:00"))
+            value = dt.datetime.fromisoformat(
+                str(payload["measurement_time"]).replace("Z", "+00:00")
+            )
             return sk.time.from_datetime(value)
         if "sim_time_s" in payload and self.simulation_epoch is not None:
             return self.simulation_epoch + sk.duration(seconds=float(payload["sim_time_s"]))
@@ -57,10 +59,10 @@ class HTTPAntennaBackend:
         return RFObservation(
             epoch=self._epoch(payload),
             station_id=self.station_id,
-            doppler_hz=float(payload["doppler_hz"] if "doppler_hz" in payload else payload["doppler_freq"]),
-            phase_rad=(
-                None if payload.get("phase_diff") is None else float(payload["phase_diff"])
+            doppler_hz=float(
+                payload["doppler_hz"] if "doppler_hz" in payload else payload["doppler_freq"]
             ),
+            phase_rad=(None if payload.get("phase_diff") is None else float(payload["phase_diff"])),
             valid=bool(payload.get("valid", True)),
             commanded_az_deg=payload.get("az_cmd"),
             commanded_el_deg=payload.get("el_cmd"),
@@ -68,4 +70,3 @@ class HTTPAntennaBackend:
             sequence=payload.get("sequence"),
             quality={"source": "http"},
         )
-

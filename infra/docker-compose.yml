@@ -1,0 +1,128 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb-ha@sha256:a8e3322e1cf936828698cb4de2a9c4b59acae1b123909f023bb15f42270af95d
+    ports:
+      - "127.0.0.1:${DART_TIMESCALE_PORT:-5433}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dart}
+      POSTGRES_USER: ${POSTGRES_USER:-dart}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-dart} -d $${POSTGRES_DB:-dart}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - dart_timescaledb:/home/postgres/pgdata/data
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+      target: gateway
+    command: dart-gateway
+    environment:
+      DART_DATABASE_URL: ${DART_DATABASE_URL:?set DART_DATABASE_URL}
+      DART_GATEWAY_BEARER_TOKEN: ${DART_GATEWAY_BEARER_TOKEN:?set DART_GATEWAY_BEARER_TOKEN}
+      DART_CORS_ORIGINS: ${DART_CORS_ORIGINS:-http://localhost:3000}
+      DART_AUTO_MIGRATE: ${DART_AUTO_MIGRATE:-true}
+      DART_RUN_LEASE_SECONDS: ${DART_RUN_LEASE_SECONDS:-1800}
+      DART_ACQUISITION_TIMEOUT_SECONDS: ${DART_ACQUISITION_TIMEOUT_SECONDS:-120}
+      AZURE_ADX_CLUSTER_ENDPOINT: ${AZURE_ADX_CLUSTER_ENDPOINT:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      KOGS_API_KEY: ${KOGS_API_KEY:-}
+      KOGS_API_BASE_URL: ${KOGS_API_BASE_URL:-https://mgmt.kogs.api.ksat.no/24.08}
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+      target: gateway
+    command: dart-worker
+    environment:
+      DART_DATABASE_URL: ${DART_DATABASE_URL:?set DART_DATABASE_URL}
+      DART_INTERNAL_BEARER_TOKEN: ${DART_INTERNAL_BEARER_TOKEN:?set DART_INTERNAL_BEARER_TOKEN}
+      DART_OPTIMIZER_URL: ${DART_OPTIMIZER_URL:-http://optimizer:8001}
+      DART_POSTPROCESSOR_URL: ${DART_POSTPROCESSOR_URL:-http://postprocessor:8002}
+      DART_WORKER_POLL_SECONDS: ${DART_WORKER_POLL_SECONDS:-2}
+      DART_RUN_LEASE_SECONDS: ${DART_RUN_LEASE_SECONDS:-1800}
+      DART_SERVICE_TIMEOUT_SECONDS: ${DART_SERVICE_TIMEOUT_SECONDS:-120}
+      DART_ACQUISITION_TIMEOUT_SECONDS: ${DART_ACQUISITION_TIMEOUT_SECONDS:-120}
+      DART_SOLVER_VERSION: ${DART_SOLVER_VERSION:-0.2.0}
+      DART_POSTPROCESSOR_VERSION: ${DART_POSTPROCESSOR_VERSION:-0.2.0}
+      AZURE_ADX_CLUSTER_ENDPOINT: ${AZURE_ADX_CLUSTER_ENDPOINT:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      KOGS_API_KEY: ${KOGS_API_KEY:-}
+      KOGS_API_BASE_URL: ${KOGS_API_BASE_URL:-https://mgmt.kogs.api.ksat.no/24.08}
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      optimizer:
+        condition: service_started
+      postprocessor:
+        condition: service_started
+
+  optimizer:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+      target: api
+    command: dart-optimizer
+    environment:
+      DART_INTERNAL_BEARER_TOKEN: ${DART_INTERNAL_BEARER_TOKEN:?set DART_INTERNAL_BEARER_TOKEN}
+
+  postprocessor:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+      target: api
+    command: dart-postprocessor
+    environment:
+      DART_INTERNAL_BEARER_TOKEN: ${DART_INTERNAL_BEARER_TOKEN:?set DART_INTERNAL_BEARER_TOKEN}
+
+  gateway-proxy:
+    image: nginx:1.27-alpine
+    environment:
+      DART_GATEWAY_BEARER_TOKEN: ${DART_GATEWAY_BEARER_TOKEN:?set DART_GATEWAY_BEARER_TOKEN}
+      NGINX_ENVSUBST_FILTER: DART_GATEWAY_BEARER_TOKEN
+    ports: ["127.0.0.1:${DART_GRAFANA_PORT:-3000}:8080"]
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    depends_on:
+      gateway:
+        condition: service_started
+      grafana:
+        condition: service_started
+
+  grafana:
+    image: grafana/grafana:13.0.2
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?set GF_SECURITY_ADMIN_PASSWORD}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_INSTALL_PLUGINS: "volkovlabs-form-panel 6.3.5,grafana-azure-data-explorer-datasource 7.2.6"
+      POSTGRES_DB: ${POSTGRES_DB:-dart}
+      POSTGRES_USER: ${POSTGRES_USER:-dart}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      AZURE_ADX_CLUSTER_ENDPOINT: ${AZURE_ADX_CLUSTER_ENDPOINT:?set AZURE_ADX_CLUSTER_ENDPOINT}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:?set AZURE_CLIENT_ID}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:?set AZURE_CLIENT_SECRET}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:?set AZURE_TENANT_ID}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../dashboards/provisioned:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+
+volumes:
+  dart_timescaledb:
+  grafana_data:

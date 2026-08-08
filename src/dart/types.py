@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 import numpy as np
 
 
-class MeasurementMode(str, Enum):
+class MeasurementMode(StrEnum):
     """RF channels consumed by an estimator."""
 
     DOPPLER = "doppler"
@@ -83,9 +83,7 @@ class RFObservation:
     @property
     def mode(self) -> MeasurementMode:
         return (
-            MeasurementMode.DOPPLER_PHASE
-            if self.phase_rad is not None
-            else MeasurementMode.DOPPLER
+            MeasurementMode.DOPPLER_PHASE if self.phase_rad is not None else MeasurementMode.DOPPLER
         )
 
     def measurement(self, mode: MeasurementMode | None = None) -> np.ndarray:

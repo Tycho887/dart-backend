@@ -1,0 +1,18 @@
+apiVersion: 1
+
+datasources:
+  - name: grafana-azure-data-explorer-datasource
+    uid: ffo40r3smd81sb
+    type: grafana-azure-data-explorer-datasource
+    access: proxy
+    jsonData:
+      azureCredentials:
+        authType: clientsecret
+        azureCloud: AzureCloud
+        clientId: ${AZURE_CLIENT_ID}
+        tenantId: ${AZURE_TENANT_ID}
+      clusterUrl: ${AZURE_ADX_CLUSTER_ENDPOINT}
+      pdcInjected: false
+    secureJsonData:
+      azureClientSecret: ${AZURE_CLIENT_SECRET}
+    editable: false

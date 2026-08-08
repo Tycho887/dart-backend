@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from dart.io.gps import gps_sow_to_utc
+from dart.legacy.gps import gps_sow_to_utc
 
 
 def test_gps_seconds_of_week_uses_packet_only_to_resolve_week():
@@ -13,4 +13,3 @@ def test_gps_seconds_of_week_uses_packet_only_to_resolve_week():
     assert abs(result[0] - packet_utc_s[0]) < 7 * 24 * 3600
     reconstructed = (result[0] + 18.0 - 315_964_800.0) % 604_800.0
     assert np.isclose(reconstructed, sow_s[0], atol=1e-6)
-

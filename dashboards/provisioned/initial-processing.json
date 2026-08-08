@@ -1,0 +1,1203 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 4363042339483648,
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 30,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "buttonGroup": {
+          "orientation": "center",
+          "size": "md"
+        },
+        "confirmModal": {
+          "body": "Please confirm to update changed values",
+          "cancel": "Cancel",
+          "columns": {
+            "include": [
+              "name",
+              "oldValue",
+              "newValue"
+            ],
+            "name": "Label",
+            "newValue": "New Value",
+            "oldValue": "Old Value"
+          },
+          "confirm": "Confirm",
+          "elementDisplayMode": "modified",
+          "title": "Confirm update request"
+        },
+        "elementValueChanged": "",
+        "elements": [
+          {
+            "hidden": false,
+            "id": "spacecraft_id",
+            "labelWidth": 20,
+            "section": "dataset_query",
+            "title": "Spacecraft ID",
+            "tooltip": "Always required for the optimizer configuration. It is also used for an interval query when no contact IDs are supplied.",
+            "type": "string",
+            "uid": "0d8b1b2b-e53b-43aa-8c9f-d0d84a04f6fe",
+            "unit": "",
+            "value": ""
+          },
+          {
+            "id": "start_time",
+            "isUseLocalTime": false,
+            "labelWidth": 20,
+            "section": "dataset_query",
+            "title": "Start Time",
+            "tooltip": "UTC start of an interval query; required with End Time when no contact IDs are supplied.",
+            "type": "datetime",
+            "uid": "c3038fd4-a13d-4486-afee-98ec852cecaa",
+            "unit": "",
+            "value": ""
+          },
+          {
+            "id": "end_time",
+            "isUseLocalTime": false,
+            "labelWidth": 20,
+            "section": "dataset_query",
+            "title": "End Time",
+            "tooltip": "UTC end of an interval query; required with Start Time when no contact IDs are supplied.",
+            "type": "datetime",
+            "uid": "f7423f5e-9558-4f50-83fb-53c5bbf238a7",
+            "unit": "",
+            "value": ""
+          },
+          {
+            "background": "",
+            "hidden": false,
+            "id": "contact_ids",
+            "labelWidth": 20,
+            "section": "dataset_query",
+            "title": "Contact IDs",
+            "tooltip": "One or more contact IDs separated by commas or spaces. When present, they replace the interval selection.",
+            "type": "string",
+            "uid": "3735b98c-f0c9-4874-9617-3f45baa608aa",
+            "unit": "",
+            "value": ""
+          },
+          {
+            "id": "reference_tle_name",
+            "labelWidth": 20,
+            "section": "optimizer_configuration",
+            "title": "Reference TLE Object Name",
+            "tooltip": "Name associated with the immutable reference TLE.",
+            "type": "string",
+            "uid": "dc67d7a4-7bbd-49b1-b5a7-a05986d9f25a",
+            "unit": "",
+            "value": ""
+          },
+          {
+            "id": "reference_tle_line1",
+            "labelWidth": 20,
+            "section": "optimizer_configuration",
+            "title": "Reference TLE Line 1",
+            "tooltip": "First line of the immutable reference TLE.",
+            "type": "string",
+            "uid": "82f8369e-237a-4122-8be8-36c066527632",
+            "unit": "",
+            "value": ""
+          },
+          {
+            "id": "reference_tle_line2",
+            "labelWidth": 20,
+            "section": "optimizer_configuration",
+            "title": "Reference TLE Line 2",
+            "tooltip": "Second line of the immutable reference TLE.",
+            "type": "string",
+            "uid": "14100ae6-df3b-4f02-aab9-e3d3666be4cc",
+            "unit": "",
+            "value": ""
+          },
+          {
+            "id": "nominal_carrier_frequency_hz",
+            "labelWidth": 20,
+            "min": 1,
+            "section": "optimizer_configuration",
+            "title": "Nominal Carrier Frequency",
+            "tooltip": "Known nominal downlink carrier frequency in hertz.",
+            "type": "number",
+            "uid": "39dcb7f2-6cbd-44a0-af6d-b52028812a37",
+            "unit": "Hz",
+            "value": 2200000000
+          },
+          {
+            "id": "minimum_elevation_deg",
+            "labelWidth": 20,
+            "max": 90,
+            "min": 0,
+            "section": "filters",
+            "step": 1,
+            "title": "Minimum Elevation",
+            "tooltip": "Discard samples below this antenna elevation, in degrees. Zero is a valid value.",
+            "type": "number",
+            "uid": "537707ff-ec8f-4fbb-8862-ddd6b3c5099a",
+            "unit": "deg",
+            "value": 1
+          },
+          {
+            "id": "minimum_ebn0_db",
+            "labelWidth": 20,
+            "max": 30,
+            "min": -30,
+            "section": "filters",
+            "step": 1,
+            "title": "Minimum Eb/N0",
+            "tooltip": "Discard samples whose receiver Eb/N0 is below this threshold, in dB. Zero is valid.",
+            "type": "number",
+            "uid": "3f8e45e7-4c73-4e63-b4bd-8fb2f649e87b",
+            "unit": "dB",
+            "value": 0
+          },
+          {
+            "id": "minimum_doppler_hz",
+            "labelWidth": 20,
+            "max": 1000000,
+            "min": -1000000,
+            "section": "filters",
+            "title": "Minimum Doppler",
+            "tooltip": "Lower bound for measured carrier-frequency offset, in Hz.",
+            "type": "number",
+            "uid": "3b4d3dd8-51e6-4c5d-bda4-2ad543c1f7c3",
+            "unit": "Hz",
+            "value": -100000
+          },
+          {
+            "id": "maximum_doppler_hz",
+            "labelWidth": 20,
+            "max": 1000000,
+            "min": -1000000,
+            "section": "filters",
+            "title": "Maximum Doppler",
+            "tooltip": "Upper bound for measured carrier-frequency offset, in Hz.",
+            "type": "number",
+            "uid": "6a6289aa-24f6-45e4-a1b1-38b69a50409c",
+            "unit": "Hz",
+            "value": 100000
+          },
+          {
+            "allowCustomValue": false,
+            "id": "require_lock",
+            "labelWidth": 20,
+            "options": [
+              {
+                "id": "true",
+                "label": "Require carrier lock",
+                "type": "string",
+                "value": "true"
+              }
+            ],
+            "optionsSource": "Custom",
+            "section": "filters",
+            "title": "Require Carrier Lock",
+            "tooltip": "When selected, include only samples whose carrier state is Locked. Leaving it clear sends false.",
+            "type": "checkboxList",
+            "uid": "8cdc031b-0633-45f8-8862-2ee49312c2f6",
+            "unit": "",
+            "value": []
+          },
+          {
+            "allowCustomValue": false,
+            "id": "candidate_models",
+            "labelWidth": 20,
+            "options": [
+              {
+                "id": "time_offset",
+                "label": "Global time offset",
+                "type": "string",
+                "value": "time_offset"
+              },
+              {
+                "id": "time_offset_pass_bias",
+                "label": "Global time offset + per-pass bias",
+                "type": "string",
+                "value": "time_offset_pass_bias"
+              },
+              {
+                "id": "time_offset_frequency_pass_bias",
+                "label": "Global time offset + carrier correction + per-pass bias",
+                "type": "string",
+                "value": "time_offset_frequency_pass_bias"
+              },
+              {
+                "id": "mean_elements_two_parameter",
+                "label": "Mean anomaly + mean motion + per-pass biases (two or more passes)",
+                "type": "string",
+                "value": "mean_elements_two_parameter"
+              }
+            ],
+            "optionsSource": "Custom",
+            "section": "candidate_metaparameters",
+            "title": "Candidate Models",
+            "tooltip": "The run evaluates the selected models in this displayed order. The mean-elements candidate profiles one bias per pass and needs telemetry from at least two distinct passes.",
+            "type": "checkboxList",
+            "uid": "b275bf32-e1d6-4d4a-ac59-7300de75cb1a",
+            "unit": "",
+            "value": [
+              "time_offset",
+              "time_offset_pass_bias",
+              "time_offset_frequency_pass_bias"
+            ]
+          },
+          {
+            "id": "doppler_standard_deviation_hz",
+            "labelWidth": 20,
+            "min": 0.001,
+            "section": "candidate_metaparameters",
+            "title": "Doppler Standard Deviation",
+            "tooltip": "Explicit Doppler standard deviation shared by every selected candidate.",
+            "type": "number",
+            "uid": "bf59e7cb-e99c-49cd-9008-4adcf04db1ce",
+            "unit": "Hz",
+            "value": 500
+          },
+          {
+            "allowCustomValue": false,
+            "id": "robust_loss",
+            "labelWidth": 20,
+            "options": [
+              {
+                "id": "cauchy",
+                "label": "Cauchy",
+                "type": "string",
+                "value": "cauchy"
+              },
+              {
+                "id": "linear",
+                "label": "Linear",
+                "type": "string",
+                "value": "linear"
+              },
+              {
+                "id": "soft_l1",
+                "label": "Soft L1",
+                "type": "string",
+                "value": "soft_l1"
+              },
+              {
+                "id": "huber",
+                "label": "Huber",
+                "type": "string",
+                "value": "huber"
+              },
+              {
+                "id": "arctan",
+                "label": "Arctan",
+                "type": "string",
+                "value": "arctan"
+              }
+            ],
+            "optionsSource": "Custom",
+            "section": "candidate_metaparameters",
+            "title": "Robust Loss",
+            "tooltip": "Robust least-squares loss shared by every selected candidate.",
+            "type": "select",
+            "uid": "62e1711f-b53b-4166-9248-1e9b411fe33a",
+            "unit": "",
+            "value": "cauchy"
+          },
+          {
+            "id": "robust_scale_hz",
+            "labelWidth": 20,
+            "min": 0.001,
+            "section": "candidate_metaparameters",
+            "title": "Robust Loss Scale",
+            "tooltip": "Residual scale in Hz shared by every selected candidate.",
+            "type": "number",
+            "uid": "6f17a3b4-935d-4d94-8f0f-ab53f9933478",
+            "unit": "Hz",
+            "value": 500
+          },
+          {
+            "id": "qmc_samples",
+            "labelWidth": 20,
+            "max": 4096,
+            "min": 0,
+            "section": "candidate_metaparameters",
+            "step": 1,
+            "title": "QMC Samples",
+            "tooltip": "Quasi-Monte Carlo initial candidates for every selected model. Zero deliberately disables QMC.",
+            "type": "number",
+            "uid": "c2c08141-c059-47c0-81aa-8b6539d24eea",
+            "unit": "",
+            "value": 64
+          },
+          {
+            "allowCustomValue": false,
+            "id": "selection_criterion",
+            "labelWidth": 20,
+            "options": [
+              {
+                "id": "bic",
+                "label": "BIC",
+                "type": "string",
+                "value": "bic"
+              },
+              {
+                "id": "aic",
+                "label": "AIC",
+                "type": "string",
+                "value": "aic"
+              },
+              {
+                "id": "aicc",
+                "label": "Corrected AIC",
+                "type": "string",
+                "value": "aicc"
+              }
+            ],
+            "optionsSource": "Custom",
+            "section": "selection",
+            "title": "Selection Criterion",
+            "tooltip": "Criterion used to select the best healthy candidate after all selected models finish.",
+            "type": "select",
+            "uid": "99afa9a5-4e3f-461c-9f91-a0288620024a",
+            "unit": "",
+            "value": "bic"
+          }
+        ],
+        "initial": {
+          "code": "",
+          "contentType": "application/json",
+          "datasource": "ffo40r3smd81sb",
+          "getPayload": "return {}",
+          "highlight": false,
+          "highlightColor": "green",
+          "method": "-",
+          "payload": {
+            "database": "telemetry",
+            "expression": {
+              "groupBy": {
+                "expressions": [],
+                "type": "and"
+              },
+              "reduce": {
+                "expressions": [],
+                "type": "and"
+              },
+              "where": {
+                "expressions": [],
+                "type": "and"
+              }
+            },
+            "pluginVersion": "7.2.6",
+            "query": "",
+            "querySource": "raw",
+            "queryType": "KQL",
+            "rawMode": false,
+            "resultFormat": "table"
+          }
+        },
+        "layout": {
+          "orientation": "vertical",
+          "padding": 20,
+          "sectionVariant": "default",
+          "sections": [
+            {
+              "id": "dataset_query",
+              "name": "Dataset Query"
+            },
+            {
+              "id": "optimizer_configuration",
+              "name": "Optimizer Configuration"
+            },
+            {
+              "id": "filters",
+              "name": "Dataset Filters"
+            },
+            {
+              "id": "candidate_metaparameters",
+              "name": "Candidate Metaparameters"
+            },
+            {
+              "id": "selection",
+              "name": "Candidate Selection"
+            }
+          ],
+          "variant": "split"
+        },
+        "reset": {
+          "backgroundColor": "purple",
+          "foregroundColor": "yellow",
+          "icon": "process",
+          "text": "Reset",
+          "variant": "destructive"
+        },
+        "resetAction": {
+          "code": "context.grafana.notifySuccess(['Pipeline', 'Form values reset.']);",
+          "confirm": true,
+          "getPayload": "return {}",
+          "mode": "initial",
+          "payload": {}
+        },
+        "saveDefault": {
+          "icon": "save",
+          "text": "Save Default",
+          "variant": "hidden"
+        },
+        "submit": {
+          "backgroundColor": "purple",
+          "foregroundColor": "yellow",
+          "icon": "calculator-alt",
+          "text": "Process Orbit",
+          "variant": "primary"
+        },
+        "sync": true,
+        "update": {
+          "code": "const response = context.panel.response;\nif (!response || typeof response.json !== 'function') {\n  context.grafana.notifyError(['Pipeline', 'The gateway returned an unreadable response.']);\n  return;\n}\n\nreturn response.json()\n  .then((body) => {\n    if (!response.ok) {\n      context.grafana.notifyError([\n        'Pipeline',\n        body.detail ?? `Request failed with HTTP ${response.status}.`,\n      ]);\n      return;\n    }\n    context.grafana.notifySuccess([\n      'Pipeline queued',\n      `Run ${body.run_id} was accepted. Refresh the result tables to follow it.`,\n    ]);\n    context.grafana.refresh();\n  })\n  .catch((error) => {\n    context.grafana.notifyError([\n      'Pipeline',\n      `Could not read the gateway response: ${error.message ?? error}`,\n    ]);\n  });",
+          "confirm": false,
+          "contentType": "application/json",
+          "getPayload": "const elements = Object.fromEntries(\n  context.panel.elements.map((element) => [element.id, element.value])\n);\nconst text = (id) => String(elements[id] ?? '').trim();\nconst requiredNumber = (id) => {\n  const value = elements[id];\n  if (value === null || value === undefined || value === '') {\n    throw new Error(`Missing required number: ${id}`);\n  }\n  const parsed = Number(value);\n  if (!Number.isFinite(parsed)) {\n    throw new Error(`Invalid number: ${id}`);\n  }\n  return parsed;\n};\nconst selected = (id) => {\n  const value = elements[id];\n  if (Array.isArray(value)) {\n    return value.map(String);\n  }\n  if (value === null || value === undefined || value === '') {\n    return [];\n  }\n  return [String(value)];\n};\nconst checked = (id) => selected(id).length > 0;\nconst contactIds = text('contact_ids').split(/[,\\s]+/).filter(Boolean);\nconst spacecraftId = text('spacecraft_id');\nconst startTime = text('start_time');\nconst endTime = text('end_time');\nconst query = {\n  contact_ids: contactIds,\n  require_lock: checked('require_lock'),\n  minimum_elevation_deg: requiredNumber('minimum_elevation_deg'),\n  minimum_ebn0_db: requiredNumber('minimum_ebn0_db'),\n  minimum_doppler_hz: requiredNumber('minimum_doppler_hz'),\n  maximum_doppler_hz: requiredNumber('maximum_doppler_hz'),\n};\nif (query.minimum_doppler_hz >= query.maximum_doppler_hz) {\n  throw new Error('Minimum Doppler must be lower than Maximum Doppler.');\n}\nif (contactIds.length === 0) {\n  query.spacecraft_id = spacecraftId;\n  query.start_time = startTime;\n  query.end_time = endTime;\n}\nconst required = [\n  ['spacecraft_id', spacecraftId],\n  ['reference_tle_name', text('reference_tle_name')],\n  ['reference_tle_line1', text('reference_tle_line1')],\n  ['reference_tle_line2', text('reference_tle_line2')],\n];\nconst missing = required.filter(([, value]) => !value).map(([id]) => id);\nif (contactIds.length === 0 && (!spacecraftId || !startTime || !endTime)) {\n  missing.push('contact IDs or spacecraft ID with start and end times');\n}\nconst nominalCarrierFrequencyHz = requiredNumber('nominal_carrier_frequency_hz');\nconst dopplerStandardDeviationHz = requiredNumber('doppler_standard_deviation_hz');\nconst robustScaleHz = requiredNumber('robust_scale_hz');\nconst qmcSamples = requiredNumber('qmc_samples');\nif (!(nominalCarrierFrequencyHz > 0)) {\n  missing.push('nominal_carrier_frequency_hz');\n}\nif (!(dopplerStandardDeviationHz > 0)) {\n  missing.push('doppler_standard_deviation_hz');\n}\nif (!(robustScaleHz > 0)) {\n  missing.push('robust_scale_hz');\n}\nif (!Number.isInteger(qmcSamples) || qmcSamples < 0 || qmcSamples > 4096) {\n  missing.push('qmc_samples (integer from 0 to 4096)');\n}\nif (missing.length > 0) {\n  throw new Error(`Missing or invalid input: ${missing.join(', ')}`);\n}\nconst orderedModels = [\n  'time_offset',\n  'time_offset_pass_bias',\n  'time_offset_frequency_pass_bias',\n  'mean_elements_two_parameter',\n];\nconst requestedModels = selected('candidate_models');\nconst candidateMetaparameters = orderedModels\n  .filter((model) => requestedModels.includes(model))\n  .map((model) => ({\n    model,\n    doppler_standard_deviation_hz: dopplerStandardDeviationHz,\n    robust_loss: text('robust_loss'),\n    robust_scale_hz: robustScaleHz,\n    qmc_samples: qmcSamples,\n  }));\nif (candidateMetaparameters.length === 0) {\n  throw new Error('Select at least one candidate model.');\n}\nreturn {\n  schema_version: '0.1',\n  pipeline: 'batch_od',\n  query,\n  optimizer_configuration: {\n    reference_tle: {\n      name: text('reference_tle_name'),\n      line1: text('reference_tle_line1'),\n      line2: text('reference_tle_line2'),\n    },\n    spacecraft_id: spacecraftId,\n    nominal_carrier_frequency_hz: nominalCarrierFrequencyHz,\n  },\n  candidate_metaparameters: candidateMetaparameters,\n  selection_criterion: text('selection_criterion'),\n};",
+          "header": [],
+          "method": "POST",
+          "payload": {},
+          "payloadMode": "custom",
+          "url": "/dart-api/v0/runs"
+        },
+        "updateEnabled": "auto"
+      },
+      "pluginVersion": "6.3.5",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "grafana"
+          },
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "title": "Optimizer API",
+      "type": "volkovlabs-form-panel"
+    },
+    {
+      "datasource": {
+        "type": "grafana-azure-data-explorer-datasource",
+        "uid": "ffo40r3smd81sb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false,
+            "wrapHeaderText": true,
+            "wrapText": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "spacecraft_name"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 146
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "contact_id"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "spacecraft_id"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 286
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "MostRecentPassTime"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 255
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 30,
+        "w": 16,
+        "x": 8,
+        "y": 0
+      },
+      "id": 3,
+      "maxDataPoints": 500,
+      "options": {
+        "cellHeight": "md",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "MostRecentPassTime"
+          }
+        ]
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "OpenAI": false,
+          "database": "telemetry",
+          "datasource": {
+            "type": "grafana-azure-data-explorer-datasource",
+            "uid": "ffo40r3smd81sb"
+          },
+          "expression": {
+            "columns": {
+              "columns": [
+                "timestamp",
+                "spacecraft_id",
+                "contact_id",
+                "spacecraft_name",
+                "lr1_receiver1_actualCarrierFrequencyOffset"
+              ],
+              "type": "property"
+            },
+            "from": {
+              "property": {
+                "name": "contacts",
+                "type": "string"
+              },
+              "type": "property"
+            },
+            "groupBy": {
+              "expressions": [
+                {
+                  "focus": false,
+                  "property": {
+                    "name": "contact_id",
+                    "type": "string"
+                  },
+                  "type": "groupBy"
+                },
+                {
+                  "focus": false,
+                  "property": {
+                    "name": "spacecraft_name",
+                    "type": "string"
+                  },
+                  "type": "groupBy"
+                },
+                {
+                  "focus": false,
+                  "property": {
+                    "name": "lr1_receiver1_actualCarrierFrequencyOffset",
+                    "type": "number"
+                  },
+                  "type": "groupBy"
+                }
+              ],
+              "type": "and"
+            },
+            "reduce": {
+              "expressions": [
+                {
+                  "focus": false,
+                  "property": {
+                    "name": "lr1_receiver1_actualCarrierFrequencyOffset",
+                    "type": "number"
+                  },
+                  "reduce": {
+                    "name": "max",
+                    "type": "string"
+                  },
+                  "type": "reduce"
+                }
+              ],
+              "type": "and"
+            },
+            "where": {
+              "expressions": [
+                {
+                  "expressions": [
+                    {
+                      "operator": {
+                        "name": "!=",
+                        "value": 0
+                      },
+                      "property": {
+                        "name": "lr1_receiver1_actualCarrierFrequencyOffset",
+                        "type": "number"
+                      },
+                      "type": "operator"
+                    },
+                    {
+                      "operator": {
+                        "name": "<=",
+                        "value": 100000
+                      },
+                      "property": {
+                        "name": "lr1_receiver1_actualCarrierFrequencyOffset",
+                        "type": "number"
+                      },
+                      "type": "operator"
+                    }
+                  ],
+                  "type": "or"
+                }
+              ],
+              "type": "and"
+            }
+          },
+          "pluginVersion": "7.2.6",
+          "query": "contacts\n| where $__timeFilter([\"timestamp\"])\n| where isnotempty([\"spacecraft_name\"])\n// Step 1: Find the absolute latest row and pull through necessary columns\n| summarize arg_max([\"timestamp\"], [\"lr1_receiver1_actualCarrierFrequencyOffset\"], [\"spacecraft_id\"]) \n    by [\"spacecraft_name\"], [\"contact_id\"]\n// Step 2: Immediately restrict the dataset to the 50 most recent passes globally\n| top 50 by [\"timestamp\"] desc\n// Step 3: Clean up and rename columns for clarity\n| project \n    [\"spacecraft_name\"], \n    [\"spacecraft_id\"],\n    [\"contact_id\"], \n    MostRecentPassTime = [\"timestamp\"]",
+          "querySource": "raw",
+          "queryType": "KQL",
+          "rawMode": true,
+          "refId": "A",
+          "resultFormat": "table"
+        }
+      ],
+      "title": "Most Recent Passes",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "ffo3xwq8aqt4we"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "timestamp"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 182
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "name"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "model"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 230
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "time_offset_s"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 125
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "center_frequency_correction_hz"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 205
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pass_biases"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 320
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "fitted_frequency_hz"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "residual_rmse_hz"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 135
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "num_samples"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 125
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "is_white_noise"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 13,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "lg",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "timestamp"
+          }
+        ]
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "dataset": "telemetry",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "ffo3xwq8aqt4we"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n    updated_at AS \"timestamp\",\n    run_id,\n    status,\n    selected_result_json->'reference_tle'->>'name' AS name,\n    selected_result_json->>'model' AS model,\n    (selected_result_json->'parameters'->>'time_offset_s')::double precision AS time_offset_s,\n    (selected_result_json->'parameters'->>'center_frequency_correction_hz')::double precision\n        AS center_frequency_correction_hz,\n    COALESCE(selected_result_json->'parameters'->'pass_biases', '[]'::jsonb) AS pass_biases,\n    (selected_result_json->>'effective_carrier_frequency_hz')::double precision AS fitted_frequency_hz,\n    (selected_metrics_json->'residuals'->'metrics'->>'rmse')::double precision AS residual_rmse_hz,\n    (selected_metrics_json->'residuals'->'metrics'->>'count')::integer AS num_samples,\n    (selected_metrics_json->'residuals'->'metrics'->>'is_white_noise')::boolean AS is_white_noise\nFROM dart_run_results\nWHERE selected_result_json->>'model' IN (\n    'time_offset',\n    'time_offset_pass_bias',\n    'time_offset_frequency_pass_bias'\n)\nORDER BY updated_at DESC\nLIMIT 100;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [
+                  {
+                    "name": "\"timestamp\"",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "name",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "time_shift_s",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 1,
+            "orderBy": {
+              "property": {
+                "name": "\"timestamp\"",
+                "type": "string"
+              },
+              "type": "property"
+            }
+          },
+          "table": "dart_run_results"
+        }
+      ],
+      "title": "Time-Model Run Results",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "ffo3xwq8aqt4we"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false,
+            "wrapText": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "timestamp"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 182
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "name"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "updated_tle_line1"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "updated_tle_line2"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 320
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "mean_anomaly_rad"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "mean_motion_rad_min"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pass_biases"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 320
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "residual_rmse_hz"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 135
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "num_samples"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 125
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "is_white_noise"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "timestamp"
+          }
+        ]
+      },
+      "pluginVersion": "13.0.2",
+      "targets": [
+        {
+          "dataset": "telemetry",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "ffo3xwq8aqt4we"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n    updated_at AS \"timestamp\",\n    run_id,\n    status,\n    selected_result_json->'reference_tle'->>'name' AS name,\n    selected_result_json->'corrected_tle'->>'line1' AS updated_tle_line1,\n    selected_result_json->'corrected_tle'->>'line2' AS updated_tle_line2,\n    (selected_result_json->'parameters'->>'mean_anomaly_rad')::double precision AS mean_anomaly_rad,\n    (selected_result_json->'parameters'->>'mean_motion_rad_min')::double precision AS mean_motion_rad_min,\n    COALESCE(selected_result_json->'parameters'->'pass_biases', '[]'::jsonb) AS pass_biases,\n    (selected_metrics_json->'residuals'->'metrics'->>'rmse')::double precision AS residual_rmse_hz,\n    (selected_metrics_json->'residuals'->'metrics'->>'count')::integer AS num_samples,\n    (selected_metrics_json->'residuals'->'metrics'->>'is_white_noise')::boolean AS is_white_noise\nFROM dart_run_results\nWHERE selected_result_json->>'model' = 'mean_elements_two_parameter'\nORDER BY updated_at DESC\nLIMIT 100;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Mean Element Run Results",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "refresh": "",
+  "schemaVersion": 42,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ]
+  },
+  "timezone": "browser",
+  "title": "Initial Processing",
+  "uid": "adlpf49",
+  "version": 62
+}

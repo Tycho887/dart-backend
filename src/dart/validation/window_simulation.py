@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
 import zlib
+from dataclasses import asdict, dataclass, replace
 
 import numpy as np
 
 from ..estimation import BatchConfig, PassiveRFUKF, UKFConfig, fit_batch
 from ..geometry import tle_relative_geometry
-from ..io.forest import ForestPass
+from ..legacy.forest import ForestPass
 from ..measurements import MeasurementModel, prepare_batch_cache, wrap_angle_rad
 from ..simulation import observations_from_truth, phase_shifted_tle_truth, propagate_truth
 from ..types import MeasurementMode, PhaseBaseline, TLEContext
@@ -97,9 +97,7 @@ def simulate_window(
     )
     contact_seed = zlib.crc32(forest_pass.contact_id.encode("utf-8"))
     seed_sequence = np.random.SeedSequence([seed, contact_seed])
-    doppler_rng, phase_rng = [
-        np.random.default_rng(item) for item in seed_sequence.spawn(2)
-    ]
+    doppler_rng, phase_rng = [np.random.default_rng(item) for item in seed_sequence.spawn(2)]
     doppler_noise = (
         doppler_rng.normal(0.0, doppler_std_hz, len(noiseless))
         if doppler_noise_override is None
@@ -174,9 +172,7 @@ def simulate_window(
             rejected += int(not final.accepted)
         assert final is not None
         ukf_healthy = bool(
-            final.healthy
-            and accepted >= 20
-            and accepted / max(1, accepted + rejected) >= 0.25
+            final.healthy and accepted >= 20 and accepted / max(1, accepted + rejected) >= 0.25
         )
         for estimator, offset, healthy, accepted_count, rejected_count in (
             ("batch", batch.estimate.offset_s, batch.estimate.healthy, len(observations), 0),
@@ -193,9 +189,7 @@ def simulate_window(
                     truth_tier=tier,
                     channel_mode=mode.value,
                     estimator=estimator,
-                    estimator_variant=(
-                        "operational_robust" if operational else "matched_gaussian"
-                    ),
+                    estimator_variant=("operational_robust" if operational else "matched_gaussian"),
                     true_offset_s=true_offset_s,
                     estimated_offset_s=float(offset),
                     offset_error_s=float(offset - true_offset_s),

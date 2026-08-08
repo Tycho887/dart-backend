@@ -47,8 +47,7 @@ def visible_pass_windows(
 ) -> list[list]:
     start = context.tle.epoch
     coarse = [
-        start + sk.duration(seconds=60.0 * index)
-        for index in range(int(search_hours * 60.0))
+        start + sk.duration(seconds=60.0 * index) for index in range(int(search_hours * 60.0))
     ]
     elevation = np.asarray(
         [
@@ -98,9 +97,7 @@ def run_model_ablation(
             source.mo + mean_anomaly_delta_rad,
             source.no_kozai + mean_motion_delta_rad_min,
         )
-        truth_context = TLEContext(
-            truth_tle, context.station, context.carrier_hz, context.baseline
-        )
+        truth_context = TLEContext(truth_tle, context.station, context.carrier_hz, context.baseline)
         truth_states = phase_shifted_tle_truth(truth_context, all_times, 0.0)
     else:
         raise ValueError(f"unknown truth family {truth_family!r}")

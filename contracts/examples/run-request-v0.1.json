@@ -1,0 +1,30 @@
+{
+  "schema_version": "0.1",
+  "pipeline": "batch_od",
+  "query": {
+    "contact_ids": ["contact-example"],
+    "require_lock": true,
+    "minimum_elevation_deg": 1.0,
+    "minimum_ebn0_db": 0.0,
+    "minimum_doppler_hz": -100000.0,
+    "maximum_doppler_hz": 100000.0
+  },
+  "optimizer_configuration": {
+    "spacecraft_id": "DART-EXAMPLE",
+    "reference_tle": {
+      "name": "DART-EXAMPLE",
+      "line1": "1 57912U 23146X   24099.49439401  .00006757  00000+0  51475-3 0  9997",
+      "line2": "2 57912  43.0018 157.5807 0001420 272.5369  87.5310 15.02537576 31746"
+    },
+    "nominal_carrier_frequency_hz": 2200000000.0
+  },
+  "candidate_metaparameters": [
+    {
+      "model": "time_offset_frequency_pass_bias",
+      "robust_loss": "cauchy",
+      "robust_scale_hz": 500.0,
+      "qmc_samples": 64
+    }
+  ],
+  "selection_criterion": "bic"
+}

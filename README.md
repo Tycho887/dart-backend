@@ -1,6 +1,35 @@
 # Dart
 
-Dart is a Python prototype for passive-RF spacecraft tracking and orbit estimation during LEOP. It combines antenna acquisition, bounded live steering, pass-constant Doppler/phase estimation, real FOREST replay against independent GPS, and multi-pass TLE mean-element refinement.
+DART is a pre-v1 system for reproducible post-pass passive-RF orbit estimation.
+Its first production workflow acquires ADX/KOGS data, produces a hashed CCSDS
+TDM artifact, runs a stateless batch solver and postprocessor, and stores the
+complete evidence chain in TimescaleDB for the existing Grafana frontend.
+
+## Service architecture
+
+The v0.1 architecture has four independently deployable roles:
+
+- `dart-gateway` exposes the orchestrator and ADX/KOGS API proxy;
+- `dart-worker` executes the durable named `batch_od` pipeline and owns every
+  database write;
+- `dart-optimizer` performs stateless batch fits; and
+- `dart-postprocessor` computes residual diagnostics and independent CCSDS OEM
+  scoring.
+
+Run the local stack from `infra/` after copying `.env.example` to `.env`.
+Service boundaries are defined by reviewed OpenAPI/JSON Schema contracts and
+the DART CCSDS profiles under `contracts/`. Each API validates a generated,
+service-local wire model before explicit semantic conversion. FOREST, UKF,
+acquisition/control, simulation, and phase work are research and are not
+exposed by the production APIs or wheel.
+
+The stack provisions the Grafana dashboards, their TimescaleDB datasource, and
+the dashboard's direct read-only ADX datasource from version-controlled files.
+Its ingress serves Grafana and the same-origin `/dart-api/` gateway route; the
+ingress, not the browser, injects the gateway credential and preserves a
+caller-provided run idempotency key (falling back to an Nginx request ID).
+Keep local passwords and bearer tokens in `infra/.env`; do not add them to
+dashboard JSON or commit that file.
 
 The source TLE is immutable during tracking. A correction is represented as `SGP4(t + offset_s)`, where a positive offset advances propagation along the TLE trajectory.
 
@@ -8,8 +37,11 @@ The source TLE is immutable during tracking. A correction is represented as `SGP
 
 | Document | Contents |
 | --- | --- |
-| [Codebase guide](docs/codebase.md) | Package data flow, source-module map, estimator states, CLI commands, and tests. |
+| [Project charter](docs/project-charter.md) | Product goal, initial pipeline, boundaries, and design principles. |
+| [Python standard](docs/python-style.md) | KISS rules, typing policy, Ruff/ty/uv tooling, and test policy. |
 | [Architecture](docs/architecture.md) | Estimation/control boundaries, validation meaning, and operational risks. |
+| [Contract policy](docs/contracts.md) | v0 APIs, CCSDS artifacts, versioning, units, and service independence. |
+| [Roadmap](docs/roadmap.md) | Implementation phases and legacy deletion gates. |
 | [Dependencies](docs/dependencies.md) | Python environment, direct/optional dependencies, external data, and reproducibility. |
 | [Reports guide](docs/reports.md) | Report catalog, reading order, interpretation boundaries, and reproduction commands. |
 | [Migration provenance](docs/migration.md) | Legacy repository origins and intentional behavior changes. |
@@ -24,9 +56,42 @@ For the current real-data result, read the [Doppler-only batch-LS protocol](repo
 | Static UKF replay | Recorded Doppler and closed-loop simulation | Experimental only |
 | Doppler plus interferometric phase difference | Simulation only | Henault-style measurement-model research |
 | Antenna acquisition and steering | Closed-loop simulation; HTTP backend available | Experimental dither controller |
-| Mean anomaly/mean motion refinement | Held-out synthetic multi-pass study | Experimental batch mean-element estimator |
+| Mean anomaly/mean motion refinement | Doppler multi-pass input | Production two-element batch solver |
 
 Real phase results require a calibrated ENU baseline, phase-chain delay characterization, continuity/cycle-slip handling, and suitable reference passes. Synthetic complete-phase results are idealized information studies, not real phase validation.
+
+## Known issues and remaining work
+
+Status snapshot as of 2026-08-08: the source implementation and offline gates
+are complete and have passed two adversarial review rounds. The offline suite
+passes with 171 tests, one isolated-TimescaleDB skip, and one deselected live
+ADX/KOGS test. The live dashboards are synchronized at Initial Processing v62
+and Metadata Explorer v5.
+
+The following work remains before treating the v0 stack as a production
+release:
+
+| Priority | Task | Current status |
+| --- | --- | --- |
+| Critical | Deploy the reviewed ingress and service stack | Not deployed. Port 3000 still serves the previous Grafana process instead of `gateway-proxy`, so `/dart-api/` form actions do not reach the gateway. |
+| Critical | Secure the current Grafana listener | Confirm host-network isolation, stop exposing the old all-interface listener, and rotate the known/default administrator credential during deployment. Credentials must remain runtime-only. |
+| Release gate | Run the real ADX/KOGS integration test | Blocked until `AZURE_ADX_CLUSTER_ENDPOINT`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`, and `KOGS_API_KEY` are available. Missing credentials are failures, not skips or permission to use fakes. |
+| Release gate | Validate persistence against isolated TimescaleDB | Blocked until an isolated database and `DART_DATABASE_URL` are supplied. Exercise acquisition, solver, postprocessor, leases, retries, partial success, and idempotency under interruption. |
+| Release gate | Run one bounded end-to-end dashboard workflow | Pending ingress deployment and live credentials. Use a known contact and bounded window, record expected writes, and never invoke `Process Orbit` as an unbounded smoke test. |
+| Hardening | Add role-aware ingress authorization for multi-user Grafana | The reviewed local deployment intentionally trusts any authenticated Grafana session. Do not grant untrusted accounts access until roles, organizations, or dashboard permissions are enforced. |
+| Limitation | Add retry-stable idempotency to Business Forms | Business Forms 6.3.5 cannot generate and retain a dynamic header from its payload code. API clients can retain an `Idempotency-Key`; repeated dashboard clicks currently receive distinct fallback request IDs. |
+| Migration | Define the pre-v1 database reset and rollback procedure | Export valuable legacy runs, recreate the new TimescaleDB baseline, validate Grafana queries, and document rollback. No legacy-schema compatibility layer is planned. |
+| Packaging | Finish the research quarantine | Keep UKF, antenna control, simulation, FOREST adapters, validation tooling, and phase experiments outside production images; move them to an explicit research package or bring them under the production quality gate. |
+
+Automatic live-test contact discovery should remain bounded and report ADX and
+KOGS timeouts separately. `DART_TEST_CONTACT_ID` is the preferred deterministic
+override.
+
+Candidate future modules are a realtime UKF pipeline, contact scheduling,
+phase-difference/SDR processing, and live antenna acquisition/control. Each
+module needs its own versioned language-neutral contract, explicit units and
+frames, service-level tests, operational failure handling, and validation
+evidence before it becomes a production dependency or API.
 
 ## Quick start
 
@@ -34,15 +99,23 @@ Requirements are Python 3.13 and `uv`.
 
 ```bash
 uv sync
-uv run pytest
+uv run ruff format --check .
+uv run ruff check .
+uv run ty check
+uv run pytest -m "not live_integration"
 uv run dart --help
-uv run dart simulate --mode both
 ```
+
+The release gate is `uv run pytest`. It calls the real ADX/KOGS services and
+fails when their credentials are absent. An explicit test contact and carrier
+may be configured; otherwise it discovers a qualifying ADX contact and uses
+the legacy 2.2 GHz nominal carrier assumption.
 
 Optional environments:
 
 ```bash
 uv sync --extra api
+uv sync --extra api --extra gateway
 uv sync --extra plot
 ```
 
@@ -69,15 +142,15 @@ The production result and its limitations are in the [batch-LS report](reports/p
 
 ```text
 src/dart/
-├── control/       acquisition, backend interfaces, live controller, HTTP client
-├── estimation/    robust batch, static UKF, mean-element refinement
-├── io/            FOREST telemetry and NovAtel BESTXYZ loaders
-├── validation/    inventory, replay, paired simulation, model ablation
+├── api/           v0 HTTP adapters and RFC 9457 errors
+├── gateway/       durable orchestration, providers, and CCSDS TDM
+├── wire/          generated service-local contract projections
+├── estimation/    production time-offset and mean-element solvers
+├── quality/       residual metrics and OEM scoring
 ├── geometry.py    propagation, frames, station and topocentric geometry
 ├── measurements.py Doppler and wrapped-phase forward model
-├── simulation.py  truth generation and in-process antenna backend
 ├── types.py       public observations, contexts, estimates and configuration types
-└── cli.py         command-line entry points and report writers
+└── cli.py         batch and quality contract runner
 
 docs/              architecture, codebase, dependencies, reports, provenance
 reports/           production, experimental, reference, and archived evidence bundles
@@ -92,50 +165,25 @@ The detailed module-by-module description is in [docs/codebase.md](docs/codebase
 
 | Command | Purpose |
 | --- | --- |
-| `uv run dart simulate` | Closed-loop dither acquisition and tracking simulation. |
-| `uv run dart replay-forest` | Sequential real Doppler replay and GPS scoring. |
-| `uv run dart inventory-forest` | Complete raw/filter/eligibility contact inventory. |
-| `uv run dart simulate-windows` | Paired Doppler and idealized complete-phase trials on recorded windows. |
-| `uv run dart model-ablation` | Held-out scalar-offset versus mean-element comparison. |
+| `uv run dart batch --input REQUEST.json` | Run one explicit batch-solver request. |
+| `uv run dart quality --input REQUEST.json` | Compute postprocessing metrics for one request. |
+| `uv run dart-gateway` | Start the public gateway API. |
+| `uv run dart-worker` | Start the durable pipeline worker. |
+| `uv run dart-optimizer` | Start the stateless solver API. |
+| `uv run dart-postprocessor` | Start the stateless postprocessor API. |
 
 Run `uv run dart <command> --help` for complete options.
 
-### Real Doppler replay
-
-```bash
-uv run dart replay-forest \
-  --data-dir deprecated/dart-v1/data \
-  --raw-gps-dir deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw \
-  --satellites 16 17 18 19 \
-  --output reports/reference/forest_replay_audit.json \
-  --batch-report-output reports/production/doppler_batch_ls.json \
-  --ukf-report-output reports/experimental/ukf/ukf_replay.json
-```
-
-### Experimental Henault-style analysis
-
-```bash
-uv run dart inventory-forest \
-  --data-dir deprecated/dart-v1/data \
-  --raw-gps-dir deprecated/dart-v1/data/Ororatech-HFS-GNSS-data-raw \
-  --output reports/reference/observation_inventory.json
-
-uv run dart simulate-windows \
-  --data-dir deprecated/dart-v1/data \
-  --tiers closure independent_dynamics \
-  --seeds 0 \
-  --output reports/experimental/henault_phase/window_simulation.json
-
-uv run dart model-ablation \
-  --seeds 0 1 2 \
-  --output reports/experimental/henault_phase/model_ablation.json
-```
-
-The [reports guide](docs/reports.md) contains the empirical-residual command, report status rules, and the complete output map.
+Historical FOREST, UKF, and phase reproduction commands are intentionally not
+part of the installed production CLI. The [reports guide](docs/reports.md)
+documents their evidence boundaries and provenance.
 
 ## Data and provenance
 
-Bulk FOREST telemetry and raw GNSS exports are external research inputs and are not included in the Python wheel. Commands accept alternate data roots. The current study expects the legacy data layout under `deprecated/dart-v1/data`.
+Bulk FOREST telemetry and raw GNSS exports are external research inputs and are
+not included in the Python wheel. The current study's historical data layout is
+retained under `deprecated/dart-v1/data` for provenance, not as a production
+runtime dependency.
 
 Verify the recorded inputs with:
 

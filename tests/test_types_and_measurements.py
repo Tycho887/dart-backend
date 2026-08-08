@@ -36,4 +36,3 @@ def test_observation_selects_present_channels(context):
     assert doppler.mode is MeasurementMode.DOPPLER
     assert combined.mode is MeasurementMode.DOPPLER_PHASE
     np.testing.assert_allclose(combined.measurement(), [4.0, 0.2])
-

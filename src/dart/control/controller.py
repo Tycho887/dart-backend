@@ -78,9 +78,7 @@ class LEOPController:
     def run(self) -> ControllerResult:
         acquisition = acquire(self.backend, self.config.dither)
         if not acquisition.locked or acquisition.offset_s is None:
-            return ControllerResult(
-                acquisition, (), 0, 0, 0, None, False, acquisition.reason
-            )
+            return ControllerResult(acquisition, (), 0, 0, 0, None, False, acquisition.reason)
         self.commander.apply(acquisition.offset_s, immediate=True)
         ukf = PassiveRFUKF(
             self.context,
@@ -108,9 +106,7 @@ class LEOPController:
                     and observation.commanded_el_deg > self.config.dither.horizon_guard_deg
                 )
                 invalid_run = (
-                    invalid_run + 1
-                    if not observation.valid and above_horizon_guard
-                    else 0
+                    invalid_run + 1 if not observation.valid and above_horizon_guard else 0
                 )
 
             if invalid_run > self.config.invalid_before_reacquire:
@@ -146,8 +142,6 @@ class LEOPController:
             final_offset_s=self.commander.last,
             healthy=healthy,
             reason=(
-                None
-                if healthy
-                else "insufficient accepted tracking updates or acceptance fraction"
+                None if healthy else "insufficient accepted tracking updates or acceptance fraction"
             ),
         )

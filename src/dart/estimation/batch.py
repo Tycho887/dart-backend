@@ -43,7 +43,9 @@ class BatchFit:
     at_bound: bool
 
 
-def _mode_for(observations: list[RFObservation], requested: MeasurementMode | None) -> MeasurementMode:
+def _mode_for(
+    observations: list[RFObservation], requested: MeasurementMode | None
+) -> MeasurementMode:
     if requested is not None:
         return requested
     return (
@@ -82,17 +84,13 @@ def fit_batch(
         [index for index, item in enumerate(usable) if item.phase_rad is not None],
         dtype=int,
     )
-    measured_phase = np.asarray(
-        [usable[index].phase_rad for index in phase_indices], dtype=float
-    )
+    measured_phase = np.asarray([usable[index].phase_rad for index in phase_indices], dtype=float)
 
     def residual(state: np.ndarray) -> np.ndarray:
         predicted = model.predict_many(context, state, selected, cache)
         channels = [(measured_doppler - predicted[:, 0]) / config.doppler_std_hz]
         if selected is MeasurementMode.DOPPLER_PHASE:
-            phase_residual = wrap_angle_rad(
-                measured_phase - predicted[phase_indices, 1]
-            )
+            phase_residual = wrap_angle_rad(measured_phase - predicted[phase_indices, 1])
             channels.append(phase_residual / config.phase_std_rad)
         result = np.concatenate(channels)
         if config.prior is not None and config.prior_std is not None:
@@ -100,7 +98,9 @@ def fit_batch(
             prior_residual = state - prior
             if dimension == 3:
                 prior_residual[2] = float(wrap_angle_rad(prior_residual[2]))
-            result = np.concatenate((result, prior_residual / np.asarray(config.prior_std)[:dimension]))
+            result = np.concatenate(
+                (result, prior_residual / np.asarray(config.prior_std)[:dimension])
+            )
         return result
 
     # SGP4/time conversion is not usefully differentiated at scipy's default
@@ -114,9 +114,7 @@ def fit_batch(
             start = len(usable)
             stop = start + len(phase_indices)
             difference[start:stop] = (
-                wrap_angle_rad(
-                    (right[start:stop] - left[start:stop]) * config.phase_std_rad
-                )
+                wrap_angle_rad((right[start:stop] - left[start:stop]) * config.phase_std_rad)
                 / config.phase_std_rad
             )
             if config.prior is not None and config.prior_std is not None:
@@ -124,8 +122,7 @@ def fit_batch(
                 prior_scale = float(np.asarray(config.prior_std)[2])
                 difference[phase_prior_index] = float(
                     wrap_angle_rad(
-                        (right[phase_prior_index] - left[phase_prior_index])
-                        * prior_scale
+                        (right[phase_prior_index] - left[phase_prior_index]) * prior_scale
                     )
                     / prior_scale
                 )
@@ -139,9 +136,7 @@ def fit_batch(
             right[index] = min(right[index] + step, upper_array[index])
             left[index] = max(left[index] - step, lower_array[index])
             width = right[index] - left[index]
-            columns.append(
-                residual_difference(residual(right), residual(left)) / width
-            )
+            columns.append(residual_difference(residual(right), residual(left)) / width)
         return np.column_stack(columns)
 
     starts = config.offset_starts_s or (0.0,)

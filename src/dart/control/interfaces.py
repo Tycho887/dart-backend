@@ -38,9 +38,7 @@ class SignConvertingBackend:
 
     def __init__(self, backend: AntennaBackend):
         self.backend = backend
-        self._factor = (
-            -1.0 if backend.convention is OffsetConvention.POSITIVE_LAG else 1.0
-        )
+        self._factor = -1.0 if backend.convention is OffsetConvention.POSITIVE_LAG else 1.0
 
     def apply_offset(self, offset_s: float) -> None:
         self.backend.apply_offset(self._factor * float(offset_s))
@@ -63,4 +61,3 @@ class SignConvertingBackend:
             sequence=observation.sequence,
             quality=dict(observation.quality),
         )
-
