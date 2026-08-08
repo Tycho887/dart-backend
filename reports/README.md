@@ -8,9 +8,9 @@ simulation operational evidence.
 | Area | What belongs there | What it can support |
 | --- | --- | --- |
 | [`production/`](production/) | Recorded FOREST Doppler evaluated against raw receiver-epoch BESTXYZ with the post-pass robust batch LS fit. | The current Doppler-only post-pass accuracy evidence. |
-| [`experimental/`](experimental/) | Static UKF replay, Henault-style phase-difference work, closed-loop trials, and synthetic state-model studies. | Algorithm and measurement-model research only. |
+| [`../research/reports/experimental/`](../research/reports/experimental/) | Static UKF replay, phase-difference work, closed-loop trials, and synthetic studies. | Algorithm and measurement-model research only. |
 | [`reference/`](reference/) | Input manifest, contact inventory, and a combined audit export. | Traceability and reproduction, not headline performance. |
-| [`archive/`](archive/) | Superseded or mixed-format artifacts retained for provenance. | Historical comparison only. |
+| [`../research/reports/archive/`](../research/reports/archive/) | Superseded research artifacts retained for provenance. | Historical comparison only. |
 
 “Production” here means the operationally relevant real-data experiment, not
 that the software or estimator is flight-qualified. All current FOREST work is
@@ -22,9 +22,9 @@ retrospective and exploratory; it is not a blinded confirmation.
    [production protocol](production/protocol.md), then the generated
    [batch-LS evaluation](production/doppler_batch_ls.md).
 2. For the experimental UKF on those same recorded Doppler passes, read
-   [experimental/ukf](experimental/ukf/).
+   [experimental UKF](../research/reports/experimental/ukf/).
 3. For Henault-style interferometric phase difference, read
-   [experimental/henault_phase](experimental/henault_phase/). No result in
+   [phase research](../research/reports/experimental/henault_phase/). No result in
    that branch is real dual-antenna phase validation.
 
 Do not combine tables across these areas without restating their evidence

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dart-research"
+version = "0.1.0"
+description = "Non-production DART experiments, loaders, and validation workflows"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "dart-rf",
+    "matplotlib>=3.10",
+    "numpy>=2.2",
+    "polars>=1.31",
+    "satkit>=0.20.2",
+    "scipy>=1.15",
+    "sgp4>=2.25",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ruff>=0.12", "ty>=0.0.1a19"]
+
+[tool.uv.sources]
+dart-rf = { path = "..", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dart_research"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
+ignore = ["B008", "E501", "RUF001", "RUF009"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]

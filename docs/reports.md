@@ -10,10 +10,10 @@ blinded confirmation.
 | Report family | Data and estimator | Permitted conclusion |
 | --- | --- | --- |
 | [`../reports/production/`](../reports/production/) | Recorded FOREST Doppler + raw BESTXYZ; full-pass robust batch LS. | Current Doppler-only post-pass accuracy evidence. |
-| [`../reports/experimental/ukf/`](../reports/experimental/ukf/) | Recorded FOREST Doppler + raw BESTXYZ; static UKF. | Experimental filter behavior only. |
-| [`../reports/experimental/henault_phase/`](../reports/experimental/henault_phase/) | Synthetic phase-difference channel, with recorded geometry/residuals in some trials. | Henault-style model and algorithm research only. |
+| [`../research/reports/experimental/ukf/`](../research/reports/experimental/ukf/) | Recorded FOREST Doppler + raw BESTXYZ; static UKF. | Experimental filter behavior only. |
+| [`../research/reports/experimental/henault_phase/`](../research/reports/experimental/henault_phase/) | Synthetic phase-difference channel, with recorded geometry/residuals in some trials. | Henault-style model and algorithm research only. |
 | [`../reports/reference/`](../reports/reference/) | Manifests, contact inventory, and mixed audit data. | Traceability and reproduction. |
-| [`../reports/archive/`](../reports/archive/) | Earlier mixed artifacts. | Provenance only. |
+| [`../research/reports/archive/`](../research/reports/archive/) | Earlier mixed artifacts. | Provenance only. |
 
 ## Recommended reading order
 
@@ -24,9 +24,9 @@ For the actual Doppler-only post-pass result:
 
 For experimental work, read the relevant branch independently:
 
-1. [`../reports/experimental/ukf/ukf_replay.md`](../reports/experimental/ukf/ukf_replay.md)
+1. [`../research/reports/experimental/ukf/ukf_replay.md`](../research/reports/experimental/ukf/ukf_replay.md)
    for the real-Doppler but experimental sequential filter.
-2. [`../reports/experimental/henault_phase/README.md`](../reports/experimental/henault_phase/README.md),
+2. [`../research/reports/experimental/henault_phase/README.md`](../research/reports/experimental/henault_phase/README.md),
    then its protocol and experiment-specific report, for phase-difference or
    synthetic work.
 
@@ -41,10 +41,10 @@ retains the combined replay for traceability.
 | Path | Contents |
 | --- | --- |
 | `reports/production/doppler_batch_ls.*` | Real Doppler-only post-pass batch-LS scope; no UKF or phase fields. |
-| `reports/experimental/ukf/ukf_replay.*` | Experimental UKF-only scope; no batch comparison fields. |
-| `reports/experimental/henault_phase/window_simulation.*` | Closure and independent-dynamics paired phase simulations. |
-| `reports/experimental/henault_phase/empirical_window_simulation.*` | Residual-block experiment with synthetic phase. |
-| `reports/experimental/henault_phase/model_ablation.*` | Fully synthetic held-out state-model study. |
+| `research/reports/experimental/ukf/ukf_replay.*` | Experimental UKF-only scope; no batch comparison fields. |
+| `research/reports/experimental/henault_phase/window_simulation.*` | Closure and independent-dynamics paired phase simulations. |
+| `research/reports/experimental/henault_phase/empirical_window_simulation.*` | Residual-block experiment with synthetic phase. |
+| `research/reports/experimental/henault_phase/model_ablation.*` | Fully synthetic held-out state-model study. |
 | `reports/reference/observation_inventory.*` | Contact filtering, eligibility, and GPS-coverage inventory. |
 
 ## Interpretation rules
