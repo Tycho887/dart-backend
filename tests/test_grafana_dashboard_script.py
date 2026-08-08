@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).parents[1] / "scripts" / "grafana_dashboard.py"
+SCRIPT = Path(__file__).parents[1] / "tools" / "grafana" / "dashboard.py"
 SPEC = importlib.util.spec_from_file_location("grafana_dashboard_script", SCRIPT)
 assert SPEC is not None
 assert SPEC.loader is not None

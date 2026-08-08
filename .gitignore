@@ -15,8 +15,6 @@ downloads/
 eggs/
 .eggs/
 lib/
-!/legacy/dash/lib/
-!/legacy/dash/lib/**
 lib64/
 parts/
 sdist/
@@ -156,7 +154,7 @@ activemq-data/
 .[Ee][Nn][Vv].*
 *.[Ee][Nn][Vv]
 *.[Ee][Nn][Vv].*
-!infra/.env.example
+!deploy/.env.example
 .envrc
 .venv
 env/

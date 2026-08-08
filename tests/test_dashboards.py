@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-DASHBOARDS = Path(__file__).parents[1] / "dashboards"
+DASHBOARDS = Path(__file__).parents[1] / "deploy" / "grafana" / "dashboards"
 ADX_UID = "ffo40r3smd81sb"
 POSTGRES_UID = "ffo3xwq8aqt4we"
 

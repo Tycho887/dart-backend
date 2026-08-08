@@ -15,15 +15,15 @@ services:
     volumes:
       - dart_timescaledb:/home/postgres/pgdata/data
 
-  gateway:
+  orchestrator:
     build:
       context: ..
-      dockerfile: infra/Dockerfile
-      target: gateway
-    command: dart-gateway
+      dockerfile: deploy/Dockerfile
+      target: orchestrator
+    command: dart-orchestrator
     environment:
       DART_DATABASE_URL: ${DART_DATABASE_URL:?set DART_DATABASE_URL}
-      DART_GATEWAY_BEARER_TOKEN: ${DART_GATEWAY_BEARER_TOKEN:?set DART_GATEWAY_BEARER_TOKEN}
+      DART_ORCHESTRATOR_BEARER_TOKEN: ${DART_ORCHESTRATOR_BEARER_TOKEN:?set DART_ORCHESTRATOR_BEARER_TOKEN}
       DART_CORS_ORIGINS: ${DART_CORS_ORIGINS:-http://localhost:3000}
       DART_AUTO_MIGRATE: ${DART_AUTO_MIGRATE:-true}
       DART_RUN_LEASE_SECONDS: ${DART_RUN_LEASE_SECONDS:-1800}
@@ -41,13 +41,13 @@ services:
   worker:
     build:
       context: ..
-      dockerfile: infra/Dockerfile
-      target: gateway
+      dockerfile: deploy/Dockerfile
+      target: orchestrator
     command: dart-worker
     environment:
       DART_DATABASE_URL: ${DART_DATABASE_URL:?set DART_DATABASE_URL}
       DART_INTERNAL_BEARER_TOKEN: ${DART_INTERNAL_BEARER_TOKEN:?set DART_INTERNAL_BEARER_TOKEN}
-      DART_OPTIMIZER_URL: ${DART_OPTIMIZER_URL:-http://optimizer:8001}
+      DART_SOLVER_URL: ${DART_SOLVER_URL:-http://solver:8001}
       DART_POSTPROCESSOR_URL: ${DART_POSTPROCESSOR_URL:-http://postprocessor:8002}
       DART_WORKER_POLL_SECONDS: ${DART_WORKER_POLL_SECONDS:-2}
       DART_RUN_LEASE_SECONDS: ${DART_RUN_LEASE_SECONDS:-1800}
@@ -64,39 +64,39 @@ services:
     depends_on:
       timescaledb:
         condition: service_healthy
-      optimizer:
+      solver:
         condition: service_started
       postprocessor:
         condition: service_started
 
-  optimizer:
+  solver:
     build:
       context: ..
-      dockerfile: infra/Dockerfile
-      target: api
-    command: dart-optimizer
+      dockerfile: deploy/Dockerfile
+      target: stateless
+    command: dart-solver
     environment:
       DART_INTERNAL_BEARER_TOKEN: ${DART_INTERNAL_BEARER_TOKEN:?set DART_INTERNAL_BEARER_TOKEN}
 
   postprocessor:
     build:
       context: ..
-      dockerfile: infra/Dockerfile
-      target: api
+      dockerfile: deploy/Dockerfile
+      target: stateless
     command: dart-postprocessor
     environment:
       DART_INTERNAL_BEARER_TOKEN: ${DART_INTERNAL_BEARER_TOKEN:?set DART_INTERNAL_BEARER_TOKEN}
 
-  gateway-proxy:
+  grafana-ingress:
     image: nginx:1.27-alpine
     environment:
-      DART_GATEWAY_BEARER_TOKEN: ${DART_GATEWAY_BEARER_TOKEN:?set DART_GATEWAY_BEARER_TOKEN}
-      NGINX_ENVSUBST_FILTER: DART_GATEWAY_BEARER_TOKEN
+      DART_ORCHESTRATOR_BEARER_TOKEN: ${DART_ORCHESTRATOR_BEARER_TOKEN:?set DART_ORCHESTRATOR_BEARER_TOKEN}
+      NGINX_ENVSUBST_FILTER: DART_ORCHESTRATOR_BEARER_TOKEN
     ports: ["127.0.0.1:${DART_GRAFANA_PORT:-3000}:8080"]
     volumes:
       - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
     depends_on:
-      gateway:
+      orchestrator:
         condition: service_started
       grafana:
         condition: service_started
@@ -117,7 +117,7 @@ services:
       AZURE_TENANT_ID: ${AZURE_TENANT_ID:?set AZURE_TENANT_ID}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ../dashboards/provisioned:/var/lib/grafana/dashboards:ro
+      - ./grafana/dashboards/provisioned:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     depends_on:
       timescaledb:

@@ -5,11 +5,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-COMPOSE_FILE = Path(__file__).parents[1] / "infra" / "docker-compose.yml"
-NGINX_TEMPLATE = Path(__file__).parents[1] / "infra" / "nginx" / "default.conf.template"
+COMPOSE_FILE = Path(__file__).parents[1] / "deploy" / "compose.yml"
+NGINX_TEMPLATE = Path(__file__).parents[1] / "deploy" / "nginx" / "default.conf.template"
 ADX_DATASOURCE = (
     Path(__file__).parents[1]
-    / "infra"
+    / "deploy"
     / "grafana"
     / "provisioning"
     / "datasources"
@@ -21,7 +21,7 @@ FORBIDDEN_STATELESS_ENVIRONMENT = {
     "AZURE_CLIENT_SECRET",
     "AZURE_TENANT_ID",
     "DART_DATABASE_URL",
-    "DART_GATEWAY_BEARER_TOKEN",
+    "DART_ORCHESTRATOR_BEARER_TOKEN",
     "GF_SECURITY_ADMIN_PASSWORD",
     "GF_SECURITY_ADMIN_USER",
     "KOGS_API_KEY",
@@ -56,13 +56,13 @@ def test_compose_scopes_stateless_service_credentials() -> None:
     compose = COMPOSE_FILE.read_text()
 
     assert "env_file:" not in compose
-    for service in ("optimizer", "postprocessor"):
+    for service in ("solver", "postprocessor"):
         environment = _service_environment_names(compose, service)
         assert environment == {"DART_INTERNAL_BEARER_TOKEN"}
         assert not environment.intersection(FORBIDDEN_STATELESS_ENVIRONMENT)
 
 
-def test_compose_keeps_external_provider_credentials_on_gateway_roles() -> None:
+def test_compose_keeps_external_provider_credentials_on_orchestrator_roles() -> None:
     compose = COMPOSE_FILE.read_text()
     provider_credentials = {
         "AZURE_ADX_CLUSTER_ENDPOINT",
@@ -72,7 +72,7 @@ def test_compose_keeps_external_provider_credentials_on_gateway_roles() -> None:
         "KOGS_API_KEY",
     }
 
-    for service in ("gateway", "worker"):
+    for service in ("orchestrator", "worker"):
         assert provider_credentials <= _service_environment_names(compose, service)
 
 
@@ -110,9 +110,9 @@ def test_ingress_serves_grafana_and_proxies_only_the_same_origin_api_route() -> 
     template = NGINX_TEMPLATE.read_text()
 
     assert 'ports: ["127.0.0.1:${DART_GRAFANA_PORT:-3000}:8080"]' in _service_body(
-        compose, "gateway-proxy"
+        compose, "grafana-ingress"
     )
-    assert "ports:" not in _service_body(compose, "gateway")
+    assert "ports:" not in _service_body(compose, "orchestrator")
     assert "ports:" not in _service_body(compose, "grafana")
     assert "location /dart-api/" in template
     assert "map $http_idempotency_key $dart_idempotency_key" in template
@@ -124,8 +124,8 @@ def test_ingress_serves_grafana_and_proxies_only_the_same_origin_api_route() -> 
     assert 'proxy_set_header Cookie "grafana_session=$cookie_grafana_session";' in template
     assert 'proxy_set_header Authorization "";' in template
     assert "auth_request /_grafana-auth;" in template
-    assert "proxy_pass http://gateway:8000/;" in template
-    assert 'proxy_set_header Authorization "Bearer ${DART_GATEWAY_BEARER_TOKEN}";' in template
+    assert "proxy_pass http://orchestrator:8000/;" in template
+    assert 'proxy_set_header Authorization "Bearer ${DART_ORCHESTRATOR_BEARER_TOKEN}";' in template
     assert "proxy_set_header Idempotency-Key $dart_idempotency_key;" in template
     assert "proxy_set_header Idempotency-Key $request_id;" not in template
     assert 'proxy_set_header Cookie "";' in template
@@ -152,5 +152,5 @@ def test_adx_datasource_is_provisioned_with_the_dashboard_uid_and_scoped_credent
     assert "clusterUrl: ${AZURE_ADX_CLUSTER_ENDPOINT}" in datasource
     assert "azureClientSecret: ${AZURE_CLIENT_SECRET}" in datasource
     assert adx_environment <= _service_environment_names(compose, "grafana")
-    for service in ("gateway-proxy", "optimizer", "postprocessor"):
+    for service in ("grafana-ingress", "solver", "postprocessor"):
         assert not adx_environment.intersection(_service_environment_names(compose, service))
