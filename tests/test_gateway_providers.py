@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from azure.kusto.data import ClientRequestProperties
 from azure.kusto.data.exceptions import KustoError, KustoUnsupportedApiError
 
 from dart.contracts import Cartesian3, DatasetQuery
@@ -20,6 +21,7 @@ class FakeBuilder:
 class FakeKustoClient:
     def __init__(self, response: object | Exception) -> None:
         self.response = response
+        self.properties: object | None = None
 
     def __enter__(self) -> FakeKustoClient:
         return self
@@ -27,7 +29,8 @@ class FakeKustoClient:
     def __exit__(self, *_args: object) -> None:
         return None
 
-    def execute_query(self, *_args: object, **_kwargs: object) -> object:
+    def execute_query(self, *_args: object, **kwargs: object) -> object:
+        self.properties = kwargs.get("properties")
         if isinstance(self.response, Exception):
             raise self.response
         return self.response
@@ -67,13 +70,29 @@ def _row(system_id: str, sequence: int) -> dict[str, Any]:
 def _configure_provider(
     monkeypatch: pytest.MonkeyPatch,
     response: object | Exception,
-) -> None:
+) -> FakeKustoClient:
     monkeypatch.setenv("AZURE_ADX_CLUSTER_ENDPOINT", "https://adx.example.test")
     monkeypatch.setenv("AZURE_CLIENT_ID", "client")
     monkeypatch.setenv("AZURE_CLIENT_SECRET", "secret")
     monkeypatch.setenv("AZURE_TENANT_ID", "tenant")
     monkeypatch.setattr(providers, "KustoConnectionStringBuilder", FakeBuilder)
-    monkeypatch.setattr(providers, "KustoClient", lambda _builder: FakeKustoClient(response))
+    client = FakeKustoClient(response)
+    monkeypatch.setattr(providers, "KustoClient", lambda _builder: client)
+    return client
+
+
+def test_provider_passes_timedelta_server_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DART_ACQUISITION_TIMEOUT_SECONDS", "60")
+    client = _configure_provider(monkeypatch, object())
+
+    with pytest.raises(providers.AdxServiceError, match="primary result table"):
+        providers.AdxKogsProvider().fetch(DatasetQuery(contact_ids=["contact-1"]), 2.2e9)
+
+    assert isinstance(client.properties, ClientRequestProperties)
+    assert client.properties.get_option(
+        ClientRequestProperties.request_timeout_option_name,
+        None,
+    ) == timedelta(seconds=60)
 
 
 @pytest.mark.parametrize("failure", [KustoError(), KustoUnsupportedApiError()])

@@ -6,7 +6,7 @@ import json
 import os
 from collections import defaultdict
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from math import isfinite
 from typing import Any
@@ -433,7 +433,7 @@ class AdxKogsProvider:
                 properties = ClientRequestProperties()
                 properties.set_option(
                     ClientRequestProperties.request_timeout_option_name,
-                    f"{timeout_seconds:g}s",
+                    timedelta(seconds=timeout_seconds),
                 )
                 response = client.execute_query(ADX_DATABASE, kql, properties=properties)
         except KustoAuthenticationError as exc:

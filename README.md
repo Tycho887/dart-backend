@@ -73,11 +73,67 @@ uv sync --project research --frozen
 uv run --project research pytest research/tests
 ```
 
-Run the local deployment from `deploy/` after copying `.env.example` to `.env`:
+## Test environment
+
+Before v1.0, the only active environment file is
+`/opt/dart/secrets/test.env`. Pytest loads that file automatically and uses it
+for both the disposable TimescaleDB integration test and the real ADX/KOGS
+release gate. Keep the file outside the repository and readable only by its
+owner and the test-runner group.
+
+The test file contains only these variables:
+
+- `POSTGRES_DB` (`dart_test`)
+- `POSTGRES_USER` (`dart_test`)
+- `POSTGRES_PASSWORD` (a locally generated hexadecimal secret)
+- `DART_DATABASE_URL` (the same credentials at `127.0.0.1:5433/dart_test`)
+- `DART_TIMESCALE_PORT` (`5433`)
+- `AZURE_ADX_CLUSTER_ENDPOINT`
+- `AZURE_CLIENT_ID`
+- `AZURE_CLIENT_SECRET`
+- `AZURE_TENANT_ID`
+- `KOGS_API_KEY`
+- `DART_TEST_CONTACT_ID` (`4f214568-5c42-4b32-91e4-e8ce3fa730c5`)
+
+Create the disposable database with only its three `POSTGRES_*` variables
+injected into the container:
 
 ```bash
-docker compose --env-file deploy/.env -f deploy/compose.yml up --build
+set -a
+. /opt/dart/secrets/test.env
+set +a
+docker volume create dart_test_timescaledb
+docker run --detach --name dart-test-timescaledb \
+  --publish 127.0.0.1:5433:5432 \
+  --env POSTGRES_DB --env POSTGRES_USER --env POSTGRES_PASSWORD \
+  --volume dart_test_timescaledb:/home/postgres/pgdata/data \
+  --health-cmd 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  --health-interval 5s --health-timeout 5s --health-retries 12 \
+  timescale/timescaledb-ha@sha256:a8e3322e1cf936828698cb4de2a9c4b59acae1b123909f023bb15f42270af95d
 ```
+
+`jobs.initialize()` installs the current pre-v1 schema from
+`deploy/database/001_processing_runs.sql`; recreate the container and volume
+whenever a clean database is needed.
+
+There is no `prod.env` before v1.0. The v1.0 deployment task will introduce it
+alongside immutable, versioned database migrations. In addition to separate
+database and provider credentials, that production file will define
+`DART_DATABASE_URL`, `DART_ORCHESTRATOR_BEARER_TOKEN`,
+`DART_INTERNAL_BEARER_TOKEN`, `GF_SECURITY_ADMIN_USER`,
+`GF_SECURITY_ADMIN_PASSWORD`, `POSTGRES_DB`, `POSTGRES_USER`,
+`POSTGRES_PASSWORD`, `AZURE_ADX_CLUSTER_ENDPOINT`, `AZURE_CLIENT_ID`,
+`AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`, `KOGS_API_KEY`, and
+`KOGS_API_BASE_URL`.
+
+Production deployment controls are `DART_TIMESCALE_PORT`,
+`DART_GRAFANA_PORT`, `DART_SOLVER_URL`, `DART_POSTPROCESSOR_URL`,
+`DART_CORS_ORIGINS`, `DART_AUTO_MIGRATE`, `DART_RUN_LEASE_SECONDS`,
+`DART_ACQUISITION_TIMEOUT_SECONDS`, `DART_SERVICE_TIMEOUT_SECONDS`,
+`DART_WORKER_POLL_SECONDS`, `DART_SOLVER_VERSION`, and
+`DART_POSTPROCESSOR_VERSION`; defaults remain documented in
+`deploy/compose.yml`. Production values must never be copied from `test.env`,
+and test-only `DART_TEST_*` variables do not belong in `prod.env`.
 
 Never commit deployment credentials. Dashboard changes are live-infrastructure
 operations: inspect and update the configured Grafana instance through its HTTP

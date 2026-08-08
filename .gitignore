@@ -154,7 +154,6 @@ activemq-data/
 .[Ee][Nn][Vv].*
 *.[Ee][Nn][Vv]
 *.[Ee][Nn][Vv].*
-!deploy/.env.example
 .envrc
 .venv
 env/
