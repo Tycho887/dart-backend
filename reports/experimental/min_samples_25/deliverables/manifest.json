@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "selection": {
+    "minimum_accepted_doppler_measurements": 250,
+    "maximum_offset_variance_s2": 15.0
+  },
+  "contacts": [
+    {
+      "contact_uuid": "b2bd28a8-6704-4a67-bd8b-2c84fb0473bc",
+      "satellite": "FOREST-16",
+      "station": "AWARUA",
+      "file": "contacts/b2bd28a8-6704-4a67-bd8b-2c84fb0473bc.json"
+    },
+    {
+      "contact_uuid": "e5d79f0b-730b-4832-becf-f716d7322784",
+      "satellite": "FOREST-16",
+      "station": "PUNTA_ARENAS",
+      "file": "contacts/e5d79f0b-730b-4832-becf-f716d7322784.json"
+    },
+    {
+      "contact_uuid": "33061519-fa11-49e4-becd-6c770efd6e11",
+      "satellite": "FOREST-16",
+      "station": "SVALSAT",
+      "file": "contacts/33061519-fa11-49e4-becd-6c770efd6e11.json"
+    },
+    {
+      "contact_uuid": "556b1cfa-0a8e-4d19-8f95-b123fd47cd60",
+      "satellite": "FOREST-16",
+      "station": "PUNTA_ARENAS",
+      "file": "contacts/556b1cfa-0a8e-4d19-8f95-b123fd47cd60.json"
+    },
+    {
+      "contact_uuid": "2610bd5f-3a3f-4756-be38-d31392d4324c",
+      "satellite": "FOREST-17",
+      "station": "HARTEBEESTHOEK",
+      "file": "contacts/2610bd5f-3a3f-4756-be38-d31392d4324c.json"
+    },
+    {
+      "contact_uuid": "36c92afa-8853-4630-a788-ad2e63912d51",
+      "satellite": "FOREST-17",
+      "station": "TROLL",
+      "file": "contacts/36c92afa-8853-4630-a788-ad2e63912d51.json"
+    },
+    {
+      "contact_uuid": "d623db96-56fd-4783-9f1e-bf3933f4dbd8",
+      "satellite": "FOREST-17",
+      "station": "PUNTA_ARENAS",
+      "file": "contacts/d623db96-56fd-4783-9f1e-bf3933f4dbd8.json"
+    },
+    {
+      "contact_uuid": "49e74a6c-b21d-46c0-87bb-e4195b4a0dab",
+      "satellite": "FOREST-18",
+      "station": "PUNTA_ARENAS",
+      "file": "contacts/49e74a6c-b21d-46c0-87bb-e4195b4a0dab.json"
+    },
+    {
+      "contact_uuid": "48de3125-1fd3-40df-be87-5fc55aa2485f",
+      "satellite": "FOREST-18",
+      "station": "TROLL",
+      "file": "contacts/48de3125-1fd3-40df-be87-5fc55aa2485f.json"
+    },
+    {
+      "contact_uuid": "2735b79f-1ae2-4be6-9b13-774d026efd72",
+      "satellite": "FOREST-18",
+      "station": "SVALSAT",
+      "file": "contacts/2735b79f-1ae2-4be6-9b13-774d026efd72.json"
+    },
+    {
+      "contact_uuid": "7654ef67-7aba-4f18-bf0a-65eacc1b6a22",
+      "satellite": "FOREST-18",
+      "station": "SVALSAT",
+      "file": "contacts/7654ef67-7aba-4f18-bf0a-65eacc1b6a22.json"
+    },
+    {
+      "contact_uuid": "105f1f16-870e-4658-9a38-41c74ea5939c",
+      "satellite": "FOREST-18",
+      "station": "TROLL",
+      "file": "contacts/105f1f16-870e-4658-9a38-41c74ea5939c.json"
+    },
+    {
+      "contact_uuid": "d2af3474-5932-431d-ae42-c7ce901c93ba",
+      "satellite": "FOREST-19",
+      "station": "TROLL",
+      "file": "contacts/d2af3474-5932-431d-ae42-c7ce901c93ba.json"
+    },
+    {
+      "contact_uuid": "df2618ab-46b7-49bb-a148-ea9f89466869",
+      "satellite": "FOREST-19",
+      "station": "AWARUA",
+      "file": "contacts/df2618ab-46b7-49bb-a148-ea9f89466869.json"
+    },
+    {
+      "contact_uuid": "e629dfe8-8210-4af9-a61d-f02b5377a4fd",
+      "satellite": "FOREST-19",
+      "station": "SVALSAT",
+      "file": "contacts/e629dfe8-8210-4af9-a61d-f02b5377a4fd.json"
+    }
+  ],
+  "ric_plot": {
+    "contact_uuid": "df2618ab-46b7-49bb-a148-ea9f89466869",
+    "hours_after_contact": 24,
+    "png": "forest19_awarua_ric_residuals.png",
+    "svg": "forest19_awarua_ric_residuals.svg"
+  }
+}

@@ -1,0 +1,508 @@
+{
+  "schema_version": 1,
+  "contact_uuid": "49e74a6c-b21d-46c0-87bb-e4195b4a0dab",
+  "satellite": "FOREST-18",
+  "station": "PUNTA_ARENAS",
+  "contact": {
+    "recorded_start_utc": "2026-05-03T17:07:14.061741+00:00",
+    "recorded_end_utc": "2026-05-03T17:35:22.002084+00:00",
+    "accepted_doppler_start_utc": "2026-05-03T17:18:55.440628+00:00",
+    "accepted_doppler_end_utc": "2026-05-03T17:28:01.741531+00:00",
+    "accepted_doppler_measurements": 471
+  },
+  "prior_tle": {
+    "line1": "1 90918U 00000AAA 26123.38910698  .00000000  00000-0  15851-2 0  9997",
+    "line2": "2 90918  97.7376  21.6797 0001897  93.2348 211.0047 14.92051430    08",
+    "epoch_utc": "2026-05-03T09:20:18.843072Z"
+  },
+  "estimate": {
+    "variable_order": [
+      "time_offset_s",
+      "frequency_bias_hz"
+    ],
+    "variables": {
+      "time_offset_s": 0.1124594993088363,
+      "frequency_bias_hz": 944.2814808681679
+    },
+    "covariance": {
+      "matrix": [
+        [
+          8.298566189539923,
+          1340.3477993089189
+        ],
+        [
+          1340.3477993089193,
+          264312.17307090596
+        ]
+      ],
+      "units": [
+        [
+          "s^2",
+          "s Hz"
+        ],
+        [
+          "s Hz",
+          "Hz^2"
+        ]
+      ]
+    },
+    "doppler_rmse_hz": 23644.362352017906,
+    "healthy": true
+  },
+  "accuracy": {
+    "reference_kind": "recorded_contact",
+    "gps_fix_count": 28,
+    "prior_median_position_error_km": 9.91748756874372,
+    "corrected_median_position_error_km": 10.766595529752017,
+    "gps_fixes": [
+      {
+        "measurement_utc": "2026-05-03T17:08:12.100000Z",
+        "position_itrf_m": [
+          1165908.125,
+          2447150.75,
+          -6430621.0
+        ],
+        "position_sigma_m": [
+          2.033561944961548,
+          2.820333957672119,
+          5.127355575561523
+        ],
+        "packet_latency_s": 0.3540000915527344,
+        "prior_position_error_km": 9.568404742229092,
+        "corrected_position_error_km": 10.415753997124536
+      },
+      {
+        "measurement_utc": "2026-05-03T17:09:11.100000Z",
+        "position_itrf_m": [
+          1146098.375,
+          2023691.125,
+          -6579704.5
+        ],
+        "position_sigma_m": [
+          2.1929104328155518,
+          2.811790704727173,
+          5.44795036315918
+        ],
+        "packet_latency_s": 0.35500001907348633,
+        "prior_position_error_km": 9.616971914577373,
+        "corrected_position_error_km": 10.464379099365445
+      },
+      {
+        "measurement_utc": "2026-05-03T17:10:11.100000Z",
+        "position_itrf_m": [
+          1117428.25,
+          1584884.375,
+          -6703827.5
+        ],
+        "position_sigma_m": [
+          2.505486249923706,
+          2.7901852130889893,
+          5.416802406311035
+        ],
+        "packet_latency_s": 0.3600001335144043,
+        "prior_position_error_km": 9.663732467365064,
+        "corrected_position_error_km": 10.511202940543246
+      },
+      {
+        "measurement_utc": "2026-05-03T17:11:11.100000Z",
+        "position_itrf_m": [
+          1080219.5,
+          1139738.25,
+          -6799718.0
+        ],
+        "position_sigma_m": [
+          2.3521153926849365,
+          2.351505756378174,
+          5.788736343383789
+        ],
+        "packet_latency_s": 0.35500001907348633,
+        "prior_position_error_km": 9.706257902987865,
+        "corrected_position_error_km": 10.553804902066856
+      },
+      {
+        "measurement_utc": "2026-05-03T17:12:11.100000Z",
+        "position_itrf_m": [
+          1034581.5,
+          690190.5625,
+          -6866973.5
+        ],
+        "position_sigma_m": [
+          2.205333709716797,
+          2.21158504486084,
+          6.902071952819824
+        ],
+        "packet_latency_s": 0.3600001335144043,
+        "prior_position_error_km": 9.746291087217463,
+        "corrected_position_error_km": 10.593939157141678
+      },
+      {
+        "measurement_utc": "2026-05-03T17:13:11.100000Z",
+        "position_itrf_m": [
+          980674.625,
+          238193.796875,
+          -6905324.0
+        ],
+        "position_sigma_m": [
+          2.2071681022644043,
+          2.438164472579956,
+          6.614964008331299
+        ],
+        "packet_latency_s": 0.3560001850128174,
+        "prior_position_error_km": 9.782723061961608,
+        "corrected_position_error_km": 10.630460916900478
+      },
+      {
+        "measurement_utc": "2026-05-03T17:14:11.100000Z",
+        "position_itrf_m": [
+          918712.3125,
+          -214290.953125,
+          -6914601.5
+        ],
+        "position_sigma_m": [
+          2.5449538230895996,
+          2.424668550491333,
+          6.7536163330078125
+        ],
+        "packet_latency_s": 0.3690001964569092,
+        "prior_position_error_km": 9.816568511504776,
+        "corrected_position_error_km": 10.664414698942972
+      },
+      {
+        "measurement_utc": "2026-05-03T17:15:11.100000Z",
+        "position_itrf_m": [
+          848958.5,
+          -665302.125,
+          -6894770.5
+        ],
+        "position_sigma_m": [
+          1.938155174255371,
+          1.99033784866333,
+          5.612395763397217
+        ],
+        "packet_latency_s": 0.3560001850128174,
+        "prior_position_error_km": 9.848797624588542,
+        "corrected_position_error_km": 10.696760125163081
+      },
+      {
+        "measurement_utc": "2026-05-03T17:16:11.100000Z",
+        "position_itrf_m": [
+          771725.0625,
+          -1112889.0,
+          -6845913.5
+        ],
+        "position_sigma_m": [
+          2.2249183654785156,
+          2.5666797161102295,
+          5.879915237426758
+        ],
+        "packet_latency_s": 0.35900020599365234,
+        "prior_position_error_km": 9.878224300634598,
+        "corrected_position_error_km": 10.726307345214154
+      },
+      {
+        "measurement_utc": "2026-05-03T17:17:11.100000Z",
+        "position_itrf_m": [
+          687373.6875,
+          -1555120.0,
+          -6768235.0
+        ],
+        "position_sigma_m": [
+          1.977027416229248,
+          2.0141170024871826,
+          4.917602062225342
+        ],
+        "packet_latency_s": 0.3640000820159912,
+        "prior_position_error_km": 9.902126690421758,
+        "corrected_position_error_km": 10.750330521284162
+      },
+      {
+        "measurement_utc": "2026-05-03T17:18:11.100000Z",
+        "position_itrf_m": [
+          596310.625,
+          -1990081.0,
+          -6662054.0
+        ],
+        "position_sigma_m": [
+          1.8612074851989746,
+          1.8889760971069336,
+          4.8299407958984375
+        ],
+        "packet_latency_s": 0.3600001335144043,
+        "prior_position_error_km": 9.923778983924896,
+        "corrected_position_error_km": 10.772108881192914
+      },
+      {
+        "measurement_utc": "2026-05-03T17:19:11.100000Z",
+        "position_itrf_m": [
+          498988.03125,
+          -2415896.75,
+          -6527812.0
+        ],
+        "position_sigma_m": [
+          1.9133710861206055,
+          2.0190203189849854,
+          4.464503288269043
+        ],
+        "packet_latency_s": 0.3640000820159912,
+        "prior_position_error_km": 9.941601306060514,
+        "corrected_position_error_km": 10.79005980792397
+      },
+      {
+        "measurement_utc": "2026-05-03T17:20:12.100000Z",
+        "position_itrf_m": [
+          394136.875,
+          -2837540.75,
+          -6363141.5
+        ],
+        "position_sigma_m": [
+          2.0884344577789307,
+          3.0908150672912598,
+          4.1253485679626465
+        ],
+        "packet_latency_s": 0.36300015449523926,
+        "prior_position_error_km": 9.956856044502038,
+        "corrected_position_error_km": 10.805447968436347
+      },
+      {
+        "measurement_utc": "2026-05-03T17:21:11.100000Z",
+        "position_itrf_m": [
+          287582.5,
+          -3232796.25,
+          -6177491.0
+        ],
+        "position_sigma_m": [
+          2.214500904083252,
+          2.5422842502593994,
+          4.53330135345459
+        ],
+        "packet_latency_s": 0.36300015449523926,
+        "prior_position_error_km": 9.966971738704332,
+        "corrected_position_error_km": 10.81569101889511
+      },
+      {
+        "measurement_utc": "2026-05-03T17:22:11.100000Z",
+        "position_itrf_m": [
+          174607.0,
+          -3620359.5,
+          -5962866.5
+        ],
+        "position_sigma_m": [
+          3.9667022228240967,
+          3.3134031295776367,
+          4.570125579833984
+        ],
+        "packet_latency_s": 0.3680000305175781,
+        "prior_position_error_km": 9.975416456850688,
+        "corrected_position_error_km": 10.824270015320238
+      },
+      {
+        "measurement_utc": "2026-05-03T17:23:11.100000Z",
+        "position_itrf_m": [
+          57580.734375,
+          -3991756.75,
+          -5723093.5
+        ],
+        "position_sigma_m": [
+          2.688627004623413,
+          2.9865121841430664,
+          4.766666412353516
+        ],
+        "packet_latency_s": 0.3640000820159912,
+        "prior_position_error_km": 9.981694670097509,
+        "corrected_position_error_km": 10.830677893399391
+      },
+      {
+        "measurement_utc": "2026-05-03T17:24:11.100000Z",
+        "position_itrf_m": [
+          -62858.58203125,
+          -4345394.0,
+          -5459173.0
+        ],
+        "position_sigma_m": [
+          2.453399896621704,
+          3.4344124794006348,
+          4.772378444671631
+        ],
+        "packet_latency_s": 0.3680000305175781,
+        "prior_position_error_km": 9.985399142913787,
+        "corrected_position_error_km": 10.834506575250483
+      },
+      {
+        "measurement_utc": "2026-05-03T17:25:11.100000Z",
+        "position_itrf_m": [
+          -186045.40625,
+          -4679752.5,
+          -5172203.5
+        ],
+        "position_sigma_m": [
+          2.5179176330566406,
+          3.73294734954834,
+          4.520932674407959
+        ],
+        "packet_latency_s": 0.37199997901916504,
+        "prior_position_error_km": 9.985323333509971,
+        "corrected_position_error_km": 10.834550764671423
+      },
+      {
+        "measurement_utc": "2026-05-03T17:26:11.100000Z",
+        "position_itrf_m": [
+          -311287.21875,
+          -4993399.5,
+          -4863385.5
+        ],
+        "position_sigma_m": [
+          2.381019353866577,
+          3.860563278198242,
+          4.259690761566162
+        ],
+        "packet_latency_s": 0.3680000305175781,
+        "prior_position_error_km": 9.981837581795952,
+        "corrected_position_error_km": 10.831180267347749
+      },
+      {
+        "measurement_utc": "2026-05-03T17:27:11.100000Z",
+        "position_itrf_m": [
+          -437871.125,
+          -5284993.0,
+          -4534014.0
+        ],
+        "position_sigma_m": [
+          2.6982100009918213,
+          5.521059989929199,
+          4.421995162963867
+        ],
+        "packet_latency_s": 0.37199997901916504,
+        "prior_position_error_km": 9.976358126569039,
+        "corrected_position_error_km": 10.825809886134873
+      },
+      {
+        "measurement_utc": "2026-05-03T17:28:11.100000Z",
+        "position_itrf_m": [
+          -565066.4375,
+          -5553295.5,
+          -4185471.5
+        ],
+        "position_sigma_m": [
+          2.58493971824646,
+          4.323465824127197,
+          4.631502151489258
+        ],
+        "packet_latency_s": 0.3680000305175781,
+        "prior_position_error_km": 9.965828079391663,
+        "corrected_position_error_km": 10.815383191043725
+      },
+      {
+        "measurement_utc": "2026-05-03T17:29:11.100000Z",
+        "position_itrf_m": [
+          -692128.0625,
+          -5797154.5,
+          -3819218.5
+        ],
+        "position_sigma_m": [
+          3.623751163482666,
+          4.867596626281738,
+          3.9965438842773438
+        ],
+        "packet_latency_s": 0.37199997901916504,
+        "prior_position_error_km": 9.954378581262306,
+        "corrected_position_error_km": 10.804028029658852
+      },
+      {
+        "measurement_utc": "2026-05-03T17:30:11.100000Z",
+        "position_itrf_m": [
+          -818304.5,
+          -6015545.0,
+          -3436801.75
+        ],
+        "position_sigma_m": [
+          4.057963848114014,
+          5.077630519866943,
+          3.3621156215667725
+        ],
+        "packet_latency_s": 0.37600016593933105,
+        "prior_position_error_km": 9.941738558107845,
+        "corrected_position_error_km": 10.791475199280397
+      },
+      {
+        "measurement_utc": "2026-05-03T17:31:11.100000Z",
+        "position_itrf_m": [
+          -942835.0625,
+          -6207547.0,
+          -3039830.75
+        ],
+        "position_sigma_m": [
+          2.9272372722625732,
+          4.087019920349121,
+          2.8456990718841553
+        ],
+        "packet_latency_s": 0.3710000514984131,
+        "prior_position_error_km": 9.927514974203605,
+        "corrected_position_error_km": 10.777331266797587
+      },
+      {
+        "measurement_utc": "2026-05-03T17:32:11.100000Z",
+        "position_itrf_m": [
+          -1064959.5,
+          -6372355.5,
+          -2629978.25
+        ],
+        "position_sigma_m": [
+          3.114253282546997,
+          4.563050746917725,
+          2.651095151901245
+        ],
+        "packet_latency_s": 0.377000093460083,
+        "prior_position_error_km": 9.911196153562544,
+        "corrected_position_error_km": 10.76108217831112
+      },
+      {
+        "measurement_utc": "2026-05-03T17:33:11.100000Z",
+        "position_itrf_m": [
+          -1183924.0,
+          -6509291.0,
+          -2208976.5
+        ],
+        "position_sigma_m": [
+          2.266615867614746,
+          4.136637210845947,
+          2.065272092819214
+        ],
+        "packet_latency_s": 0.3730001449584961,
+        "prior_position_error_km": 9.892308568162347,
+        "corrected_position_error_km": 10.74225875534553
+      },
+      {
+        "measurement_utc": "2026-05-03T17:34:12.100000Z",
+        "position_itrf_m": [
+          -1300855.0,
+          -6619356.0,
+          -1771362.0
+        ],
+        "position_sigma_m": [
+          2.309001922607422,
+          4.388006210327148,
+          2.0563008785247803
+        ],
+        "packet_latency_s": 0.37800002098083496,
+        "prior_position_error_km": 9.870968919083229,
+        "corrected_position_error_km": 10.720970760848447
+      },
+      {
+        "measurement_utc": "2026-05-03T17:35:11.100000Z",
+        "position_itrf_m": [
+          -1409377.5,
+          -6697428.0,
+          -1340685.125
+        ],
+        "position_sigma_m": [
+          2.416123867034912,
+          4.735389232635498,
+          2.254127264022827
+        ],
+        "packet_latency_s": 0.37199997901916504,
+        "prior_position_error_km": 9.849164547714139,
+        "corrected_position_error_km": 10.699209515502172
+      }
+    ]
+  }
+}

@@ -35,7 +35,10 @@ def _audit_row() -> dict:
         "ukf_frequency_bias_hz": 10.0,
         "batch_offset_s": 1.5,
         "batch_offset_std_s": 0.2,
+        "batch_offset_variance_s2": 0.04,
+        "batch_covariance": ((0.04, 0.1), (0.1, 25.0)),
         "batch_frequency_bias_hz": 20.0,
+        "batch_doppler_rmse_hz": 30.0,
         "batch_condition": 2.0,
         "batch_rank": 2,
         "batch_at_bound": False,
@@ -66,6 +69,9 @@ def test_scoped_replay_rows_do_not_leak_other_estimator_fields():
     assert "ukf" not in json.dumps(batch).lower()
     assert "phase" not in json.dumps(batch).lower()
     assert "batch" not in json.dumps(ukf).lower()
+    assert batch["batch_offset_variance_s2"] == 0.04
+    assert batch["batch_covariance"] == ((0.04, 0.1), (0.1, 25.0))
+    assert batch["batch_doppler_rmse_hz"] == 30.0
     assert batch["forecasts"][0] == {
         "lower_h": 0,
         "upper_h": 1,

@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "contact_uuid": "7654ef67-7aba-4f18-bf0a-65eacc1b6a22",
+  "satellite": "FOREST-18",
+  "station": "SVALSAT",
+  "contact": {
+    "recorded_start_utc": "2026-05-03T22:47:18.129477+00:00",
+    "recorded_end_utc": "2026-05-03T23:04:57.723599+00:00",
+    "accepted_doppler_start_utc": "2026-05-03T22:49:19.221401+00:00",
+    "accepted_doppler_end_utc": "2026-05-03T23:00:58.667437+00:00",
+    "accepted_doppler_measurements": 339
+  },
+  "prior_tle": {
+    "line1": "1 90918U 00000AAA 26123.38910698  .00000000  00000-0  15851-2 0  9997",
+    "line2": "2 90918  97.7376  21.6797 0001897  93.2348 211.0047 14.92051430    08",
+    "epoch_utc": "2026-05-03T09:20:18.843072Z"
+  },
+  "estimate": {
+    "variable_order": [
+      "time_offset_s",
+      "frequency_bias_hz"
+    ],
+    "variables": {
+      "time_offset_s": -2.2329643985300334,
+      "frequency_bias_hz": -45.20142551526909
+    },
+    "covariance": {
+      "matrix": [
+        [
+          1.2403962378800493,
+          197.48399193442012
+        ],
+        [
+          197.48399193442012,
+          59934.05311061791
+        ]
+      ],
+      "units": [
+        [
+          "s^2",
+          "s Hz"
+        ],
+        [
+          "s Hz",
+          "Hz^2"
+        ]
+      ]
+    },
+    "doppler_rmse_hz": 17022.154355547234,
+    "healthy": true
+  },
+  "accuracy": {
+    "reference_kind": "recorded_contact",
+    "gps_fix_count": 5,
+    "prior_median_position_error_km": 16.722016758599846,
+    "corrected_median_position_error_km": 0.28757881208310326,
+    "gps_fixes": [
+      {
+        "measurement_utc": "2026-05-03T22:48:11.100000Z",
+        "position_itrf_m": [
+          -1693864.5,
+          958372.875,
+          6683859.5
+        ],
+        "position_sigma_m": [
+          2.715083599090576,
+          1.9578369855880737,
+          5.094418525695801
+        ],
+        "packet_latency_s": 0.624000072479248,
+        "prior_position_error_km": 16.690530268474195,
+        "corrected_position_error_km": 0.2580802068424132
+      },
+      {
+        "measurement_utc": "2026-05-03T22:49:11.100000Z",
+        "position_itrf_m": [
+          -1246230.125,
+          964125.4375,
+          6780581.5
+        ],
+        "position_sigma_m": [
+          2.1679744720458984,
+          1.9086331129074097,
+          4.791027069091797
+        ],
+        "packet_latency_s": 0.6190001964569092,
+        "prior_position_error_km": 16.692563426472347,
+        "corrected_position_error_km": 0.2700623793024828
+      },
+      {
+        "measurement_utc": "2026-05-03T22:50:11.100000Z",
+        "position_itrf_m": [
+          -793361.5,
+          961869.5,
+          6848575.5
+        ],
+        "position_sigma_m": [
+          1.8624577522277832,
+          1.9578267335891724,
+          4.494141101837158
+        ],
+        "packet_latency_s": 0.624000072479248,
+        "prior_position_error_km": 16.722016758599846,
+        "corrected_position_error_km": 0.28757881208310326
+      },
+      {
+        "measurement_utc": "2026-05-03T22:51:11.100000Z",
+        "position_itrf_m": [
+          -337191.53125,
+          951589.875,
+          6887502.5
+        ],
+        "position_sigma_m": [
+          2.148857593536377,
+          2.8788082599639893,
+          5.32071590423584
+        ],
+        "packet_latency_s": 0.6360001564025879,
+        "prior_position_error_km": 16.744291818269637,
+        "corrected_position_error_km": 0.3073251924913507
+      },
+      {
+        "measurement_utc": "2026-05-03T22:52:11.100000Z",
+        "position_itrf_m": [
+          120273.1328125,
+          933304.75,
+          6897217.0
+        ],
+        "position_sigma_m": [
+          3.2902421951293945,
+          6.540579795837402,
+          8.178240776062012
+        ],
+        "packet_latency_s": 0.632000207901001,
+        "prior_position_error_km": 16.77171757051752,
+        "corrected_position_error_km": 0.33070950958415646
+      }
+    ]
+  }
+}

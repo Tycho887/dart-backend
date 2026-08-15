@@ -59,7 +59,7 @@ The real-Doppler cohort inventories 61 raw contacts, 15 contacts with at least 3
 
 This is an 11-pass cohort with at least five same-pass GPS fixes and at least 301 presented Doppler samples. It is a real-data, post-pass, Doppler-only batch-LS result. The observed 0.494 km best pass establishes sub-kilometre performance in favourable conditions; it is not a guaranteed accuracy level. A 0.307 km pass with only three GPS fixes is retained as supplementary context rather than included in the primary cohort.
 
-The production result and its limitations are in the [batch-LS report](reports/production/doppler_batch_ls.md). The following remain separate experimental branches:
+The production result and its limitations are in the [batch-LS report](reports/production/doppler_batch_ls.md). The May 2026 LEOP technical report is available as [Markdown](reports/production/forest_leop_may_2026.md) and an illustrated [Word document](reports/production/forest_leop_may_2026.docx); it adds the exact TLE priors, all 61 contacts, measurement counts, error equations, and leakage controls. The following remain separate experimental branches:
 
 - [static-UKF replay on real Doppler](reports/experimental/ukf/ukf_replay.md);
 - [Henault-style phase-difference experiments](reports/experimental/henault_phase/); and

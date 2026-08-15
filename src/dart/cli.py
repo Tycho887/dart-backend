@@ -332,7 +332,10 @@ def _batch_report_rows(rows: list[dict]) -> list[dict]:
             "observations": row["observations"],
             "batch_offset_s": row["batch_offset_s"],
             "batch_offset_std_s": row["batch_offset_std_s"],
+            "batch_offset_variance_s2": row["batch_offset_variance_s2"],
+            "batch_covariance": row["batch_covariance"],
             "batch_frequency_bias_hz": row["batch_frequency_bias_hz"],
+            "batch_doppler_rmse_hz": row["batch_doppler_rmse_hz"],
             "batch_condition": row["batch_condition"],
             "batch_rank": row["batch_rank"],
             "batch_at_bound": row["batch_at_bound"],
@@ -393,6 +396,7 @@ def _write_scoped_replay_json(
     report_kind: str,
     evidence_class: str,
     rows: list[dict],
+    min_samples: int,
 ) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
@@ -400,6 +404,7 @@ def _write_scoped_replay_json(
             {
                 "report_kind": report_kind,
                 "evidence_class": evidence_class,
+                "config": {"min_samples": min_samples},
                 "results": rows,
             },
             indent=2,
@@ -418,17 +423,31 @@ def _forecast_entries(rows: list[dict], label: str, index: int) -> list[dict]:
     ]
 
 
-def _write_batch_replay_markdown(rows: list[dict], path: Path) -> None:
+def _write_batch_replay_markdown(
+    rows: list[dict], path: Path, *, min_samples: int
+) -> None:
     eligible = [row for row in rows if row["in_pass_prior"]["fixes"] >= 5]
     healthy = sum(row["batch_healthy"] for row in eligible)
+    title = (
+        "# FOREST Doppler-only post-pass batch-LS evaluation"
+        if min_samples == 301
+        else "# FOREST Doppler-only batch-LS threshold sensitivity"
+    )
+    status = (
+        "**Status:** this is the operationally relevant post-pass Doppler-only result. It is not a real-time tracking claim, a full-state orbit-determination claim, or a deployment-readiness qualification. No UKF, interferometric phase-difference, or synthetic observation contributes to the reported values."
+        if min_samples == 301
+        else "**Status:** this is a measurement-threshold sensitivity experiment. It does not replace the 301-measurement production evaluation and is not a real-time, full-state orbit-determination, or deployment-readiness claim."
+    )
     lines = [
-        "# FOREST Doppler-only post-pass batch-LS evaluation",
+        title,
         "",
         f"Generated {dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}.",
         "",
         "**Evidence class:** real recorded FOREST Doppler, independent raw BESTXYZ GPS scoring, and a full-pass robust batch least-squares fit.",
         "",
-        "**Status:** this is the operationally relevant post-pass Doppler-only result. It is not a real-time tracking claim, a full-state orbit-determination claim, or a deployment-readiness qualification. No UKF, interferometric phase-difference, or synthetic observation contributes to the reported values.",
+        f"**Selection:** at least {min_samples} accepted Doppler measurements per pass.",
+        "",
+        status,
         "",
         "## Same-pass GPS comparison",
         "",
@@ -451,15 +470,16 @@ def _write_batch_replay_markdown(rows: list[dict], path: Path) -> None:
             "",
             "## Pass details",
             "",
-            "| Satellite | Station | Samples | GPS fixes | Batch healthy | Batch dt (s) | Jacobian condition | Prior GPS (km) | Batch GPS (km) |",
-            "| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: |",
+            "| Satellite | Station | Samples | GPS fixes | Batch healthy | Batch dt (s) | dt variance (s^2) | Doppler RMSE (Hz) | Jacobian condition | Prior GPS (km) | Batch GPS (km) |",
+            "| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for row in rows:
         lines.append(
             f"| {row['satellite']} | {row['station']} | {row['observations']} | "
             f"{row['in_pass_prior']['fixes']} | {'yes' if row['batch_healthy'] else 'no'} | "
-            f"{_fmt(row['batch_offset_s'])} | {_fmt(row['batch_condition'])} | "
+            f"{_fmt(row['batch_offset_s'])} | {_fmt(row['batch_offset_variance_s2'])} | "
+            f"{_fmt(row['batch_doppler_rmse_hz'])} | {_fmt(row['batch_condition'])} | "
             f"{_fmt(row['in_pass_prior']['median_km'])} | {_fmt(row['in_pass_batch']['median_km'])} |"
         )
     lines.extend(
@@ -592,25 +612,37 @@ def _write_ukf_replay_markdown(rows: list[dict], path: Path) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
-def _write_batch_replay_outputs(rows: list[dict], output: Path) -> None:
+def _write_batch_replay_outputs(
+    rows: list[dict], output: Path, *, min_samples: int
+) -> None:
     scoped_rows = _batch_report_rows(rows)
     _write_scoped_replay_json(
         output,
         report_kind="post_pass_batch_ls",
-        evidence_class="real_data_doppler_only",
+        evidence_class=(
+            "real_data_doppler_only"
+            if min_samples == 301
+            else "real_data_doppler_only_threshold_sensitivity"
+        ),
         rows=scoped_rows,
+        min_samples=min_samples,
     )
     _write_flat_csv(scoped_rows, output, ("in_pass_prior", "in_pass_batch"))
-    _write_batch_replay_markdown(scoped_rows, output.with_suffix(".md"))
+    _write_batch_replay_markdown(
+        scoped_rows, output.with_suffix(".md"), min_samples=min_samples
+    )
 
 
-def _write_ukf_replay_outputs(rows: list[dict], output: Path) -> None:
+def _write_ukf_replay_outputs(
+    rows: list[dict], output: Path, *, min_samples: int
+) -> None:
     scoped_rows = _ukf_report_rows(rows)
     _write_scoped_replay_json(
         output,
         report_kind="static_ukf_replay",
         evidence_class="real_data_doppler_only_experimental_estimator",
         rows=scoped_rows,
+        min_samples=min_samples,
     )
     _write_flat_csv(
         scoped_rows,
@@ -644,10 +676,14 @@ def replay_command(args) -> int:
         _write_replay_outputs(results, Path(args.output))
         wrote_report = True
     if args.batch_report_output:
-        _write_batch_replay_outputs(results, Path(args.batch_report_output))
+        _write_batch_replay_outputs(
+            results, Path(args.batch_report_output), min_samples=args.min_samples
+        )
         wrote_report = True
     if args.ukf_report_output:
-        _write_ukf_replay_outputs(results, Path(args.ukf_report_output))
+        _write_ukf_replay_outputs(
+            results, Path(args.ukf_report_output), min_samples=args.min_samples
+        )
         wrote_report = True
     if not wrote_report:
         print(json.dumps(results, indent=2, allow_nan=True))

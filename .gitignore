@@ -242,6 +242,7 @@ tempCodeRunnerFile.py
 # Local experiment output
 /artifacts/
 *.png
+!/reports/production/contact_timeline.png
 
 # Marimo
 marimo/_static/

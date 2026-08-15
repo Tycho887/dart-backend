@@ -23,8 +23,12 @@ solution, a flight qualification, or a blinded confirmation.
   records all 61 raw contacts and the raw-to-eligible selection counts.
 - The current cohort has 15 contacts with at least 301 presented Doppler
   samples; 11 also have at least five same-pass direct GPS fixes.
-- GPS is not used for initialization, fitting, trimming, gating, or parameter
-  tuning. It is used only after fitting to score position error.
+- GPS is not supplied to an individual production fit and is not used to
+  initialize, trim, gate, or select contacts. Raw BESTXYZ is used only after
+  each fit to score position error. A separate historical Optuna experiment
+  compared candidate hyperparameters against a post-pass GPS-derived
+  reference TLE, so development of the configuration was retrospective rather
+  than blind to post-pass orbit information.
 - BESTXYZ positions are evaluated at their embedded receiver measurement epoch,
   not at packet-arrival time. Historical antenna commands are not independent
   angular observations.
@@ -48,6 +52,8 @@ replace the primary ranking.
 - Same-pass values describe post-pass agreement. The frozen-correction tables
   separately assess the fitted offset on later GPS horizons.
 - The observed sub-kilometre best passes demonstrate favourable conditions in
-  this cohort; they are not a guaranteed accuracy level.
+  this cohort. They show potential for future LEOPs with sufficient Doppler
+  coverage, geometry, and receiver quality; they are not a guaranteed accuracy
+  level.
 - Do not attribute any result here to Henault-style phase difference or the
   UKF. Neither participates in this report family.

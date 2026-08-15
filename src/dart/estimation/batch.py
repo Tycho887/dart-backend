@@ -33,6 +33,7 @@ class BatchConfig:
 class BatchFit:
     estimate: Estimate
     residuals: np.ndarray
+    doppler_rmse_hz: float
     weighted_ssr: float
     robust_cost: float
     success: bool
@@ -168,6 +169,8 @@ def fit_batch(
     successful = [candidate for candidate in candidates if candidate.success]
     best = min(successful or candidates, key=lambda candidate: float(candidate.cost))
     raw_residual = residual(best.x)
+    doppler_residual_hz = raw_residual[: len(usable)] * config.doppler_std_hz
+    doppler_rmse_hz = float(np.sqrt(np.mean(doppler_residual_hz**2)))
     best_ssr = float(np.sum(raw_residual**2))
 
     jacobian = jacobian(best.x)
@@ -225,6 +228,7 @@ def fit_batch(
     return BatchFit(
         estimate=estimate,
         residuals=raw_residual,
+        doppler_rmse_hz=doppler_rmse_hz,
         weighted_ssr=best_ssr,
         robust_cost=float(best.cost),
         success=bool(best.success),

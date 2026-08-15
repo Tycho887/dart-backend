@@ -62,7 +62,10 @@ class ReplayPassResult:
     ukf_frequency_bias_hz: float
     batch_offset_s: float
     batch_offset_std_s: float
+    batch_offset_variance_s2: float
+    batch_covariance: tuple[tuple[float, ...], ...]
     batch_frequency_bias_hz: float
+    batch_doppler_rmse_hz: float
     batch_condition: float
     batch_rank: int
     batch_at_bound: bool
@@ -178,7 +181,13 @@ def replay_pass(
         ukf_frequency_bias_hz=final.frequency_bias_hz,
         batch_offset_s=batch.estimate.offset_s,
         batch_offset_std_s=batch.estimate.offset_std_s,
+        batch_offset_variance_s2=float(max(0.0, batch.estimate.covariance[0, 0])),
+        batch_covariance=tuple(
+            tuple(float(value) for value in covariance_row)
+            for covariance_row in batch.estimate.covariance
+        ),
         batch_frequency_bias_hz=batch.estimate.frequency_bias_hz,
+        batch_doppler_rmse_hz=batch.doppler_rmse_hz,
         batch_condition=batch.jacobian_condition,
         batch_rank=batch.jacobian_rank,
         batch_at_bound=batch.at_bound,

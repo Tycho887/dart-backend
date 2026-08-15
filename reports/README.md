@@ -21,9 +21,12 @@ retrospective and exploratory; it is not a blinded confirmation.
 1. For the real Doppler-only batch-LS result, read the
    [production protocol](production/protocol.md), then the generated
    [batch-LS evaluation](production/doppler_batch_ls.md).
-2. For the experimental UKF on those same recorded Doppler passes, read
+2. For the complete FOREST-16/17/18/19 May 2026 LEOP technical review, including
+   all 61 contacts and the exact TLE priors, read the
+   [LEOP report](production/forest_leop_may_2026.md).
+3. For the experimental UKF on those same recorded Doppler passes, read
    [experimental/ukf](experimental/ukf/).
-3. For Henault-style interferometric phase difference, read
+4. For Henault-style interferometric phase difference, read
    [experimental/henault_phase](experimental/henault_phase/). No result in
    that branch is real dual-antenna phase validation.
 

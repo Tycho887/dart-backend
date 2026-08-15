@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
+import pytest
 import satkit as sk
 
 from dart.estimation import (
@@ -37,7 +38,7 @@ def test_batch_recovers_doppler_offset(context, visible_times):
         context,
         observations,
         BatchConfig(
-            doppler_std_hz=1.0,
+            doppler_std_hz=5.0,
             offset_starts_s=(-30.0, 0.0, 30.0),
             robust_loss="linear",
         ),
@@ -45,6 +46,11 @@ def test_batch_recovers_doppler_offset(context, visible_times):
     assert fit.success
     assert abs(fit.estimate.offset_s - 8.0) < 0.05
     assert abs(fit.estimate.frequency_bias_hz - 300.0) < 1.0
+    expected_rmse_hz = float(
+        np.sqrt(np.mean(np.square(fit.residuals[: len(observations)])))
+        * 5.0
+    )
+    assert fit.doppler_rmse_hz == pytest.approx(expected_rmse_hz)
 
 
 def test_ukf_supports_intermittent_phase(context, visible_times):
