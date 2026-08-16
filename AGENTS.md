@@ -8,6 +8,10 @@ uv run pytest                                      # python tests (schema, codec
 cargo test --manifest-path crates/dart_solver/Cargo.toml   # rust tests (schema mirrors + fixture contract)
 ```
 
+Env-backed ADX tests (`tests/test_azure.py`) read secrets from `DART_SECRETS_ENV`
+(default `/opt/dart/secrets/test.env`) and skip when the file is absent; they
+include live queries against the real telemetry DB and run in the default suite.
+
 After a schema change, the fixture files regenerate: delete `tests/fixtures/*.msgpack`
 and re-run `uv run pytest tests/test_codec.py`. Both suites must stay green — they are
 the cross-language contract.
