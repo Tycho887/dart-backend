@@ -63,6 +63,7 @@ def build_sgp4_input(
     stations: dict[str, Station],
     nominal_center_frequency_hz: float = 2.0e9,
     fit_model: str = "mean_anomaly",
+    spacecraft_id: str = "",
 ) -> Sgp4Input:
     """Pure normalization: telemetry frame + metadata → Sgp4Input.
 
@@ -80,6 +81,7 @@ def build_sgp4_input(
         finite_difference_step=1e-2,
     )
     return Sgp4Input(
+        spacecraft_id=spacecraft_id,
         epoch_unix=tle_epoch_unix(tle.line1),
         tle=tle,
         stations=list(stations.values()),
@@ -111,4 +113,7 @@ def load_sgp4_input(auth: str, ctx) -> Sgp4Input:
         raise ValueError(f"contact {contact_id} has no ephemeris_id")
     tle = tle_from_kogs(auth, reservation.ephemeris_id)
 
-    return build_sgp4_input(df, tle=tle, stations=stations)
+    spacecraft_ids = df["spacecraft_id"].drop_nulls().unique().to_list()
+    spacecraft_id = spacecraft_ids[0] if len(spacecraft_ids) == 1 else ""
+
+    return build_sgp4_input(df, tle=tle, stations=stations, spacecraft_id=spacecraft_id)
