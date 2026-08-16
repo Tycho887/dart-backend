@@ -177,6 +177,28 @@ def test_offline_max_rows(parquet_file):
     assert [o.contact_id for o in inp.observations] == ["c1", "c1"]
 
 
+def test_offline_timestamp_offset(parquet_file):
+    base = parquet_frame().sort("timestamp")["timestamp"][0].timestamp()
+    inp = build_sgp4_input_from_parquet(parquet_file, timestamp_offset_s=0.35)
+    assert inp.observations[0].epoch_unix == pytest.approx(base + 0.35)
+    # unchanged without the offset
+    plain = build_sgp4_input_from_parquet(parquet_file)
+    assert plain.observations[0].epoch_unix == pytest.approx(base)
+
+
+def test_offline_subsecond_precision(tmp_path):
+    df = parquet_frame().with_columns(
+        (pl.col("timestamp") + pl.duration(milliseconds=250)).alias("timestamp")
+    )
+    path = tmp_path / "subsecond.parquet"
+    df.write_parquet(path)
+    inp = build_sgp4_input_from_parquet(path)
+    base = df.sort("timestamp")["timestamp"][0].timestamp()
+    assert inp.observations[0].epoch_unix == pytest.approx(base)
+    # the fractional part survives (dt.epoch("s") would truncate it away)
+    assert abs(inp.observations[0].epoch_unix - round(inp.observations[0].epoch_unix)) > 0.2
+
+
 def test_offline_tle_override(parquet_file):
     override = Tle(
         "1 25544U 98067A   24001.00000000  .00016717  00000-0  10270-3 0  9993",

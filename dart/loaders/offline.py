@@ -158,6 +158,7 @@ def build_sgp4_input_from_parquet(
     min_doppler_hz: float = 1.0,
     max_doppler_hz: float = 1e5,
     min_pass_measurements: int = 0,
+    timestamp_offset_s: float = 0.0,
     max_rows: int | None = None,
     tle: Tle | None = None,
     fit_model: str = "mean_anomaly",
@@ -173,9 +174,15 @@ def build_sgp4_input_from_parquet(
     Gates (defaults match the production pipeline): ``min_doppler_hz`` /
     ``max_doppler_hz`` implement the magnitude ``0Hz/100kHz`` filter and
     ``min_pass_measurements`` drops passes with too little post-filter data
-    (0 disables).
+    (0 disables). ``timestamp_offset_s`` shifts the measurement epochs by a
+    constant (backend latency calibration: recorded timestamps arrive late,
+    e.g. +0.35 s); 0.0 leaves them untouched.
     """
     df = read_parquet(source)
+    if timestamp_offset_s:
+        df = df.with_columns(
+            (pl.col("timestamp") + pl.duration(seconds=timestamp_offset_s)).alias("timestamp")
+        )
     filtered = _filter_frame(
         df,
         require_lock=require_lock,

@@ -46,6 +46,10 @@ FIT_POINT_COUNTS = (150, 200, 300)
 #: (they cannot constrain the per-pass bias plus the shared elements)
 MIN_PASS_MEASUREMENTS = 250
 
+#: backend latency calibration: recorded measurement timestamps arrive this
+#: many seconds late and are shifted forward before fitting
+TIMESTAMP_OFFSET_S = 0.350
+
 #: doppler-fit results with delta_mean_anomaly 1-sigma above this (km) are
 #: rejected as high-covariance (typical gated fits sit near ~1 km)
 MAX_MA_SIGMA_KM = 10.0
@@ -155,7 +159,9 @@ def in_track_separation_km(r_a, v_a, r_b) -> float:
 def run_forest(forest: int) -> None:
     print(f"=== forest{forest} ===")
     inp = build_sgp4_input_from_parquet(
-        DOPPLER_DIR / f"forest{forest}.parquet", min_pass_measurements=MIN_PASS_MEASUREMENTS
+        DOPPLER_DIR / f"forest{forest}.parquet",
+        min_pass_measurements=MIN_PASS_MEASUREMENTS,
+        timestamp_offset_s=TIMESTAMP_OFFSET_S,
     )
     obs_epochs = np.array([obs.epoch_unix for obs in inp.observations])
 

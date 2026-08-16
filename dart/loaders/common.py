@@ -37,8 +37,14 @@ def observations_from_frame(
     Expects the column layout of ``dart.io.azure.fetch_tracking_data`` and a
     ``system_id`` → ``Station`` map. Raises ``ValueError`` when telemetry
     references a station without metadata (fail loudly, never guess).
+
+    ``epoch_unix`` keeps sub-second precision (microseconds) — integer-second
+    truncation would silently swallow timing offsets such as the backend
+    latency calibration in ``dart.loaders.offline``.
     """
-    unix_s = df["timestamp"].dt.epoch("s").to_list()
+    # microseconds fit exactly in f64 (unix nanoseconds do not), so epoch("us")
+    # preserves sub-second precision without float rounding
+    unix_s = (df["timestamp"].dt.epoch("us").cast(pl.Float64) / 1e6).to_list()
     dopplers = df["lr1_receiver1_actualCarrierFrequencyOffset"].to_list()
     azimuths = df["antenna1_position_azimuth"].to_list()
     elevations = df["antenna1_position_elevation"].to_list()
