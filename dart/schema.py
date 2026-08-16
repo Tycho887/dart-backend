@@ -102,7 +102,7 @@ class Sgp4FitOptions:
     pass_ids: list[str] = field(default_factory=list)
     nominal_center_frequency_hz: float = 0.0
     mean_anomaly: FitParameter = FitParameter(
-        initial=0.0, lower=-0.5, upper=0.5, scale=0.05, finite_difference_step=1e-5
+        initial=0.0, lower=-0.05, upper=0.05, scale=0.02, finite_difference_step=1e-6
     )
     mean_motion: FitParameter = FitParameter(
         initial=0.0,
@@ -119,12 +119,12 @@ class Sgp4FitOptions:
         finite_difference_step=1e4,
     )
     pass_biases: list[FitParameter] = field(default_factory=list)
-    doppler_sigma_hz: float = 1.0
-    loss: str = "linear"  # linear, huber, soft_l1, log_cosh
+    doppler_sigma_hz: float = 1e3
+    loss: str = "soft_l1"  # linear, huber, soft_l1, log_cosh
     loss_scale: float = 1.0
     max_evaluations: int = 200
-    ftol_rel: float = 1e-10
-    xtol_rel: float = 1e-10
+    ftol_rel: float = 1e-6
+    xtol_rel: float = 1e-6
 
 
 @dataclass(frozen=True)
