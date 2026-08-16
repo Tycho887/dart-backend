@@ -1,0 +1,20 @@
+[package]
+name = "dart_solver"
+version = "0.1.0"
+edition = "2021"
+description = "Rust transport + solver scaffold for the DART orbit determination engine"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Enabled by maturin ([tool.maturin] features) for the actual extension build;
+# left off for `cargo test` so tests link without libpython.
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["abi3-py39"] }
+serde = { version = "1", features = ["derive"] }
+rmp-serde = "1"
+rmpv = { version = "1", features = ["with-serde"] }
