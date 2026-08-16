@@ -57,3 +57,7 @@ uv sync                                   # installs deps + builds the Rust exte
 uv run pytest                             # python tests
 cargo test --manifest-path crates/dart_solver/Cargo.toml   # rust contract tests
 ```
+
+If the installed Rust extension predates these cache keys, rebuild it once with
+`uv sync --reinstall-package dart`. Subsequent `uv run` commands automatically
+rebuild the extension when the Rust manifest, lockfile, or sources change.

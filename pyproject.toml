@@ -28,6 +28,14 @@ dev = [
 requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "crates/dart_solver/Cargo.toml" },
+    { file = "crates/dart_solver/Cargo.lock" },
+    { file = "crates/dart_solver/src/**/*.rs" },
+]
+
 [tool.maturin]
 manifest-path = "crates/dart_solver/Cargo.toml"
 module-name = "dart_solver"
@@ -36,4 +44,3 @@ features = ["pyo3/extension-module"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-
