@@ -43,11 +43,16 @@ def observations_from_frame(
     azimuths = df["antenna1_position_azimuth"].to_list()
     elevations = df["antenna1_position_elevation"].to_list()
     station_ids = df["system_id"].to_list()
+    contact_ids = df["contact_id"].to_list()
 
     observations = []
-    for t, doppler, az, el, sid in zip(unix_s, dopplers, azimuths, elevations, station_ids):
+    for t, doppler, az, el, sid, cid in zip(
+        unix_s, dopplers, azimuths, elevations, station_ids, contact_ids
+    ):
         if sid not in stations:
             raise ValueError(f"no station metadata for system {sid!r}")
+        if not cid:
+            raise ValueError("observation has no contact_id")
         observations.append(
             Observation(
                 epoch_unix=float(t),
@@ -55,6 +60,7 @@ def observations_from_frame(
                 azimuth_deg=float(az),
                 elevation_deg=float(el),
                 station_id=str(sid),
+                contact_id=str(cid),
             )
         )
     return observations

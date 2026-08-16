@@ -38,5 +38,5 @@ crates/          dart_solver — Rust crate (pyo3 extension, serde schema mirror
 tests/           pytest suite + tests/fixtures/*.msgpack (consumed by cargo tests)
 ```
 
-The Rust crate is scaffold-only for now: it validates and dispatches, and SGP4
-propagation stays in satkit (Python) by design — no Rust SGP4 library.
+The SGP4 fit and propagation run in Rust through satkit's Rust API; no separate
+SGP4 library is used. The RK89 path remains scaffold-only.

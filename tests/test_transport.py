@@ -30,10 +30,10 @@ def test_sgp4_transport_roundtrip():
     assert isinstance(res, SolverResult)
     assert res.schema_version == SCHEMA_VERSION
     assert res.mode == "sgp4"
-    # Scaffold contract: well-formed input reaches the sgp4 stub and comes
-    # back as a not-implemented error result, not a transport failure.
+    # The tiny transport fixture is intentionally underdetermined; it reaches
+    # solver validation and comes back as a processable result.
     assert not res.success
-    assert "scaffold" in res.message
+    assert "insufficient observations" in res.message
     assert not res.converged
     assert res.residuals == ()
 

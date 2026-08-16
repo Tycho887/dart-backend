@@ -19,8 +19,8 @@ loaders (dart/loaders)                 schema (dart/schema)
 
 Two solver modes, selected by the `mode` field:
 
-- `sgp4` — LEO batches: a TLE propagated over station observations
-  (propagation via satkit's SGP4 on the Python side).
+- `sgp4` — LEO batches: bounded mean-anomaly/mean-motion/carrier fits with
+  per-contact Doppler biases (propagation via satkit's Rust SGP4 API).
 - `rk89` — cislunar batches: an initial ECI state integrated with an 8(9)
   adaptive Runge-Kutta, with a selectable force model.
 
@@ -47,8 +47,8 @@ crates/          dart_solver — Rust crate (pyo3 extension, serde schema mirror
 tests/           pytest suite + tests/fixtures/*.msgpack (consumed by cargo tests)
 ```
 
-The Rust crate is scaffold-only for now: it validates, version-checks, and
-dispatches. No solver logic is implemented yet.
+The Rust crate validates, version-checks, and dispatches both modes. The SGP4
+mode is implemented with robust bounded SLSQP; RK89 remains scaffold-only.
 
 ## Build & test
 

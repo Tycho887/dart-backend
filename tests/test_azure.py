@@ -214,16 +214,18 @@ def test_fetch_tracking_data_case1_query(monkeypatch):
     assert result["system_id"].to_list() == ["sys-1", "sys-2"]
 
 
-def test_fetch_tracking_data_case2_query(monkeypatch):
+@pytest.mark.parametrize(
+    "contact_values",
+    (["c1", "c2", "c3"], "c1  c2 c3"),
+)
+def test_fetch_tracking_data_case2_query(monkeypatch, contact_values):
     fake = _mock_client(monkeypatch)
-    ctx = TrackingContext(
-        spacecraft_uuid=None,
-        start_time_iso=None,
-        end_time_iso=None,
-        contact_uuid_list="c1  c2 c3",  # extra whitespace must not leak into the query
-        ephemeris_id=None,
-        mode="sgp4",
-        lock_requirement=False,
+    ctx = TrackingContext.from_payload(
+        {
+            "contact_UUID_List": contact_values,
+            "Mode": "sgp4",
+            "lockRequirement": False,
+        }
     )
 
     azure.fetch_tracking_data(ctx)
@@ -329,7 +331,9 @@ def test_tracking_context_from_payload_quirks():
 # ---------------------------------------------------------------------------
 
 def _probe_contact_ids(client) -> list[str]:
-    response = client.execute("telemetry", "contacts | project contact_id | take 5")
+    response = client.execute(
+        "telemetry", "contacts | where isnotempty(contact_id) | project contact_id | take 5"
+    )
     df = dataframe_from_result_table(response.primary_results[0])
     return [str(value) for value in df["contact_id"].tolist()]
 
@@ -339,8 +343,9 @@ def test_live_adx_connectivity(azure_with_env):
     client = azure_with_env.get_client()
     response = client.execute("telemetry", ".show version")
     assert response.primary_results
-    df = dataframe_from_result_table(response.primary_results[0])
-    assert len(df) > 0
+    result_table = response.primary_results[0]
+    assert len(result_table) > 0
+    assert result_table.rows
 
 
 def test_live_fetch_case2_real_contacts(azure_with_env):
@@ -378,17 +383,22 @@ def test_live_fetch_case1_real_spacecraft(azure_with_env):
     response = client.execute(
         "telemetry",
         f"contacts | where contact_id in ({ids_csv}) "
+        "| where isnotempty(spacecraft_id) and isnotnull(timestamp) "
         "| project spacecraft_id, timestamp | take 1",
     )
     df = dataframe_from_result_table(response.primary_results[0])
     assert len(df) > 0, "no contact carries a timestamp to build the window from"
     spacecraft_uuid = str(df["spacecraft_id"].iloc[0])
     epoch = pd.Timestamp(df["timestamp"].iloc[0])
+    if epoch.tzinfo is None:
+        epoch = epoch.tz_localize("UTC")
+    else:
+        epoch = epoch.tz_convert("UTC")
 
     ctx = TrackingContext(
         spacecraft_uuid=spacecraft_uuid,
-        start_time_iso=(epoch - pd.Timedelta(hours=1)).isoformat() + "Z",
-        end_time_iso=(epoch + pd.Timedelta(hours=1)).isoformat() + "Z",
+        start_time_iso=(epoch - pd.Timedelta(hours=1)).isoformat(),
+        end_time_iso=(epoch + pd.Timedelta(hours=1)).isoformat(),
         contact_uuid_list=None,
         ephemeris_id=None,
         mode="sgp4",

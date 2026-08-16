@@ -20,7 +20,7 @@ from dart.io.kogs import (
     parse_response,
 )
 from dart.loaders.common import observations_from_frame, tle_epoch_unix
-from dart.schema import Sgp4Input, SolverOptions, Station, Tle
+from dart.schema import FitParameter, Sgp4FitOptions, Sgp4Input, SolverOptions, Station, Tle
 
 
 def tle_from_inline(inline_tle: str | None) -> Tle:
@@ -61,6 +61,8 @@ def build_sgp4_input(
     *,
     tle: Tle,
     stations: dict[str, Station],
+    nominal_center_frequency_hz: float = 2.0e9,
+    fit_model: str = "mean_anomaly",
 ) -> Sgp4Input:
     """Pure normalization: telemetry frame + metadata → Sgp4Input.
 
@@ -69,12 +71,26 @@ def build_sgp4_input(
     if telemetry.is_empty():
         raise ValueError("telemetry contains no observations")
     observations = observations_from_frame(telemetry, stations)
+    pass_ids = list(dict.fromkeys(obs.contact_id for obs in observations))
+    bias_spec = FitParameter(
+        initial=0.0,
+        lower=-15_000.0,
+        upper=15_000.0,
+        scale=2_000.0,
+        finite_difference_step=1e-2,
+    )
     return Sgp4Input(
         epoch_unix=tle_epoch_unix(tle.line1),
         tle=tle,
         stations=list(stations.values()),
         observations=observations,
         options=SolverOptions(ref_frame="TEME"),
+        fit=Sgp4FitOptions(
+            model=fit_model,
+            pass_ids=pass_ids,
+            nominal_center_frequency_hz=nominal_center_frequency_hz,
+            pass_biases=[bias_spec for _ in pass_ids],
+        ),
     )
 
 

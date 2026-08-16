@@ -84,6 +84,14 @@ def _meta_lines(inp: SolverInput, creation_date: datetime.datetime) -> list[str]
     if isinstance(inp, Sgp4Input):
         lines.append(_kv("USER_DEFINED_TLE_LINE_1", inp.tle.line1))
         lines.append(_kv("USER_DEFINED_TLE_LINE_2", inp.tle.line2))
+        fit = inp.fit
+        lines.append(_kv("USER_DEFINED_FIT_MODEL", fit.model))
+        lines.append(_kv("USER_DEFINED_PASS_IDS", " ".join(fit.pass_ids)))
+        lines.append(
+            _kv("USER_DEFINED_NOMINAL_CENTER_FREQUENCY_HZ", repr(fit.nominal_center_frequency_hz))
+        )
+        lines.append(_kv("USER_DEFINED_LOSS", fit.loss))
+        lines.append(_kv("USER_DEFINED_LOSS_SCALE", repr(fit.loss_scale)))
     elif isinstance(inp, Rk89Input):
         fm = inp.force_model
         lines.append(_kv("USER_DEFINED_STATE_EPOCH", format_epoch(inp.epoch_unix)))
@@ -110,6 +118,7 @@ def _observation_block(station_id: str, rows: list) -> list[str]:
     ]
     for obs in rows:
         lines.append(_kv("EPOCH", format_epoch(obs.epoch_unix)))
+        lines.append(_kv("USER_DEFINED_CONTACT_ID", obs.contact_id))
         lines.append(_kv("DOPPLER_INSTANTANEOUS", f"{obs.doppler_hz:.6f}"))
         lines.append(_kv("AZIMUTH", f"{obs.azimuth_deg:.6f}"))
         lines.append(_kv("ELEVATION", f"{obs.elevation_deg:.6f}"))
@@ -187,8 +196,23 @@ def write_result_tdm(
             " ".join(repr(v) for v in result.covariance),
         ),
         _kv("USER_DEFINED_RESIDUALS", " ".join(repr(v) for v in result.residuals)),
+        _kv("USER_DEFINED_OBJECTIVE", repr(result.objective)),
+        _kv("USER_DEFINED_FUNCTION_EVALUATIONS", str(result.function_evaluations)),
+        _kv("USER_DEFINED_GRADIENT_EVALUATIONS", str(result.gradient_evaluations)),
+        _kv("USER_DEFINED_PARAMETER_NAMES", " ".join(result.parameter_names)),
+        _kv("USER_DEFINED_PARAMETERS", " ".join(repr(v) for v in result.parameters)),
+        _kv(
+            "USER_DEFINED_PARAMETER_COVARIANCE",
+            " ".join(repr(v) for v in result.parameter_covariance),
+        ),
+        _kv("USER_DEFINED_COVARIANCE_RANK", str(result.covariance_rank)),
         "META_STOP",
     ]
+    if result.fitted_tle is not None:
+        lines[-1:-1] = [
+            _kv("USER_DEFINED_FITTED_TLE_LINE_1", result.fitted_tle.line1),
+            _kv("USER_DEFINED_FITTED_TLE_LINE_2", result.fitted_tle.line2),
+        ]
     text = "\n".join(lines).rstrip() + "\n"
     if path is not None:
         Path(path).write_text(text, encoding="utf-8")

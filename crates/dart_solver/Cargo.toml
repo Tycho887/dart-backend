@@ -18,3 +18,6 @@ pyo3 = { version = "0.23", features = ["abi3-py39"] }
 serde = { version = "1", features = ["derive"] }
 rmp-serde = "1"
 rmpv = { version = "1", features = ["with-serde"] }
+nalgebra = "0.35"
+satkit = { version = "0.20.2", default-features = false }
+slsqp = "1.0.1"

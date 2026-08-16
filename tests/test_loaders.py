@@ -63,6 +63,7 @@ def test_observations_normalized():
     assert obs[0] == Observation(
         epoch_unix=1_704_067_210.0, doppler_hz=-1000.0,
         azimuth_deg=10.0, elevation_deg=30.0, station_id="sys-1",
+        contact_id="c1",
     )
     assert obs[1].station_id == "sys-2"
 

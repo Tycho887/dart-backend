@@ -20,7 +20,7 @@ round-trip fixture tests (``tests/test_codec.py`` and
 
 from dataclasses import dataclass, field
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -46,6 +46,7 @@ class Observation:
     azimuth_deg: float
     elevation_deg: float
     station_id: str
+    contact_id: str
     range_km: float | None = None
 
 
@@ -78,12 +79,61 @@ class SolverOptions:
 
 
 @dataclass(frozen=True)
+class FitParameter:
+    """One bounded optimizer variable, in the physical units named by its use."""
+
+    initial: float = 0.0
+    lower: float = -1.0
+    upper: float = 1.0
+    scale: float = 1.0
+    finite_difference_step: float = 1e-6
+
+
+@dataclass(frozen=True)
+class Sgp4FitOptions:
+    """Configuration for the bounded mean-element Doppler fit.
+
+    ``model`` is one of ``mean_anomaly``, ``mean_anomaly_mean_motion`` or
+    ``mean_anomaly_mean_motion_frequency``.  Pass-bias specs are aligned with
+    the ordered, unique ``pass_ids`` list.
+    """
+
+    model: str = "mean_anomaly"
+    pass_ids: list[str] = field(default_factory=list)
+    nominal_center_frequency_hz: float = 0.0
+    mean_anomaly: FitParameter = FitParameter(
+        initial=0.0, lower=-0.5, upper=0.5, scale=0.05, finite_difference_step=1e-5
+    )
+    mean_motion: FitParameter = FitParameter(
+        initial=0.0,
+        lower=-3.3333333333333335e-5,
+        upper=3.3333333333333335e-5,
+        scale=1.6666666666666667e-5,
+        finite_difference_step=1.6666666666666667e-9,
+    )
+    center_frequency: FitParameter = FitParameter(
+        initial=0.0,
+        lower=-5e8,
+        upper=5e8,
+        scale=5e8,
+        finite_difference_step=1e4,
+    )
+    pass_biases: list[FitParameter] = field(default_factory=list)
+    doppler_sigma_hz: float = 1.0
+    loss: str = "linear"  # linear, huber, soft_l1, log_cosh
+    loss_scale: float = 1.0
+    max_evaluations: int = 200
+    ftol_rel: float = 1e-10
+    xtol_rel: float = 1e-10
+
+
+@dataclass(frozen=True)
 class Sgp4Input:
     """LEO batch: a single TLE propagated over station observations.
 
     ``epoch_unix`` is the reference epoch the fitted state is expressed at
     (normally the TLE epoch). Propagation itself runs through satkit's SGP4
-    on the Python side; this struct is what a solver consumes.
+    in Rust through satkit; this struct is what the solver consumes.
     """
 
     schema_version: int = SCHEMA_VERSION
@@ -94,6 +144,7 @@ class Sgp4Input:
     stations: list[Station] = field(default_factory=list)
     observations: list[Observation] = field(default_factory=list)
     options: SolverOptions = SolverOptions()
+    fit: Sgp4FitOptions = Sgp4FitOptions()
 
 
 @dataclass(frozen=True)
@@ -120,7 +171,8 @@ class SolverResult:
     ``pos_km``/``vel_km_s`` are the fitted (or final propagated) state in
     ``ref_frame``; ``covariance`` is the flattened 6x6 (position then
     velocity), row-major; ``residuals`` is one entry per input observation,
-    in input order.
+    in input order. SGP4 fits additionally report the ordered physical fit
+    parameters and their row-major robust sandwich covariance.
     """
 
     schema_version: int = SCHEMA_VERSION
@@ -135,3 +187,11 @@ class SolverResult:
     vel_km_s: tuple[float, float, float] = (0.0, 0.0, 0.0)
     covariance: tuple[float, ...] = ()  # 36 entries, row-major 6x6
     residuals: tuple[float, ...] = ()  # per-observation, input order
+    objective: float = 0.0
+    function_evaluations: int = 0
+    gradient_evaluations: int = 0
+    parameter_names: tuple[str, ...] = ()
+    parameters: tuple[float, ...] = ()
+    parameter_covariance: tuple[float, ...] = ()
+    covariance_rank: int = 0
+    fitted_tle: Tle | None = None

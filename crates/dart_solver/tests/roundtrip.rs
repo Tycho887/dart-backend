@@ -30,6 +30,9 @@ fn decodes_sgp4_fixture() {
     assert_eq!(input.stations.len(), 2);
     assert_eq!(input.stations[0].id, "sys-1");
     assert_eq!(input.observations.len(), 2);
+    assert_eq!(input.observations[0].contact_id, "c1");
+    assert_eq!(input.fit.pass_ids, ["c1", "c2"]);
+    assert_eq!(input.fit.model, "mean_anomaly_mean_motion_frequency");
     assert!(input.validate().is_ok());
 }
 
@@ -55,6 +58,9 @@ fn decodes_result_fixture() {
     assert!(result.success);
     assert_eq!(result.covariance.len(), 36);
     assert_eq!(result.residuals.len(), 2);
+    assert_eq!(result.parameter_names.len(), 2);
+    assert_eq!(result.parameter_covariance.len(), 4);
+    assert!(result.fitted_tle.is_some());
 }
 
 #[test]

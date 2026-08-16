@@ -1,6 +1,7 @@
 """ADX/Kusto telemetry client (ported from lib/IO/azure.py) plus the query
 context model (ported from depr/load.py)."""
 import os
+import re
 from dataclasses import dataclass
 import polars as pl
 from azure.kusto.data import KustoConnectionStringBuilder
@@ -57,8 +58,7 @@ def fetch_tracking_data(ctx) -> pl.DataFrame:
 
     elif ctx.contact_uuid_list:
         # Case 2: Specific Contact IDs
-        # Assumes space-separated string of UUIDs per requirements
-        contact_ids = ctx.contact_uuid_list.split()
+        contact_ids = re.split(r"[,\s]+", ctx.contact_uuid_list)
         formatted_ids = ", ".join(f"'{cid.strip()}'" for cid in contact_ids if cid.strip())
 
         target_clause = f"where contact_id in ({formatted_ids})"

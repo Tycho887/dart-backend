@@ -19,10 +19,12 @@ from dart.codec import (
     encode_result,
 )
 from dart.schema import (
+    FitParameter,
     ForceModel,
     Observation,
     Rk89Input,
     SCHEMA_VERSION,
+    Sgp4FitOptions,
     Sgp4Input,
     SolverOptions,
     SolverResult,
@@ -57,6 +59,7 @@ def sample_sgp4_input() -> Sgp4Input:
                 azimuth_deg=182.3,
                 elevation_deg=37.2,
                 station_id="sys-1",
+                contact_id="c1",
             ),
             Observation(
                 epoch_unix=1_704_067_400.0,
@@ -64,9 +67,20 @@ def sample_sgp4_input() -> Sgp4Input:
                 azimuth_deg=355.0,
                 elevation_deg=61.9,
                 station_id="sys-2",
+                contact_id="c2",
             ),
         ],
         options=SolverOptions(max_iterations=25, tolerance=1e-10),
+        fit=Sgp4FitOptions(
+            model="mean_anomaly_mean_motion_frequency",
+            pass_ids=["c1", "c2"],
+            nominal_center_frequency_hz=2.2e9,
+            pass_biases=[
+                FitParameter(lower=-15_000.0, upper=15_000.0, scale=2_000.0),
+                FitParameter(lower=-15_000.0, upper=15_000.0, scale=2_000.0),
+            ],
+            loss="soft_l1",
+        ),
     )
 
 
@@ -85,6 +99,7 @@ def sample_rk89_input() -> Rk89Input:
                 azimuth_deg=120.0,
                 elevation_deg=15.0,
                 station_id="sys-1",
+                contact_id="c3",
                 range_km=385_000.0,
             ),
         ],
@@ -105,6 +120,14 @@ def sample_result() -> SolverResult:
         vel_km_s=(0.1, 7.6, 0.05),
         covariance=tuple(float(i) for i in range(36)),
         residuals=(0.01, -0.02),
+        objective=0.00025,
+        function_evaluations=11,
+        gradient_evaluations=6,
+        parameter_names=("delta_mean_anomaly_rad", "doppler_bias_hz:c1"),
+        parameters=(0.01, 20.0),
+        parameter_covariance=(1.0, 0.0, 0.0, 4.0),
+        covariance_rank=2,
+        fitted_tle=ISS_TLE,
     )
 
 
@@ -147,6 +170,7 @@ def test_all_fields_present_on_wire():
         "stations",
         "observations",
         "options",
+        "fit",
     }
     assert raw["tle"] == {"line1": ISS_TLE.line1, "line2": ISS_TLE.line2}
     assert raw["schema_version"] == SCHEMA_VERSION

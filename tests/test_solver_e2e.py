@@ -28,7 +28,8 @@ def test_leo_pipeline_end_to_end(tmp_path):
     result = solve(inp)
     assert result.schema_version == SCHEMA_VERSION
     assert result.mode == "sgp4"
-    assert not result.success  # scaffold contract: solver responds, no logic yet
+    assert not result.success  # two rows cannot identify mean anomaly plus two pass biases
+    assert "insufficient observations" in result.message
 
     input_tdm = write_tdm(inp, path=tmp_path / "input.tdm", creation_date=CREATION)
     assert (tmp_path / "input.tdm").exists()
@@ -37,7 +38,7 @@ def test_leo_pipeline_end_to_end(tmp_path):
 
     result_tdm = write_result_tdm(result, creation_date=CREATION)
     assert "USER_DEFINED_SUCCESS" in result_tdm
-    assert "scaffold" in result_tdm
+    assert "insufficient observations" in result_tdm
 
 
 def test_rk89_pipeline_end_to_end(tmp_path):
