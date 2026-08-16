@@ -43,9 +43,6 @@ _REQUIRED_COLUMNS = {
 
 _LOCK_COLUMN = "lr1_receiver1_carrierLockState"
 
-#: mirrors TrackingContext.max_doppler in dart/io/azure.py
-_MAX_DOPPLER_HZ = 1e5
-
 
 def _parquet_files(source: str | Path) -> list[Path]:
     """Resolve a file, glob pattern, or directory into parquet paths."""
@@ -107,8 +104,14 @@ def _filter_frame(
     require_lock: bool,
     min_elevation_deg: float,
     min_doppler_hz: float,
+    max_doppler_hz: float,
 ) -> pl.DataFrame:
-    """Apply the ADX-style gates; raise on missing columns."""
+    """Apply the ADX-style gates; raise on missing columns.
+
+    The doppler gate is magnitude-based (``0Hz/100kHz`` rule): keep rows with
+    ``min_doppler_hz <= |offset| <= max_doppler_hz``, i.e. drop no-contact
+    zeros and clipped outliers while retaining both doppler signs.
+    """
     missing = [c for c in sorted(_REQUIRED_COLUMNS) if c not in df.columns]
     if require_lock and _LOCK_COLUMN not in df.columns:
         missing.append(_LOCK_COLUMN)
@@ -126,12 +129,25 @@ def _filter_frame(
         ]
     ).filter(
         pl.col("antenna1_position_elevation") >= min_elevation_deg,
-        pl.col("lr1_receiver1_actualCarrierFrequencyOffset") >= min_doppler_hz,
-        pl.col("lr1_receiver1_actualCarrierFrequencyOffset") <= _MAX_DOPPLER_HZ,
+        pl.col("lr1_receiver1_actualCarrierFrequencyOffset").abs() >= min_doppler_hz,
+        pl.col("lr1_receiver1_actualCarrierFrequencyOffset").abs() <= max_doppler_hz,
     )
     if require_lock:
         filtered = filtered.filter(pl.col(_LOCK_COLUMN) == "Locked")
     return filtered
+
+
+def _drop_short_passes(df: pl.DataFrame, min_pass_measurements: int) -> pl.DataFrame:
+    """Drop passes (contacts) with fewer than ``min_pass_measurements`` rows.
+
+    Passes with too little post-filter data cannot constrain the per-pass bias
+    plus the shared elements; gating them keeps the fit well-conditioned.
+    """
+    if min_pass_measurements <= 0:
+        return df
+    counts = df.group_by("contact_id").len()
+    keep = counts.filter(pl.col("len") >= min_pass_measurements)["contact_id"]
+    return df.filter(pl.col("contact_id").is_in(keep))
 
 
 def build_sgp4_input_from_parquet(
@@ -140,6 +156,8 @@ def build_sgp4_input_from_parquet(
     require_lock: bool = False,
     min_elevation_deg: float = 1.0,
     min_doppler_hz: float = 1.0,
+    max_doppler_hz: float = 1e5,
+    min_pass_measurements: int = 0,
     max_rows: int | None = None,
     tle: Tle | None = None,
     fit_model: str = "mean_anomaly",
@@ -151,6 +169,11 @@ def build_sgp4_input_from_parquet(
     stations come from the embedded coordinates, and the nominal center
     frequency is ``expected_frequency``. Each frame must contain a single
     spacecraft — ``Sgp4Input`` is a single-TLE batch.
+
+    Gates (defaults match the production pipeline): ``min_doppler_hz`` /
+    ``max_doppler_hz`` implement the magnitude ``0Hz/100kHz`` filter and
+    ``min_pass_measurements`` drops passes with too little post-filter data
+    (0 disables).
     """
     df = read_parquet(source)
     filtered = _filter_frame(
@@ -158,9 +181,16 @@ def build_sgp4_input_from_parquet(
         require_lock=require_lock,
         min_elevation_deg=min_elevation_deg,
         min_doppler_hz=min_doppler_hz,
+        max_doppler_hz=max_doppler_hz,
     )
     if filtered.is_empty():
         raise ValueError("no observations after filtering")
+    filtered = _drop_short_passes(filtered, min_pass_measurements)
+    if filtered.is_empty():
+        raise ValueError(
+            "no observations after filtering "
+            f"(all passes below min_pass_measurements={min_pass_measurements})"
+        )
 
     resolved_tle = tle
     if resolved_tle is None:

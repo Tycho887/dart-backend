@@ -42,6 +42,21 @@ GPS_DIR = Path("gps-examples")
 DOPPLER_DIR = Path("doppler_parquet")
 FIT_POINT_COUNTS = (150, 200, 300)
 
+#: passes with fewer post-filter measurements than this are not processed
+#: (they cannot constrain the per-pass bias plus the shared elements)
+MIN_PASS_MEASUREMENTS = 250
+
+#: doppler-fit results with delta_mean_anomaly 1-sigma above this (km) are
+#: rejected as high-covariance (typical gated fits sit near ~1 km)
+MAX_MA_SIGMA_KM = 10.0
+
+
+def ma_sigma_km(result) -> float:
+    """1-sigma uncertainty of the fitted mean anomaly in km (robust covariance)."""
+    if not result.parameter_covariance or len(result.parameter_covariance) < 1:
+        return float("nan")
+    return np.sqrt(result.parameter_covariance[0]) * RADIUS_KM
+
 
 def load_gps(forest: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Position/velocity CSVs -> (time_ms, ecef_pos_m, ecef_vel_m_s), aligned."""
@@ -139,7 +154,9 @@ def in_track_separation_km(r_a, v_a, r_b) -> float:
 
 def run_forest(forest: int) -> None:
     print(f"=== forest{forest} ===")
-    inp = build_sgp4_input_from_parquet(DOPPLER_DIR / f"forest{forest}.parquet")
+    inp = build_sgp4_input_from_parquet(
+        DOPPLER_DIR / f"forest{forest}.parquet", min_pass_measurements=MIN_PASS_MEASUREMENTS
+    )
     obs_epochs = np.array([obs.epoch_unix for obs in inp.observations])
 
     ms, gps_pos, gps_vel = load_gps(forest)
@@ -169,27 +186,32 @@ def run_forest(forest: int) -> None:
 
     # --- Rust doppler optimization ---
     result = solve(inp)
+    sigma_km = ma_sigma_km(result)
+    rejected = not result.success or not np.isfinite(sigma_km) or sigma_km > MAX_MA_SIGMA_KM
     fit_tle = result.fitted_tle
-    if fit_tle is not None:
+    if fit_tle is not None and not rejected:
         fitted_ecef = propagate_to_ecef([fit_tle.line1, fit_tle.line2], ms_w / 1000.0)
         err_fit = np.linalg.norm(fitted_ecef - gps_ecef, axis=1) / 1000.0
     else:
         err_fit = None
 
     print(f"  doppler fit: success={result.success} converged={result.converged} "
-          f"rms={result.rms:.0f} Hz")
+          f"rms={result.rms:.0f} Hz sigma_ma={sigma_km:.1f} km "
+          f"{'[COVARIANCE GATE: rejected]' if rejected else ''}")
     print("  position error vs GPS (km)      mean    max")
     print(f"    parquet TLE (baseline)      {err_parquet.mean():7.1f} {err_parquet.max():7.1f}")
     print(f"    GPS-fitted TLE (self-check) {err_expected.mean():7.1f} {err_expected.max():7.1f}")
     if err_fit is not None:
         print(f"    doppler-fitted TLE          {err_fit.mean():7.1f} {err_fit.max():7.1f}")
+    else:
+        print(f"    doppler-fitted TLE          {'— rejected' if not result.success else '— (high covariance)'}")
 
     # --- in-track correction: GPS truth vs parquet TLE, from direct propagation ---
     t0 = satkit.TLE.from_lines([inp.tle.line1, inp.tle.line2]).epoch.as_unixtime()
     r_par, v_par = propagate_state_ecef([inp.tle.line1, inp.tle.line2], [t0])
     r_gps, v_gps = propagate_state_ecef(tle_gps.to_2line(), [t0])
     truth_km = in_track_separation_km(r_gps[0], v_gps[0], r_par[0])
-    fit_km = result.parameters[0] * RADIUS_KM if result.parameters else float("nan")
+    fit_km = result.parameters[0] * RADIUS_KM if result.parameters and not rejected else float("nan")
     print(f"  in-track correction: GPS truth = {truth_km:+.1f} km, "
           f"doppler fit = {fit_km:+.1f} km")
 

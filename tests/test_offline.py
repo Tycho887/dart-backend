@@ -127,10 +127,10 @@ def test_offline_default(parquet_file):
     assert inp.fit.nominal_center_frequency_hz == float(EXPECTED_FREQUENCY)
     assert inp.fit.pass_ids == ["c1", "c2"]
     assert len(inp.fit.pass_biases) == 2
-    # rows 1, 4, 6 survive: null doppler dropped, negative doppler and
-    # low elevation dropped by the default gates
-    assert len(inp.observations) == 3
-    assert {o.contact_id for o in inp.observations} == {"c1", "c2"}
+    # rows 1, 2, 4, 6 survive: null doppler dropped, low elevation (row 3)
+    # dropped; negative doppler (row 2) is kept by the magnitude gate
+    assert len(inp.observations) == 4
+    assert [o.contact_id for o in inp.observations] == ["c1", "c1", "c2", "c2"]
     assert {o.station_id for o in inp.observations} == {"sys-1", "sys-2"}
     assert stations_by_id(inp)["sys-1"].alt_km == pytest.approx(492.9349 / 1000.0)
     assert stations_by_id(inp)["sys-2"].alt_km == pytest.approx(0.1)
@@ -140,25 +140,41 @@ def test_offline_default(parquet_file):
 
 def test_offline_require_lock(parquet_file):
     inp = build_sgp4_input_from_parquet(parquet_file, require_lock=True)
-    # row 4 (Unlocked) is dropped as well
-    assert [o.contact_id for o in inp.observations] == ["c1", "c2"]
-    assert len(inp.observations) == 2
+    # row 4 (Unlocked) is dropped; rows 1, 2, 6 remain
+    assert [o.contact_id for o in inp.observations] == ["c1", "c1", "c2"]
+    assert len(inp.observations) == 3
     assert inp.fit.pass_ids == ["c1", "c2"]
 
 
 def test_offline_min_elevation(parquet_file):
     inp = build_sgp4_input_from_parquet(parquet_file, min_elevation_deg=32.0)
     # row 3 (0.5) and row 5 (null) dropped by the default gates; row 4 (30.0)
-    # and row 2 (doppler -1200) drop vs the stricter gate -> rows 1 and 6
-    assert len(inp.observations) == 2
-    assert [o.elevation_deg for o in inp.observations] == [35.0, 45.0]
+    # drops vs the stricter gate -> rows 1, 2 and 6
+    assert len(inp.observations) == 3
+    assert [o.elevation_deg for o in inp.observations] == [35.0, 40.0, 45.0]
+
+
+def test_offline_max_doppler(parquet_file):
+    inp = build_sgp4_input_from_parquet(parquet_file, max_doppler_hz=5_500.0)
+    # |doppler| <= 5500 kept: rows 1 (5000), 2 (|−1200|), 4 (4000); row 6 (6000) drops
+    assert [o.doppler_hz for o in inp.observations] == [5000.0, -1200.0, 4000.0]
+
+
+def test_offline_min_pass_measurements(parquet_file):
+    # passes c1 and c2 each keep 2 rows -> a gate of 3 drops everything
+    with pytest.raises(ValueError, match="min_pass_measurements"):
+        build_sgp4_input_from_parquet(parquet_file, min_pass_measurements=3)
+    # a gate of 2 keeps both passes (2 rows each)
+    gated = build_sgp4_input_from_parquet(parquet_file, min_pass_measurements=2)
+    assert gated.fit.pass_ids == ["c1", "c2"]
+    assert len(gated.observations) == 4
 
 
 def test_offline_max_rows(parquet_file):
     inp = build_sgp4_input_from_parquet(parquet_file, max_rows=2)
     assert len(inp.observations) == 2
-    # rows sorted by timestamp: row 1 then row 4
-    assert [o.contact_id for o in inp.observations] == ["c1", "c2"]
+    # rows sorted by timestamp: rows 1 and 2 (both c1)
+    assert [o.contact_id for o in inp.observations] == ["c1", "c1"]
 
 
 def test_offline_tle_override(parquet_file):
