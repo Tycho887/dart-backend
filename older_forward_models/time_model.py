@@ -3,8 +3,7 @@ import numpy as np
 from scipy.optimize import least_squares
 from scipy.stats import qmc
 import satkit as sk
-from lib.utils import Data, Config, Result, doppler_physics, compute_rotation_matrices, c
-
+from common.utils import Data, Config, Result, doppler_physics, compute_rotation_matrices, c
 
 # =====================================================================
 # Geometry kernels (cached versions)

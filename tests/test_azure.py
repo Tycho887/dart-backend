@@ -5,8 +5,8 @@ tests hit the real ADX cluster with the real credentials and are part of
 the default suite (no marker gating).
 
 Secrets are read from ``DART_SECRETS_ENV`` (default
-``/opt/dart/secrets/test.env``); when the file is missing, the env and live
-tests skip with a clear message.
+``/opt/dart/secrets/test.env``); when the file or required keys are missing,
+the env and live tests skip with a clear message.
 """
 
 import datetime
@@ -16,12 +16,13 @@ import os
 import pandas as pd
 import polars as pl
 import pytest
-from azure.kusto.data import KustoClient
-from azure.kusto.data.helpers import dataframe_from_result_table
+from azure.kusto.data import ClientRequestProperties, KustoClient
 from dotenv import dotenv_values, load_dotenv
 
 import dart.io.azure as azure
 from dart.io.azure import TrackingContext
+from dart.io.kogs import get_contact, parse_reservation
+from dart.io.utils import create_api_auth
 
 SECRETS_ENV = os.environ.get("DART_SECRETS_ENV", "/opt/dart/secrets/test.env")
 
@@ -33,6 +34,7 @@ REQUIRED_KEYS = {
     "AZURE_TENANT_ID",
 }
 ALL_ENV_KEYS = REQUIRED_KEYS | {"HTTP_PROXY"}
+LIVE_TEST_TIMEOUT_SECONDS = 45
 
 # Columns projected by the KQL query in fetch_tracking_data.
 PROJECTED_COLUMNS = {
@@ -65,7 +67,7 @@ def secrets_env() -> dict:
     values = dotenv_values(SECRETS_ENV)
     missing = REQUIRED_KEYS - {k for k, v in values.items() if v and str(v).strip()}
     if missing:
-        pytest.fail(f"{SECRETS_ENV} is missing required keys: {sorted(missing)}")
+        pytest.skip(f"{SECRETS_ENV} is missing required keys: {sorted(missing)}")
     return values
 
 
@@ -85,6 +87,49 @@ def azure_with_env(secrets_env):
             else:
                 os.environ[key] = value
         importlib.reload(azure)
+
+
+class RedactedAuth(str):
+    """String-compatible auth value that pytest cannot leak via ``repr``."""
+
+    def __repr__(self):
+        return "<redacted KOGS auth>"
+
+
+@pytest.fixture(scope="module")
+def kogs_auth(secrets_env) -> str:
+    key = secrets_env.get("KOGS_API_KEY")
+    if not key or not str(key).strip():
+        pytest.skip("KOGS_API_KEY missing from the secrets file")
+    return RedactedAuth(create_api_auth(key))
+
+
+@pytest.fixture(scope="module")
+def test_contact_id(secrets_env) -> str:
+    cid = secrets_env.get("DART_TEST_CONTACT_ID")
+    if not cid or not str(cid).strip():
+        pytest.skip("DART_TEST_CONTACT_ID missing from the secrets file")
+    return str(cid)
+
+
+@pytest.fixture(scope="module")
+def live_reservation(kogs_auth, test_contact_id):
+    reservation = parse_reservation(get_contact(kogs_auth, test_contact_id)["contact"])
+    assert reservation.spacecraft_id, "test contact carries no spacecraft_id"
+    assert reservation.start_time, "test contact carries no start_time"
+    assert reservation.end_time, "test contact carries no end_time"
+    return reservation
+
+
+def _reservation_window(reservation) -> tuple[str, str]:
+    """Pad the scheduled contact to retain setup/teardown telemetry."""
+    start = pd.Timestamp(reservation.start_time) - pd.Timedelta(minutes=10)
+    end = pd.Timestamp(reservation.end_time) + pd.Timedelta(minutes=10)
+    return start.isoformat(), end.isoformat()
+
+
+def _live_query_properties() -> ClientRequestProperties:
+    return azure._query_properties(azure.ADX_QUERY_TIMEOUT_SECONDS)
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +178,7 @@ class FakeKustoClient:
 
     def __init__(self):
         self.calls = []
+        self.properties = []
         self.response = FakeResponse()
 
     def __enter__(self):
@@ -141,8 +187,9 @@ class FakeKustoClient:
     def __exit__(self, *exc):
         return False
 
-    def execute_query(self, db, query):
+    def execute_query(self, db, query, properties=None):
         self.calls.append((db, query))
+        self.properties.append(properties)
         return self.response
 
 
@@ -208,6 +255,10 @@ def test_fetch_tracking_data_case1_query(monkeypatch):
     assert "lr1_receiver1_actualCarrierFrequencyOffset <= 2000.0" in query
     assert "lr1_receiver1_carrierLockState == 'Locked'" in query
     assert query.rstrip().endswith("order by timestamp asc")
+    timeout = fake.properties[0].get_option(
+        ClientRequestProperties.request_timeout_option_name, None
+    )
+    assert timeout == datetime.timedelta(seconds=azure.ADX_QUERY_TIMEOUT_SECONDS)
 
     assert isinstance(result, pl.DataFrame)
     assert result["contact_id"].to_list() == ["c1", "c1"]
@@ -249,6 +300,60 @@ def test_fetch_tracking_data_case3_raises():
     )
     with pytest.raises(ValueError, match="Insufficient context"):
         azure.fetch_tracking_data(ctx)
+
+
+def test_fetch_tracking_data_contact_time_window(monkeypatch):
+    fake = _mock_client(monkeypatch)
+    ctx = TrackingContext(
+        spacecraft_uuid=None,
+        start_time_iso="2024-01-01T00:00:00Z",
+        end_time_iso="2024-01-01T01:00:00Z",
+        contact_uuid_list="c1",
+        ephemeris_id=None,
+        mode="sgp4",
+        lock_requirement=False,
+    )
+
+    azure.fetch_tracking_data(ctx)
+
+    _, query = fake.calls[0]
+    assert "contact_id in ('c1')" in query
+    assert (
+        "timestamp between (datetime(2024-01-01T00:00:00Z) .. "
+        "datetime(2024-01-01T01:00:00Z))" in query
+    )
+
+
+def test_fetch_tracking_data_contact_partial_time_window_fails(monkeypatch):
+    _mock_client(monkeypatch)
+    ctx = TrackingContext(
+        spacecraft_uuid=None,
+        start_time_iso="2024-01-01T00:00:00Z",
+        end_time_iso=None,
+        contact_uuid_list="c1",
+        ephemeris_id=None,
+        mode="sgp4",
+        lock_requirement=False,
+    )
+
+    with pytest.raises(ValueError, match="require both"):
+        azure.fetch_tracking_data(ctx)
+
+
+def test_fetch_tracking_data_rejects_nonpositive_timeout(monkeypatch):
+    _mock_client(monkeypatch)
+    ctx = TrackingContext(
+        spacecraft_uuid=None,
+        start_time_iso=None,
+        end_time_iso=None,
+        contact_uuid_list="c1",
+        ephemeris_id=None,
+        mode="sgp4",
+        lock_requirement=False,
+    )
+
+    with pytest.raises(ValueError, match="timeout_seconds must be positive"):
+        azure.fetch_tracking_data(ctx, timeout_seconds=0)
 
 
 # ---------------------------------------------------------------------------
@@ -330,37 +435,31 @@ def test_tracking_context_from_payload_quirks():
 # live tests — real ADX cluster with the real credentials (default suite)
 # ---------------------------------------------------------------------------
 
-def _probe_contact_ids(client) -> list[str]:
-    response = client.execute(
-        "telemetry", "contacts | where isnotempty(contact_id) | project contact_id | take 5"
-    )
-    df = dataframe_from_result_table(response.primary_results[0])
-    return [str(value) for value in df["contact_id"].tolist()]
-
-
+@pytest.mark.timeout(LIVE_TEST_TIMEOUT_SECONDS)
 def test_live_adx_connectivity(azure_with_env):
     """Credentials + cluster reachability end to end."""
     client = azure_with_env.get_client()
-    response = client.execute("telemetry", ".show version")
+    response = client.execute("telemetry", ".show version", _live_query_properties())
     assert response.primary_results
     result_table = response.primary_results[0]
     assert len(result_table) > 0
     assert result_table.rows
 
 
-def test_live_fetch_case2_real_contacts(azure_with_env):
-    """fetch_tracking_data routed on real contact IDs, executed against the
+@pytest.mark.timeout(LIVE_TEST_TIMEOUT_SECONDS)
+def test_live_fetch_case2_real_contacts(
+    azure_with_env, test_contact_id, live_reservation
+):
+    """fetch_tracking_data routed on a real bounded contact, executed against the
     real cluster, converted to a polars DataFrame with the projected schema.
     An empty result set is valid — the filters may exclude every row."""
-    client = azure_with_env.get_client()
-    contact_ids = _probe_contact_ids(client)
-    assert contact_ids, "telemetry DB has no contacts to query"
+    start_time, end_time = _reservation_window(live_reservation)
 
     ctx = TrackingContext(
         spacecraft_uuid=None,
-        start_time_iso=None,
-        end_time_iso=None,
-        contact_uuid_list=" ".join(contact_ids),
+        start_time_iso=start_time,
+        end_time_iso=end_time,
+        contact_uuid_list=test_contact_id,
         ephemeris_id=None,
         mode="sgp4",
         lock_requirement=False,
@@ -372,33 +471,16 @@ def test_live_fetch_case2_real_contacts(azure_with_env):
     assert PROJECTED_COLUMNS <= set(result.columns)
 
 
-def test_live_fetch_case1_real_spacecraft(azure_with_env):
+@pytest.mark.timeout(LIVE_TEST_TIMEOUT_SECONDS)
+def test_live_fetch_case1_real_spacecraft(azure_with_env, live_reservation):
     """fetch_tracking_data routed on a real spacecraft + epoch window,
     executed against the real cluster. Empty result set is valid."""
-    client = azure_with_env.get_client()
-    contact_ids = _probe_contact_ids(client)
-    assert contact_ids, "telemetry DB has no contacts to query"
-    ids_csv = ", ".join(f"'{cid}'" for cid in contact_ids)
-
-    response = client.execute(
-        "telemetry",
-        f"contacts | where contact_id in ({ids_csv}) "
-        "| where isnotempty(spacecraft_id) and isnotnull(timestamp) "
-        "| project spacecraft_id, timestamp | take 1",
-    )
-    df = dataframe_from_result_table(response.primary_results[0])
-    assert len(df) > 0, "no contact carries a timestamp to build the window from"
-    spacecraft_uuid = str(df["spacecraft_id"].iloc[0])
-    epoch = pd.Timestamp(df["timestamp"].iloc[0])
-    if epoch.tzinfo is None:
-        epoch = epoch.tz_localize("UTC")
-    else:
-        epoch = epoch.tz_convert("UTC")
+    start_time, end_time = _reservation_window(live_reservation)
 
     ctx = TrackingContext(
-        spacecraft_uuid=spacecraft_uuid,
-        start_time_iso=(epoch - pd.Timedelta(hours=1)).isoformat(),
-        end_time_iso=(epoch + pd.Timedelta(hours=1)).isoformat(),
+        spacecraft_uuid=live_reservation.spacecraft_id,
+        start_time_iso=start_time,
+        end_time_iso=end_time,
         contact_uuid_list=None,
         ephemeris_id=None,
         mode="sgp4",

@@ -13,18 +13,23 @@ For each forest (16..19) this script:
      settings as the Rust solver) over the comparison epochs and converts
      TEME -> ECEF with satkit (``qteme2itrf``), giving the GPS-derived
      "expected state";
-  5. runs the doppler optimization in Rust (``dart.solver.solve`` on the
-     offline-loaded parquet input) and propagates the fitted TLE to ECEF the
-     same way;
+  5. runs the doppler optimization (``--solver rust``: ``dart.solver.solve``
+     mean-element fit on the offline-loaded parquet input, fitted TLE
+     propagated to ECEF the same way; ``--solver python``:
+     ``dart.time_solver.solve`` single-pass time-shift fit, run independently
+     per pass and reporting no fitted TLE);
   6. reports per-epoch position error vs the raw GPS for the parquet TLE
      (baseline), the GPS-fitted TLE (fit self-check) and the doppler-fitted
-     TLE (the accuracy test), plus the in-track mean-anomaly comparison.
+     TLE (the accuracy test, rust only), plus the in-track comparison
+     (mean-anomaly correction for rust, per-pass time shift x orbital speed
+     for python).
 
-Run from the repo root:  uv run python scripts/forest-experiment.py [forests...]
+Run from the repo root:  uv run python scripts/forest-experiment.py [--solver rust|python] [forests...]
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -34,6 +39,7 @@ import satkit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from dart import time_solver
 from dart.loaders.offline import build_sgp4_input_from_parquet
 from dart.solver import solve
 
@@ -55,11 +61,16 @@ TIMESTAMP_OFFSET_S = 0.350
 MAX_MA_SIGMA_KM = 10.0
 
 
-def ma_sigma_km(result) -> float:
-    """1-sigma uncertainty of the fitted mean anomaly in km (robust covariance)."""
+def ma_sigma_km(result, km_per_unit: float) -> float:
+    """1-sigma uncertainty of the leading fit parameter, in km (robust covariance).
+
+    ``km_per_unit`` converts the leading parameter's unit to in-track km:
+    ``RADIUS_KM`` for the Rust mean-anomaly fit (radians), the orbital speed
+    in km/s for the Python time-shift fit (seconds).
+    """
     if not result.parameter_covariance or len(result.parameter_covariance) < 1:
         return float("nan")
-    return np.sqrt(result.parameter_covariance[0]) * RADIUS_KM
+    return np.sqrt(result.parameter_covariance[0]) * km_per_unit
 
 
 def load_gps(forest: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -156,12 +167,30 @@ def in_track_separation_km(r_a, v_a, r_b) -> float:
     return float(np.dot(r_b - r_a, v_a) / np.linalg.norm(v_a)) / 1000.0
 
 
-def run_forest(forest: int) -> None:
-    print(f"=== forest{forest} ===")
+def report_python_passes(inp, km_per_unit: float, truth_km: float) -> None:
+    """Per-pass python time-shift fits against the GPS in-track truth."""
+    print("  python time-shift model is single-pass: solving each pass independently")
+    print("  position error vs GPS: n/a for the time model (it returns no fitted TLE)")
+    print(f"  in-track truth (GPS vs parquet TLE at epoch): {truth_km:+.1f} km")
+    print("  pass                                obs   rms(Hz)  shift(s)  in-track(km)  sigma(km)")
+    for sub in time_solver.split_passes(inp):
+        result = time_solver.solve(sub)
+        shift_s = result.parameters[0] if result.parameters else float("nan")
+        sigma_km = ma_sigma_km(result, km_per_unit)
+        tag = "" if result.success else "  [FAILED]"
+        print(f"    …{sub.fit.pass_ids[0][-6:]}  {len(sub.observations):6d} {result.rms:9.0f} "
+              f"{shift_s:9.3f} {shift_s * km_per_unit:12.2f} {sigma_km:10.2f}{tag}")
+
+
+def run_forest(forest: int, solver: str = "rust") -> None:
+    print(f"=== forest{forest} (solver={solver}) ===")
+    # python runs its native 2-parameter model (time shift + per-pass bias)
+    fit_model = "mean_anomaly_mean_motion" if solver == "python" else "mean_anomaly"
     inp = build_sgp4_input_from_parquet(
         DOPPLER_DIR / f"forest{forest}.parquet",
         min_pass_measurements=MIN_PASS_MEASUREMENTS,
         timestamp_offset_s=TIMESTAMP_OFFSET_S,
+        fit_model=fit_model,
     )
     obs_epochs = np.array([obs.epoch_unix for obs in inp.observations])
 
@@ -190,9 +219,24 @@ def run_forest(forest: int) -> None:
     err_parquet = np.linalg.norm(parquet_ecef - gps_ecef, axis=1) / 1000.0
     err_expected = np.linalg.norm(expected_ecef - gps_ecef, axis=1) / 1000.0
 
+    # --- reference states at the parquet TLE epoch (also gives orbital speed) ---
+    t0 = satkit.TLE.from_lines([inp.tle.line1, inp.tle.line2]).epoch.as_unixtime()
+    r_par, v_par = propagate_state_ecef([inp.tle.line1, inp.tle.line2], [t0])
+    r_gps, v_gps = propagate_state_ecef(tle_gps.to_2line(), [t0])
+    # leading fit parameter -> in-track km: radians x radius (rust
+    # mean-anomaly fit) or seconds x orbital speed (python time-shift fit)
+    km_per_unit = float(np.linalg.norm(v_gps[0])) / 1000.0 if solver == "python" else RADIUS_KM
+
+    # --- in-track truth: GPS vs parquet TLE at the TLE epoch ---
+    truth_km = in_track_separation_km(r_gps[0], v_gps[0], r_par[0])
+
+    if solver == "python":
+        report_python_passes(inp, km_per_unit, truth_km)
+        return
+
     # --- Rust doppler optimization ---
     result = solve(inp)
-    sigma_km = ma_sigma_km(result)
+    sigma_km = ma_sigma_km(result, km_per_unit)
     rejected = not result.success or not np.isfinite(sigma_km) or sigma_km > MAX_MA_SIGMA_KM
     fit_tle = result.fitted_tle
     if fit_tle is not None and not rejected:
@@ -213,19 +257,23 @@ def run_forest(forest: int) -> None:
         print(f"    doppler-fitted TLE          {'— rejected' if not result.success else '— (high covariance)'}")
 
     # --- in-track correction: GPS truth vs parquet TLE, from direct propagation ---
-    t0 = satkit.TLE.from_lines([inp.tle.line1, inp.tle.line2]).epoch.as_unixtime()
-    r_par, v_par = propagate_state_ecef([inp.tle.line1, inp.tle.line2], [t0])
-    r_gps, v_gps = propagate_state_ecef(tle_gps.to_2line(), [t0])
-    truth_km = in_track_separation_km(r_gps[0], v_gps[0], r_par[0])
-    fit_km = result.parameters[0] * RADIUS_KM if result.parameters and not rejected else float("nan")
+    fit_km = result.parameters[0] * km_per_unit if result.parameters and not rejected else float("nan")
     print(f"  in-track correction: GPS truth = {truth_km:+.1f} km, "
           f"doppler fit = {fit_km:+.1f} km")
 
 
 def main() -> None:
-    forests = [int(arg) for arg in sys.argv[1:]] or [16, 17, 18, 19]
-    for forest in forests:
-        run_forest(forest)
+    parser = argparse.ArgumentParser(description="GPS truth vs doppler orbit fits")
+    parser.add_argument("forests", nargs="*", type=int, help="forest numbers (default: 16 17 18 19)")
+    parser.add_argument(
+        "--solver",
+        choices=("rust", "python"),
+        default="rust",
+        help="rust: mean-element fit (dart.solver); python: single-pass time-shift fit (dart.time_solver)",
+    )
+    args = parser.parse_args()
+    for forest in args.forests or [16, 17, 18, 19]:
+        run_forest(forest, solver=args.solver)
         print()
 
 

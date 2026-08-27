@@ -13,6 +13,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "requests>=2.34.2",
     "satkit>=0.20.2",
+    "scipy>=1.18.0",
     "uuid>=1.30",
 ]
 
@@ -22,6 +23,7 @@ dev = [
     "pandas>=2.2",
     "pyarrow>=16",
     "pytest>=8",
+    "pytest-timeout>=2.4.0",
 ]
 
 [build-system]

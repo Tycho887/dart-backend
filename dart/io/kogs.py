@@ -9,6 +9,8 @@ from typing import Optional, Dict, Any
 import requests
 from dart.io.utils import _safe_float, _safe_str, _join_field, _join_list, _iso_to_unix
 
+KOGS_REQUEST_TIMEOUT_SECONDS = 30.0
+
 def generate_auth_header(auth: str) -> dict:
     return {
         'Authorization': auth,
@@ -20,35 +22,70 @@ def validate(resp: requests.Response) -> dict:
     resp.raise_for_status()
     return resp.json()
 
-def get_contact(auth: str, contact_id: str) -> dict:
+def _get(
+    url: str,
+    auth: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> dict:
+    return validate(
+        requests.get(
+            url,
+            headers=generate_auth_header(auth),
+            timeout=timeout_seconds,
+        )
+    )
+
+
+def get_contact(
+    auth: str,
+    contact_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> dict:
     """https://ksat.stoplight.io/docs/internal-apis-1/b8a89c7f20ff1-get-contact"""
     url = f'https://mgmt.kogs.api.ksat.no/24.08/contacts/{contact_id}'
-    return validate(requests.get(url, headers=generate_auth_header(auth)))
+    return _get(url, auth, timeout_seconds=timeout_seconds)
 
-def get_spacecraft(auth: str, spacecraft_id: str) -> dict:
+def get_spacecraft(
+    auth: str,
+    spacecraft_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> dict:
     """https://ksat.stoplight.io/docs/internal-apis-1/70211f511b112-get-spacecraft"""
     url = f'https://mgmt.kogs.api.ksat.no/24.08/spacecrafts/{spacecraft_id}'
-    return validate(requests.get(url, headers=generate_auth_header(auth)))
+    return _get(url, auth, timeout_seconds=timeout_seconds)
 
-def get_station(auth: str, station_id: str) -> dict:
+def get_station(
+    auth: str,
+    station_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> dict:
     """https://ksat.stoplight.io/docs/internal-apis-1/cac2d50049631-get-station"""
     url = f'https://mgmt.kogs.api.ksat.no/24.08/stations/{station_id}'
-    return validate(requests.get(url, headers=generate_auth_header(auth)))
+    return _get(url, auth, timeout_seconds=timeout_seconds)
 
-def get_antenna(auth: str, system_id: str) -> dict:
+def get_antenna(
+    auth: str,
+    system_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> dict:
     """https://ksat.stoplight.io/docs/internal-apis-1/0c3a140c61f03-find-system-antenna"""
     url = f'https://mgmt.kogs.api.ksat.no/24.08/systems/antennas/{system_id}'
-    return validate(requests.get(url, headers=generate_auth_header(auth)))
+    return _get(url, auth, timeout_seconds=timeout_seconds)
 
 def get_TLE(auth: str, ephemeris_id: str) -> dict:
     """https://ksat.stoplight.io/docs/internal-apis-1/294893d364844-locate-ephemeris-entry"""
     url = f"https://mgmt.kogs.api.ksat.no/24.08/ephemeris/{ephemeris_id}"
-    return validate(requests.get(url, headers=generate_auth_header(auth)))
+    return _get(url, auth)
 
 def get_ephemeris(auth: str, ephemeris_id: str) -> dict:
     """https://ksat.stoplight.io/docs/internal-apis-1/831bff601c741-fetch-known-ephemeris"""
     url = f"https://mgmt.kogs.api.ksat.no/24.08/ephemeris/{ephemeris_id}"
-    return validate(requests.get(url, headers=generate_auth_header(auth)))
+    return _get(url, auth)
 
 @dataclass
 class AntennaData:

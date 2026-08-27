@@ -3,7 +3,9 @@ context model (ported from depr/load.py)."""
 import os
 import re
 from dataclasses import dataclass
+from datetime import timedelta
 import polars as pl
+from azure.kusto.data import ClientRequestProperties
 from azure.kusto.data import KustoConnectionStringBuilder
 from azure.kusto.data import KustoClient
 from azure.kusto.data.helpers import dataframe_from_result_table
@@ -13,6 +15,8 @@ from dart.io.utils import setup_logger, _safe_str, _safe_bool, _join_list
 
 logger = setup_logger()
 load_dotenv()
+
+ADX_QUERY_TIMEOUT_SECONDS = 30.0
 
 class env:
     AZURE_ADX_CLUSTER_ENDPOINT: str = os.getenv("AZURE_ADX_CLUSTER_ENDPOINT", "")
@@ -38,7 +42,20 @@ def get_client() -> KustoClient:
         client.set_proxy(env.HTTP_PROXY)
     return client
 
-def fetch_tracking_data(ctx) -> pl.DataFrame:
+def _query_properties(timeout_seconds: float) -> ClientRequestProperties:
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    properties = ClientRequestProperties()
+    properties.set_option(
+        ClientRequestProperties.request_timeout_option_name,
+        timedelta(seconds=timeout_seconds),
+    )
+    return properties
+
+
+def fetch_tracking_data(
+    ctx, *, timeout_seconds: float = ADX_QUERY_TIMEOUT_SECONDS
+) -> pl.DataFrame:
     """
     Routes the database request based on the context object case,
     injects KQL-level filtering, and returns a unified Polars DataFrame.
@@ -62,6 +79,16 @@ def fetch_tracking_data(ctx) -> pl.DataFrame:
         formatted_ids = ", ".join(f"'{cid.strip()}'" for cid in contact_ids if cid.strip())
 
         target_clause = f"where contact_id in ({formatted_ids})"
+        if bool(ctx.start_time_iso) != bool(ctx.end_time_iso):
+            raise ValueError(
+                "Contact queries require both start_time_iso and end_time_iso "
+                "when either timestamp is provided."
+            )
+        if ctx.start_time_iso and ctx.end_time_iso:
+            target_clause += (
+                f" and timestamp between (datetime({ctx.start_time_iso}) .. "
+                f"datetime({ctx.end_time_iso}))"
+            )
         logger.info(f"Executing Case 2 query for Contact IDs: {ctx.contact_uuid_list}")
 
     else:
@@ -100,7 +127,7 @@ def fetch_tracking_data(ctx) -> pl.DataFrame:
     with get_client() as client:
         db = "telemetry"
         logger.debug(f"Executing KQL Query:\n{query}")
-        response = client.execute_query(db, query)
+        response = client.execute_query(db, query, _query_properties(timeout_seconds))
         raw_df_pd = dataframe_from_result_table(response.primary_results[0])
 
     df_final = pl.from_pandas(raw_df_pd)

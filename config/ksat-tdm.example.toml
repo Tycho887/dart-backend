@@ -1,0 +1,113 @@
+# KSAT delivery metadata. Copy this file and replace every UUID, mission fact,
+# calibration value, and ADX mapping with authoritative operational values.
+
+[site]
+# The site identifier and WGS-84 coordinates come from KOGS. ECEF is derived
+# from those coordinates with satkit, and the place name is reverse-geocoded.
+# Set name only for a reviewed common name distinct from the antenna ID.
+name = "Example common antenna name"
+pedestal_offset_m = 4.0
+tlt_calibration_date = 2026-01-01
+tlt_band = "X"
+
+[kogs]
+# These identities must match the selected contact. KOGS credentials are read
+# from KOGS_API_KEY and never belong in this file.
+spacecraft_id = "REPLACE-spacecraft-uuid"
+system_id = "REPLACE-system-uuid"
+station_id = "REPLACE-station-uuid"
+# timeout_seconds = 30.0
+
+# Reverse geocoding defaults to OpenStreetMap Nominatim. Override these only
+# when using an approved deployment or a more identifying user agent.
+# [geocoder]
+# url = "https://nominatim.openstreetmap.org/reverse"
+# user_agent = "DART-KSAT-TDM/1.0"
+# timeout_seconds = 10.0
+
+[spacecraft]
+# This identifier is used in PARTICIPANT_2 and in the standard filename.
+identifier = "2026-001A"
+name = "Example spacecraft"
+cospar_id = "2026-001A"
+catalog_id = "12345"
+
+[header]
+summary = "Customer tracking data"
+comments = ["Generated from bounded ADX contact telemetry"]
+
+[adx]
+timestamp = "timestamp"
+contact_id = "contact_id"
+# This column must contain the same operational antenna identifier that KOGS
+# returns (for example SG221), not the internal KOGS system UUID.
+station_id = "antenna_name"
+# Optional product-specific timestamps default to adx.timestamp except TRACK,
+# whose integration-end semantics must always be confirmed explicitly.
+# angle_timestamp = "timestamp"
+# signal_metrics_timestamp = "timestamp"
+
+# TRACK mappings are deliberately placeholders. A site owner must confirm that
+# these columns mean integration-end time, raw round-trip modem delay, absolute
+# transmit frequency, and absolute receive frequency before TRACK is enabled.
+track_timestamp = "CONFIRM_integration_end_timestamp"
+tracking_mode = "antenna1_tracking_mode"
+
+[adx.range_delay]
+column = "CONFIRM_raw_round_trip_delay"
+unit = "ps"
+
+[adx.transmit_frequency]
+column = "CONFIRM_absolute_transmit_frequency"
+unit = "Hz"
+
+[adx.receive_frequency]
+column = "CONFIRM_absolute_receive_frequency"
+unit = "Hz"
+
+# The default angle mapping uses antenna1_position_azimuth/elevation in degrees.
+# Override it only with confirmed controller readback columns.
+[adx.angle_1]
+column = "antenna1_position_azimuth"
+unit = "deg"
+
+[adx.angle_2]
+column = "antenna1_position_elevation"
+unit = "deg"
+
+# These must be the stated KSAT metrics, not Eb/N0 or carrier-frequency offset.
+[adx.carrier_power]
+column = "CONFIRM_total_received_signal_power"
+unit = "dBW"
+
+[adx.pc_n0]
+column = "CONFIRM_total_signal_power_to_noise_density"
+unit = "dB-Hz"
+
+[adx.pr_n0]
+column = "CONFIRM_ranging_power_to_noise_density"
+unit = "dB-Hz"
+
+# A product is selected by default when its section is present. Delete a
+# product section and its unused mappings to disable it.
+[track]
+mode = 3
+transmit_band = "X"
+receive_band = "X"
+integration_interval_s = 1.0
+turnaround_numerator = 880
+turnaround_denominator = 749
+transmit_delay_s = 0.0
+receive_delay_s = 0.0
+correction_range_s = 0.0
+correction_doppler_hz = 0.0
+
+[angle]
+receive_band = "X"
+angle_type = "AZEL"
+# Instead of adx.tracking_mode, a constant may be set here:
+# tracking_mode = "PROGRAM"
+
+[sigmet]
+transmit_band = "X"
+receive_band = "X"
