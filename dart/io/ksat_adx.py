@@ -72,6 +72,36 @@ class AdxField:
 
 
 @dataclass(frozen=True)
+class AdxFrequencyField:
+    """An explicit absolute-frequency composition from two ADX columns.
+
+    This mapping is intentionally declarative: a site owner must select the
+    base, offset, units, and sign.  Merely naming a telemetry column does not
+    authorize DART to infer whether the offset should be added or subtracted.
+    """
+
+    base: AdxField
+    offset: AdxField
+    offset_sign: Literal[-1, 1] = 1
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.base, AdxField) or not isinstance(self.offset, AdxField):
+            raise TypeError("frequency base and offset must be AdxField values")
+        frequency_units = {"Hz", "kHz", "MHz", "GHz"}
+        if self.base.unit not in frequency_units:
+            raise ValueError("frequency base must use Hz, kHz, MHz, or GHz")
+        if self.offset.unit not in frequency_units:
+            raise ValueError("frequency offset must use Hz, kHz, MHz, or GHz")
+        if self.base.column == self.offset.column:
+            raise ValueError("frequency base and offset columns must be distinct")
+        if isinstance(self.offset_sign, bool) or self.offset_sign not in (-1, 1):
+            raise ValueError("frequency offset_sign must be -1 or 1")
+
+    def projected_columns(self) -> tuple[str, str]:
+        return self.base.column, self.offset.column
+
+
+@dataclass(frozen=True)
 class KsatAdxColumnMap:
     """ADX columns that carry KSAT observables.
 
@@ -94,8 +124,8 @@ class KsatAdxColumnMap:
     )
     tracking_mode: str | None = None
     range_delay: AdxField | None = None
-    transmit_frequency: AdxField | None = None
-    receive_frequency: AdxField | None = None
+    transmit_frequency: AdxField | AdxFrequencyField | None = None
+    receive_frequency: AdxField | AdxFrequencyField | None = None
     carrier_power: AdxField | None = None
     pc_n0: AdxField | None = None
     pr_n0: AdxField | None = None
@@ -131,7 +161,9 @@ class KsatAdxColumnMap:
             self.pc_n0,
             self.pr_n0,
         ):
-            if mapping is not None:
+            if isinstance(mapping, AdxFrequencyField):
+                names.extend(mapping.projected_columns())
+            elif mapping is not None:
                 names.append(mapping.column)
         if self.tracking_mode is not None:
             names.append(self.tracking_mode)
@@ -321,6 +353,79 @@ def _mapped_value(
     return convert_adx_value(value, mapping, target_unit)
 
 
+def _mapping_columns(mapping: AdxField | AdxFrequencyField | None) -> tuple[str, ...]:
+    if isinstance(mapping, AdxFrequencyField):
+        return mapping.projected_columns()
+    if isinstance(mapping, AdxField):
+        return (mapping.column,)
+    return ()
+
+
+def _mapped_frequency(
+    row: dict[str, object], mapping: AdxField | AdxFrequencyField | None
+) -> float | None:
+    if isinstance(mapping, AdxField):
+        return _mapped_value(row, mapping, "Hz")
+    if not isinstance(mapping, AdxFrequencyField):
+        return None
+    base = _mapped_value(row, mapping.base, "Hz")
+    offset = _mapped_value(row, mapping.offset, "Hz")
+    if base is None or offset is None:
+        return None
+    return float(
+        Decimal(str(base))
+        + Decimal(mapping.offset_sign) * Decimal(str(offset))
+    )
+
+
+def _coalesce_track_rows(
+    frame: pl.DataFrame,
+    columns: KsatAdxColumnMap,
+    metadata: TrackMetadata,
+) -> tuple[list[dict[str, object]], str | None]:
+    """Merge sparse subsystem rows only when their exact TRACK epoch matches."""
+
+    assert columns.track_timestamp is not None
+    timestamp = columns.track_timestamp
+    source_columns: list[str] = []
+    if metadata.mode in (1, 3):
+        source_columns.extend(_mapping_columns(columns.range_delay))
+    if metadata.mode in (3, 4):
+        source_columns.extend(_mapping_columns(columns.transmit_frequency))
+        source_columns.extend(_mapping_columns(columns.receive_frequency))
+    source_columns = list(dict.fromkeys(source_columns))
+
+    merged: dict[tuple[object, object, object], dict[str, object]] = {}
+    without_epoch: list[dict[str, object]] = []
+    for row in frame.to_dicts():
+        epoch = row.get(timestamp)
+        if epoch is None:
+            without_epoch.append(row)
+            continue
+        key = (epoch, row.get(columns.contact_id), row.get(columns.station_id))
+        target = merged.get(key)
+        if target is None:
+            merged[key] = dict(row)
+            continue
+        for name in source_columns:
+            value = row.get(name)
+            if value is None:
+                continue
+            current = target.get(name)
+            if current is None:
+                target[name] = value
+            elif current != value:
+                return [], (
+                    f"TRACK source epoch {epoch!s} contains conflicting values "
+                    f"for ADX column {name!r}"
+                )
+
+    rows = list(merged.values())
+    rows.sort(key=lambda row: _epoch(row[timestamp], timestamp))
+    rows.extend(without_epoch)
+    return rows, None
+
+
 def _has_single_station(
     frame: pl.DataFrame, column: str, expected_station: str
 ) -> tuple[bool, str | None]:
@@ -366,20 +471,23 @@ def _build_track_document(
             "set track_timestamp after confirming its semantics"
         )
     timestamp_column = columns.track_timestamp
+    rows, coalesce_error = _coalesce_track_rows(frame, columns, metadata)
+    if coalesce_error is not None:
+        return coalesce_error
     observations: list[TrackObservation] = []
     last_transmit: float | None = None
-    for index, row in enumerate(frame.sort(timestamp_column).to_dicts()):
-        if row.get(timestamp_column) is None:
-            mappings = (
-                columns.range_delay,
-                columns.transmit_frequency,
-                columns.receive_frequency,
+    measurement_columns = tuple(
+        dict.fromkeys(
+            (
+                *_mapping_columns(columns.range_delay),
+                *_mapping_columns(columns.transmit_frequency),
+                *_mapping_columns(columns.receive_frequency),
             )
-            if any(
-                row.get(mapping.column) is not None
-                for mapping in mappings
-                if mapping is not None
-            ):
+        )
+    )
+    for index, row in enumerate(rows):
+        if row.get(timestamp_column) is None:
+            if any(row.get(name) is not None for name in measurement_columns):
                 return f"TRACK source row {index} is missing its timestamp"
             continue
         range_s = (
@@ -387,16 +495,8 @@ def _build_track_document(
             if isinstance(columns.range_delay, AdxField)
             else None
         )
-        transmit_hz = (
-            _mapped_value(row, columns.transmit_frequency, "Hz")
-            if isinstance(columns.transmit_frequency, AdxField)
-            else None
-        )
-        receive_hz = (
-            _mapped_value(row, columns.receive_frequency, "Hz")
-            if isinstance(columns.receive_frequency, AdxField)
-            else None
-        )
+        transmit_hz = _mapped_frequency(row, columns.transmit_frequency)
+        receive_hz = _mapped_frequency(row, columns.receive_frequency)
         target_values = (range_s, transmit_hz, receive_hz)
         if all(value is None for value in target_values):
             continue
@@ -710,6 +810,7 @@ def export_ksat_tdm_bundle(
 
 __all__ = [
     "AdxField",
+    "AdxFrequencyField",
     "AngleExportConfig",
     "GeneratedTdm",
     "KsatAdxColumnMap",

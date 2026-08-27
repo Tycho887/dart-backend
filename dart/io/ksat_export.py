@@ -12,6 +12,7 @@ from typing import Mapping, Sequence
 from dart.io.azure import ADX_QUERY_TIMEOUT_SECONDS
 from dart.io.ksat_adx import (
     AdxField,
+    AdxFrequencyField,
     AngleExportConfig,
     KsatAdxColumnMap,
     KsatAdxQuery,
@@ -104,6 +105,9 @@ _SIGMET_KEYS = frozenset({"transmit_band", "receive_band"})
 _BANDS = frozenset({"S", "X", "Ka"})
 _ANGLE_TYPES = frozenset({"AZEL", "XEYN", "XSYE"})
 _TRACKING_MODES = frozenset({"AUTO", "PROGRAM", "SCAN"})
+_COMPOSED_FREQUENCY_KEYS = frozenset(
+    {"base_column", "base_unit", "offset_column", "offset_unit", "offset_sign"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,10 +190,40 @@ def _string(section: str, name: str, value: object) -> str:
     return value
 
 
-def _parse_adx_field(name: str, value: object) -> AdxField:
+def _parse_adx_field(name: str, value: object) -> AdxField | AdxFrequencyField:
     section = f"adx.{name}"
     if not isinstance(value, dict):
         raise ValueError(f"{section} must be a TOML table with column and unit")
+    if name in {"transmit_frequency", "receive_frequency"} and any(
+        key in value for key in _COMPOSED_FREQUENCY_KEYS
+    ):
+        _reject_unknown(section, value, _COMPOSED_FREQUENCY_KEYS)
+        _require_keys(
+            section,
+            value,
+            {"base_column", "base_unit", "offset_column", "offset_unit"},
+        )
+        base_unit = _string(section, "base_unit", value["base_unit"])
+        offset_unit = _string(section, "offset_unit", value["offset_unit"])
+        allowed = _FIELD_UNITS[name]
+        for field_name, unit in (("base_unit", base_unit), ("offset_unit", offset_unit)):
+            if unit not in allowed:
+                expected = ", ".join(sorted(allowed))
+                raise ValueError(
+                    f"{section}.{field_name} must be one of {expected}; got {unit!r}"
+                )
+        sign = value.get("offset_sign", 1)
+        return AdxFrequencyField(
+            base=AdxField(
+                _string(section, "base_column", value["base_column"]),
+                base_unit,  # type: ignore[arg-type]
+            ),
+            offset=AdxField(
+                _string(section, "offset_column", value["offset_column"]),
+                offset_unit,  # type: ignore[arg-type]
+            ),
+            offset_sign=sign,  # type: ignore[arg-type]
+        )
     _reject_unknown(section, value, frozenset({"column", "unit"}))
     _require_keys(section, value, {"column", "unit"})
     column = _string(section, "column", value["column"])

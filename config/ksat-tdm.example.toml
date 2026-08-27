@@ -68,6 +68,17 @@ unit = "Hz"
 column = "CONFIRM_absolute_receive_frequency"
 unit = "Hz"
 
+# When ADX stores an absolute reference and its carrier/Doppler offset in
+# separate sparse rows at the same integration-end epoch, replace either
+# single-column table above with this explicit composed form. The sign is a
+# reviewed site mapping; DART never infers it from a column name.
+# [adx.transmit_frequency]
+# base_column = "CONFIRM_absolute_transmit_reference"
+# base_unit = "Hz"
+# offset_column = "CONFIRM_transmit_offset"
+# offset_unit = "Hz"
+# offset_sign = 1 # must be 1 or -1
+
 # The default angle mapping uses antenna1_position_azimuth/elevation in degrees.
 # Override it only with confirmed controller readback columns.
 [adx.angle_1]

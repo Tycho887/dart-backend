@@ -38,6 +38,14 @@ KOGS does not expose behind the calibration-provider interface; configuration
 is the current provider and MEOS is the reserved future authority. The ADX
 query does not derive header metadata.
 
+For a confirmed mode-4 mapping where ADX records an absolute frequency base
+and carrier/Doppler offset on separate rows with the exact same integration-end
+epoch, configure `base_column`, `base_unit`, `offset_column`, `offset_unit`, and
+`offset_sign` (`1` or `-1`) in the transmit/receive frequency table. DART
+coalesces only exact contact/station/epoch matches and rejects conflicting
+values. The site owner must confirm the formula and sign; column names alone
+are not evidence of their semantics.
+
 Check both `result.generated` and `result.skipped`. A requested product can be
 skipped for absent mappings, incomplete/non-finite data, station mismatch, or
 unsupported configuration while another valid product is still returned.

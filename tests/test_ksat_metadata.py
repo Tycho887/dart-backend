@@ -118,7 +118,7 @@ def _configs():
 
 
 def _mock_kogs(monkeypatch, *, contact=None):
-    monkeypatch.setenv("KOGS_API_KEY", "secret")
+    monkeypatch.setenv("KOGS_API_KEY", "k" * 40)
     monkeypatch.setattr(
         metadata,
         "get_contact",
@@ -192,7 +192,7 @@ def test_metadata_geocoder_failure_is_a_warning(monkeypatch):
 def test_metadata_rejects_contact_identity_mismatch_before_other_requests(
     monkeypatch, overrides, match
 ):
-    monkeypatch.setenv("KOGS_API_KEY", "secret")
+    monkeypatch.setenv("KOGS_API_KEY", "k" * 40)
     monkeypatch.setattr(
         metadata,
         "get_contact",

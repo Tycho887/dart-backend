@@ -7,13 +7,13 @@ loaders combine both into ``dart.schema`` transport structs.
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
 import requests
-from dart.io.utils import _safe_float, _safe_str, _join_field, _join_list, _iso_to_unix
+from dart.io.utils import _safe_float, _safe_str, _join_field, _join_list, _iso_to_unix, create_api_auth
 
 KOGS_REQUEST_TIMEOUT_SECONDS = 30.0
 
 def generate_auth_header(auth: str) -> dict:
     return {
-        'Authorization': auth,
+        'Authorization': create_api_auth(auth),
         'Accept': 'application/json'
     }
 

@@ -37,10 +37,14 @@ substitute.
 
 The same restriction applies to the four November 2025 contacts below. ADX
 contained no non-null `lr1_ranging_satRange` or `lr2_ranging_satRange`
-measurements. The candidate absolute carrier-frequency fields were `0.0`, and
-the pedestal offset, TLT calibration, delays, and correction terms were not
-available. A TRACK file must therefore be omitted rather than populated with
-inferred or zero-valued observations.
+measurements. The direct modem carrier-frequency fields were `0.0`. Nonzero
+S-band converter references and Doppler/carrier offsets were present on sparse
+rows sharing an exact timestamp, and the mode-4 diagnostic path assembled 507,
+642, 571, and 685 complete frequency epochs for SG162, SG221, SG184, and SG182.
+Those values are not an operational TRACK source until a site owner confirms
+the absolute-frequency formulas, signs, coherent turnaround, and integration-
+end semantics. The pedestal offset and applicable TLT calibration also remain
+unavailable, so no TRACK file was written.
 
 ## Generated files
 

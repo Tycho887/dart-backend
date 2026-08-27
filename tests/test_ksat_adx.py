@@ -9,6 +9,7 @@ import pytest
 import dart.io.ksat_adx as ksat_adx
 from dart.io.ksat_adx import (
     AdxField,
+    AdxFrequencyField,
     AngleExportConfig,
     KsatAdxColumnMap,
     KsatAdxQuery,
@@ -76,6 +77,18 @@ def track_mode_3() -> TrackMetadata:
     )
 
 
+def track_mode_4() -> TrackMetadata:
+    return TrackMetadata(
+        mode=4,
+        transmit_band="S",
+        receive_band="S",
+        integration_interval_s=1.0,
+        turnaround_numerator=240,
+        turnaround_denominator=221,
+        correction_doppler_hz=0.0,
+    )
+
+
 def complete_frame() -> pl.DataFrame:
     return pl.DataFrame(
         {
@@ -115,6 +128,32 @@ def test_query_is_bounded_and_projects_only_configured_columns():
     assert query.endswith("order by timestamp asc")
 
 
+def test_query_projects_composed_frequency_columns_once():
+    columns = KsatAdxColumnMap(
+        transmit_frequency=AdxFrequencyField(
+            base=AdxField("tx_base", "MHz"),
+            offset=AdxField("tx_offset", "Hz"),
+            offset_sign=-1,
+        ),
+        receive_frequency=AdxFrequencyField(
+            base=AdxField("rx_base", "MHz"),
+            offset=AdxField("rx_offset", "Hz"),
+        ),
+    )
+
+    assert columns.projected_columns() == (
+        "timestamp",
+        "contact_id",
+        "system_id",
+        "antenna1_position_azimuth",
+        "antenna1_position_elevation",
+        "tx_base",
+        "tx_offset",
+        "rx_base",
+        "rx_offset",
+    )
+
+
 @pytest.mark.parametrize(
     ("source", "value", "target", "expected"),
     [
@@ -131,6 +170,16 @@ def test_explicit_unit_conversion(source, value, target, expected):
 def test_incompatible_semantic_unit_is_rejected():
     with pytest.raises(ValueError, match="cannot convert"):
         convert_adx_value(8.0, AdxField("ebn0", "dB-Hz"), "Hz")
+
+
+@pytest.mark.parametrize("offset_sign", [0, 2, True])
+def test_composed_frequency_requires_a_signed_frequency_offset(offset_sign):
+    with pytest.raises(ValueError, match="offset_sign"):
+        AdxFrequencyField(
+            AdxField("base", "Hz"),
+            AdxField("offset", "Hz"),
+            offset_sign,
+        )
 
 
 @pytest.mark.parametrize("bad", ["x; drop table contacts", "a.b", "with space"])
@@ -296,6 +345,79 @@ def test_track_requires_confirmed_integration_end_timestamp(header):
 
     assert result.generated == {}
     assert "integration-end timestamp" in result.skipped["TRACK"]
+
+
+def test_mode_4_coalesces_sparse_rows_and_composes_absolute_frequencies(header):
+    first = datetime.datetime(2026, 1, 1, 0, 0, 1)
+    second = datetime.datetime(2026, 1, 1, 0, 0, 2)
+    frame = pl.DataFrame(
+        {
+            "timestamp": [first, first, second, second],
+            "contact_id": ["contact-1"] * 4,
+            "system_id": ["D32"] * 4,
+            "tx_base_mhz": [2053.504, None, 2053.504, None],
+            "tx_offset_hz": [None, -35_000.0, None, -34_800.0],
+            "rx_base_mhz": [2230.0, None, 2230.0, None],
+            "rx_offset_hz": [None, 40_000.0, None, 39_800.0],
+        }
+    )
+    columns = KsatAdxColumnMap(
+        track_timestamp="timestamp",
+        transmit_frequency=AdxFrequencyField(
+            AdxField("tx_base_mhz", "MHz"),
+            AdxField("tx_offset_hz", "Hz"),
+            1,
+        ),
+        receive_frequency=AdxFrequencyField(
+            AdxField("rx_base_mhz", "MHz"),
+            AdxField("rx_offset_hz", "Hz"),
+            1,
+        ),
+    )
+
+    result = build_ksat_tdm_bundle(
+        frame,
+        header,
+        columns,
+        track=track_mode_4(),
+        products=(KsatProduct.TRACK,),
+    )
+
+    text = result.generated["TRACK"].text
+    assert "RANGE =" not in text
+    assert "TRANSMIT_FREQ_1 = 2026-01-01T00:00:01.000000 2053469000.000000" in text
+    assert "RECEIVE_FREQ_1 = 2026-01-01T00:00:01.000000 2230040000.000000" in text
+    assert "TRANSMIT_FREQ_1 = 2026-01-01T00:00:02.000000 2053469200.000000" in text
+    assert "RECEIVE_FREQ_1 = 2026-01-01T00:00:02.000000 2230039800.000000" in text
+
+
+def test_track_rejects_conflicting_values_at_one_sparse_epoch(header):
+    epoch = datetime.datetime(2026, 1, 1, 0, 0, 1)
+    frame = pl.DataFrame(
+        {
+            "timestamp": [epoch, epoch],
+            "contact_id": ["contact-1", "contact-1"],
+            "system_id": ["D32", "D32"],
+            "tx_hz": [2_053_504_000.0, 2_053_505_000.0],
+            "rx_hz": [2_230_000_000.0, None],
+        }
+    )
+    columns = KsatAdxColumnMap(
+        track_timestamp="timestamp",
+        transmit_frequency=AdxField("tx_hz", "Hz"),
+        receive_frequency=AdxField("rx_hz", "Hz"),
+    )
+
+    result = build_ksat_tdm_bundle(
+        frame,
+        header,
+        columns,
+        track=track_mode_4(),
+        products=(KsatProduct.TRACK,),
+    )
+
+    assert result.generated == {}
+    assert "conflicting values" in result.skipped["TRACK"]
 
 
 def test_incomplete_track_row_skips_track_without_losing_angle(header):

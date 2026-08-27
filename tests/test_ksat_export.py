@@ -108,6 +108,53 @@ def test_load_config_builds_typed_values_and_discovers_products(tmp_path):
     )
 
 
+def test_load_config_accepts_explicit_composed_frequency_mappings(tmp_path):
+    text = VALID_CONFIG.replace(
+        '[adx.transmit_frequency]\ncolumn = "tx_ghz"\nunit = "GHz"',
+        '[adx.transmit_frequency]\nbase_column = "tx_base_mhz"\n'
+        'base_unit = "MHz"\noffset_column = "tx_offset_hz"\n'
+        'offset_unit = "Hz"\noffset_sign = -1',
+    ).replace(
+        '[adx.receive_frequency]\ncolumn = "rx_mhz"\nunit = "MHz"',
+        '[adx.receive_frequency]\nbase_column = "rx_base_mhz"\n'
+        'base_unit = "MHz"\noffset_column = "rx_offset_hz"\n'
+        'offset_unit = "Hz"',
+    )
+
+    config = load_ksat_export_config(write_config(tmp_path, text))
+
+    assert config.columns.transmit_frequency.base.column == "tx_base_mhz"
+    assert config.columns.transmit_frequency.offset.column == "tx_offset_hz"
+    assert config.columns.transmit_frequency.offset_sign == -1
+    assert config.columns.receive_frequency.offset_sign == 1
+
+
+@pytest.mark.parametrize(
+    ("replacement", "match"),
+    [
+        (
+            'base_column = "tx_base"\nbase_unit = "MHz"\n'
+            'offset_column = "tx_offset"\noffset_unit = "Hz"\noffset_sign = 0',
+            "offset_sign",
+        ),
+        (
+            'base_column = "tx_base"\nbase_unit = "dBW"\n'
+            'offset_column = "tx_offset"\noffset_unit = "Hz"',
+            "base_unit",
+        ),
+    ],
+)
+def test_load_config_rejects_invalid_composed_frequency_mapping(
+    tmp_path, replacement, match
+):
+    text = VALID_CONFIG.replace(
+        'column = "tx_ghz"\nunit = "GHz"', replacement, 1
+    )
+
+    with pytest.raises(ValueError, match=match):
+        load_ksat_export_config(write_config(tmp_path, text))
+
+
 @pytest.mark.parametrize(
     ("text", "match"),
     [
