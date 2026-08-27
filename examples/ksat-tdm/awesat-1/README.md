@@ -6,6 +6,7 @@ AWESAT-1:
 - KOGS spacecraft UUID: `2cd1ce1c-3090-4a5f-b621-2e651c872245`
 - spacecraft name: `AWESAT-1`
 - NORAD/catalog identifier: `60543`
+- COSPAR identifier: `2024-149CD` (derived from the contact ephemeris)
 - contact: `802cbf44-8597-461a-865b-9bca3ac7cb51`
 - antenna: `SG221` at SVALSAT
 - KOGS station UUID: `381776b6-0867-4e9d-8589-0fcd76ee565f`
@@ -36,9 +37,9 @@ programmed-tracking interval.
 
 | Requested window (UTC) | Observations | Checked-in output |
 | --- | ---: | --- |
-| `11:36:00`–`11:36:30` | 30 | [`output/30-second/ANGLE_SG221_60543_2026-08-26T10-23-05.tdm`](output/30-second/ANGLE_SG221_60543_2026-08-26T10-23-05.tdm) |
-| `11:38:00`–`11:40:00` | 120 | [`output/2-minute/ANGLE_SG221_60543_2026-08-26T10-25-25.tdm`](output/2-minute/ANGLE_SG221_60543_2026-08-26T10-25-25.tdm) |
-| `11:34:02`–`11:45:35` | 693 | [`output/full-program-track/ANGLE_SG221_60543_2026-08-26T10-25-28.tdm`](output/full-program-track/ANGLE_SG221_60543_2026-08-26T10-25-28.tdm) |
+| `11:36:00`–`11:36:30` | 30 | [`output/30-second/ANGLE_SG221_2024-149CD_2026-08-26T10-23-05.tdm`](output/30-second/ANGLE_SG221_2024-149CD_2026-08-26T10-23-05.tdm) |
+| `11:38:00`–`11:40:00` | 120 | [`output/2-minute/ANGLE_SG221_2024-149CD_2026-08-26T10-25-25.tdm`](output/2-minute/ANGLE_SG221_2024-149CD_2026-08-26T10-25-25.tdm) |
+| `11:34:02`–`11:45:35` | 693 | [`output/full-program-track/ANGLE_SG221_2024-149CD_2026-08-26T10-25-28.tdm`](output/full-program-track/ANGLE_SG221_2024-149CD_2026-08-26T10-25-28.tdm) |
 
 The timestamp in each filename is its `CREATION_DATE`, not the observation
 window. A rerun therefore normally creates a differently named file.

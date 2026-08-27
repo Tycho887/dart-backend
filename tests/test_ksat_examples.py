@@ -12,7 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "examples" / "ksat-tdm" / "awesat-1" / "output"
 FILENAME = re.compile(
-    r"ANGLE_SG221_60543_(?P<creation>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.tdm"
+    r"ANGLE_SG221_2024-149CD_(?P<creation>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.tdm"
 )
 
 
@@ -48,7 +48,7 @@ def test_checked_in_angle_example(directory, start, stop, expected_count):
     assert f"CREATION_DATE = {creation}" in lines
     assert "ORIGINATOR = KSAT" in lines
     assert "PARTICIPANT_1 = SG221" in lines
-    assert "PARTICIPANT_2 = 60543" in lines
+    assert "PARTICIPANT_2 = 2024-149CD" in lines
     assert (
         "COMMENT Ground antenna: SG221, Longyearbyen, Svalbard, Norway" in lines
     )
@@ -56,7 +56,7 @@ def test_checked_in_angle_example(directory, start, stop, expected_count):
         "COMMENT ECEF coordinates: X=1259031.370, Y=346605.420, Z=6222586.863"
         in lines
     )
-    assert "COMMENT COSPAR: UNKNOWN Catalog: 60543" in lines
+    assert "COMMENT COSPAR: 2024-149CD Catalog: 60543" in lines
     assert "COMMENT TRACKING_MODE = PROGRAM" in lines
     assert "RECEIVE_BAND = S" in lines
     assert "ANGLE_TYPE = AZEL" in lines

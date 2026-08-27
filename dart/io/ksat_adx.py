@@ -21,6 +21,7 @@ import polars as pl
 from azure.kusto.data.helpers import dataframe_from_result_table
 
 from dart.io.azure import ADX_QUERY_TIMEOUT_SECONDS, _query_properties, get_client
+from dart.io.ksat_sources import KsatProvenance
 from dart.io.ksat_tdm import (
     AngleObservation,
     AngleSegment,
@@ -35,6 +36,7 @@ from dart.io.ksat_tdm import (
     ksat_tdm_filename,
     render_ksat_tdm,
 )
+from dart.io.ksat_validation import validate_ksat_tdm_text
 
 
 ProductName = Literal["TRACK", "ANGLE", "SIGMET", "METEO"]
@@ -172,6 +174,7 @@ class KsatExportResult:
     generated: dict[ProductName, GeneratedTdm] = field(default_factory=dict)
     skipped: dict[ProductName, str] = field(default_factory=dict)
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    provenance: tuple[KsatProvenance, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -560,11 +563,20 @@ def build_ksat_tdm_bundle(
         KsatProduct.SIGMET,
         KsatProduct.METEO,
     ),
+    start_time: datetime.datetime | None = None,
+    stop_time: datetime.datetime | None = None,
 ) -> KsatExportResult:
     """Build every requested KSAT product supported by the supplied ADX frame."""
 
     if not isinstance(frame, pl.DataFrame):
         raise TypeError("frame must be a polars DataFrame")
+    if (start_time is None) != (stop_time is None):
+        raise ValueError("start_time and stop_time must be supplied together")
+    bounds = (
+        (_as_utc(start_time, "start_time"), _as_utc(stop_time, "stop_time"))
+        if start_time is not None and stop_time is not None
+        else None
+    )
     station_ok, station_error = _has_single_station(
         frame, columns.station_id, header.site.identifier
     )
@@ -608,7 +620,25 @@ def build_ksat_tdm_bundle(
         if isinstance(document_or_error, str):
             skipped[product.value] = document_or_error
             continue
+        if bounds is not None:
+            start, stop = bounds
+            out_of_bounds = next(
+                (
+                    observation.epoch
+                    for segment in document_or_error.segments
+                    for observation in segment.observations
+                    if observation.epoch < start or observation.epoch > stop
+                ),
+                None,
+            )
+            if out_of_bounds is not None:
+                skipped[product.value] = (
+                    "observation timestamp outside requested contact window: "
+                    f"{out_of_bounds.isoformat()}"
+                )
+                continue
         text = render_ksat_tdm(document_or_error)
+        validate_ksat_tdm_text(text, product)
         generated[product.value] = GeneratedTdm(
             product=product.value,
             filename=ksat_tdm_filename(document_or_error),
@@ -645,6 +675,8 @@ def export_ksat_tdm_bundle(
         angle=angle,
         signal_metrics=signal_metrics,
         products=products,
+        start_time=selection.start_time,
+        stop_time=selection.stop_time,
     )
     if output_dir is None or not result.generated:
         return result
@@ -672,6 +704,7 @@ def export_ksat_tdm_bundle(
         generated=written,
         skipped=result.skipped,
         warnings=result.warnings,
+        provenance=result.provenance,
     )
 
 

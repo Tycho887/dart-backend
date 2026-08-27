@@ -17,8 +17,8 @@ station_id = "381776b6-0867-4e9d-8589-0fcd76ee565f"
 
 [spacecraft]
 # KSAT permits a 5-digit catalog identifier as PARTICIPANT_2 when a COSPAR ID
-# is unavailable from the configured metadata source.
-identifier = "60543"
+# is unavailable from the contact ephemeris. KOGS supplies and verifies this
+# value at runtime.
 catalog_id = "60543"
 
 [header]

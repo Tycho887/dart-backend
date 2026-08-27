@@ -7,12 +7,17 @@ import requests
 
 import dart.io.ksat_metadata as metadata
 from dart.io.ksat_metadata import (
+    CalibrationRequest,
+    ConfigCalibrationProvider,
     GeocoderConfig,
     KogsMetadataConfig,
     KsatSiteOverrides,
+    MeosCalibrationProvider,
+    extract_ephemeris_identity,
     load_ksat_contact_metadata,
     reverse_geocode_location,
 )
+from dart.io.ksat_sources import KsatAuthority
 from dart.io.ksat_tdm import KsatSpacecraft
 
 
@@ -94,6 +99,7 @@ def _antenna_payload():
                 "longitude": 15.39198,
                 "altitude": 485.1,
             },
+            "bands": [{"type": "S"}, {"type": "X"}],
         },
         "expanded": {
             "stations": [{"id": "station-1", "name": "SVALSAT"}]
@@ -148,6 +154,7 @@ def test_metadata_uses_kogs_coordinates_and_satkit_ecef(monkeypatch):
     assert result.site.ecef_y_m == pytest.approx(346_605.420, abs=0.001)
     assert result.site.ecef_z_m == pytest.approx(6_222_586.863, abs=0.001)
     assert result.spacecraft.name == "AWESAT-1"
+    assert result.antenna_bands == ("S", "X")
     assert result.warnings == (
         "pedestal offset is UNKNOWN; no reviewed value was configured",
         "TLT calibration date is UNKNOWN; no reviewed value was configured",
@@ -206,3 +213,74 @@ def test_metadata_requires_kogs_credentials(monkeypatch):
 
     with pytest.raises(ValueError, match="KOGS_API_KEY"):
         load_ksat_contact_metadata(**_configs())
+
+
+def test_extract_ephemeris_identity_from_tle_and_omm():
+    tle = (
+        "ISS (ZARYA)\n"
+        "1 25544U 98067A   24240.50000000  .00000000  00000-0  00000-0 0  9999\n"
+        "2 25544  51.6400 100.0000 0005000 100.0000 260.0000 15.50000000123456\n"
+    )
+    assert extract_ephemeris_identity(inline_tle=tle, inline_omm=None) == (
+        "1998-067A",
+        "25544",
+    )
+    assert extract_ephemeris_identity(
+        inline_tle=None,
+        inline_omm="OBJECT_ID = 2026-001A\nNORAD_CAT_ID = 60543\n",
+    ) == ("2026-001A", "60543")
+
+
+def test_metadata_prefers_contact_ephemeris_cospar(monkeypatch):
+    _mock_kogs(monkeypatch, contact=_contact_payload(ephemeris_id="eph-1"))
+    monkeypatch.setattr(
+        metadata,
+        "get_ephemeris",
+        lambda *args, **kwargs: {
+            "inline": {
+                "tle": "1 60543U 24149A   24240.50000000  .00000000  00000-0  00000-0 0  9999"
+            }
+        },
+    )
+    monkeypatch.setattr(
+        metadata,
+        "reverse_geocode_location",
+        lambda *args: "Longyearbyen, Svalbard, Norway",
+    )
+
+    result = load_ksat_contact_metadata(**_configs())
+
+    assert result.spacecraft.identifier == "2024-149A"
+    assert result.spacecraft.cospar_id == "2024-149A"
+    assert result.spacecraft.catalog_id == "60543"
+    assert any(
+        fact.field == "spacecraft.cospar_id"
+        and fact.authority is KsatAuthority.KOGS_EPHEMERIS
+        for fact in result.provenance
+    )
+
+
+def test_config_calibration_rejects_post_contact_tlt_date():
+    provider = ConfigCalibrationProvider(
+        KsatSiteOverrides(
+            pedestal_offset_m=4.0,
+            tlt_calibration_date=dt.date(2026, 9, 1),
+            tlt_band="X",
+        )
+    )
+
+    with pytest.raises(ValueError, match="later than the contact"):
+        provider.resolve(
+            CalibrationRequest(
+                site_identifier="SG221",
+                contact_start=dt.datetime(2026, 8, 25, tzinfo=dt.timezone.utc),
+                track=None,
+            )
+        )
+
+
+def test_meos_provider_is_an_explicit_future_integration_point():
+    with pytest.raises(NotImplementedError, match="MEOS calibration integration"):
+        MeosCalibrationProvider().resolve(
+            CalibrationRequest("SG221", None, None)
+        )

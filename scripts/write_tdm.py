@@ -96,6 +96,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"warning: skipped {product}: {reason}", file=sys.stderr)
     for warning in result.warnings:
         print(f"warning: {warning}", file=sys.stderr)
+    for fact in result.provenance:
+        detail = f" ({fact.detail})" if fact.detail else ""
+        print(f"source {fact.field}: {fact.authority.value}{detail}")
     if not result.generated:
         print("error: no requested products were generated", file=sys.stderr)
         return 1

@@ -20,11 +20,14 @@ from dart.io.ksat_adx import (
     export_ksat_tdm_bundle,
 )
 from dart.io.ksat_metadata import (
+    ConfigCalibrationProvider,
     GeocoderConfig,
     KogsMetadataConfig,
     KsatSiteOverrides,
+    KsatSpacecraftOverrides,
     load_ksat_contact_metadata,
 )
+from dart.io.ksat_sources import KsatAuthority, KsatProvenance
 from dart.io.ksat_tdm import (
     KsatHeader,
     KsatProduct,
@@ -32,7 +35,6 @@ from dart.io.ksat_tdm import (
     KsatSpacecraft,
     TrackMetadata,
 )
-
 
 DEFAULT_TIMEOUT_SECONDS = ADX_QUERY_TIMEOUT_SECONDS
 
@@ -58,9 +60,7 @@ _SITE_KEYS = frozenset(
     }
 )
 _SPACECRAFT_KEYS = frozenset({"identifier", "name", "cospar_id", "catalog_id"})
-_KOGS_KEYS = frozenset(
-    {"spacecraft_id", "system_id", "station_id", "timeout_seconds"}
-)
+_KOGS_KEYS = frozenset({"spacecraft_id", "system_id", "station_id", "timeout_seconds"})
 _GEOCODER_KEYS = frozenset({"url", "user_agent", "timeout_seconds"})
 _HEADER_KEYS = frozenset({"summary", "comments"})
 _FIELD_UNITS = {
@@ -111,7 +111,7 @@ class KsatExportConfig:
     """Validated static configuration for one KSAT site and spacecraft."""
 
     site: KsatSiteOverrides
-    spacecraft: KsatSpacecraft
+    spacecraft: KsatSpacecraftOverrides
     kogs: KogsMetadataConfig
     geocoder: GeocoderConfig
     columns: KsatAdxColumnMap
@@ -171,7 +171,9 @@ def _table(
     return value
 
 
-def _require_keys(section: str, values: Mapping[str, object], required: set[str]) -> None:
+def _require_keys(
+    section: str, values: Mapping[str, object], required: set[str]
+) -> None:
     missing = sorted(required - set(values))
     if missing:
         names = ", ".join(repr(name) for name in missing)
@@ -195,13 +197,13 @@ def _parse_adx_field(name: str, value: object) -> AdxField:
     allowed = _FIELD_UNITS[name]
     if unit not in allowed:
         expected = ", ".join(sorted(allowed))
-        raise ValueError(
-            f"{section}.unit must be one of {expected}; got {unit!r}"
-        )
+        raise ValueError(f"{section}.unit must be one of {expected}; got {unit!r}")
     return AdxField(column=column, unit=unit)  # type: ignore[arg-type]
 
 
-def _construct(section: str, factory: type[object], values: dict[str, object]) -> object:
+def _construct(
+    section: str, factory: type[object], values: dict[str, object]
+) -> object:
     try:
         return factory(**values)
     except (TypeError, ValueError) as exc:
@@ -215,12 +217,13 @@ def _parse_site(document: Mapping[str, object]) -> KsatSiteOverrides:
     return _construct("site", KsatSiteOverrides, dict(values))  # type: ignore[return-value]
 
 
-def _parse_spacecraft(document: Mapping[str, object]) -> KsatSpacecraft:
+def _parse_spacecraft(document: Mapping[str, object]) -> KsatSpacecraftOverrides:
     values = _table(document, "spacecraft", required=True)
     assert values is not None
     _reject_unknown("spacecraft", values, _SPACECRAFT_KEYS)
-    _require_keys("spacecraft", values, {"identifier"})
-    return _construct("spacecraft", KsatSpacecraft, dict(values))  # type: ignore[return-value]
+    return _construct(  # type: ignore[return-value]
+        "spacecraft", KsatSpacecraftOverrides, dict(values)
+    )
 
 
 def _parse_kogs(document: Mapping[str, object]) -> KogsMetadataConfig:
@@ -260,7 +263,7 @@ def _parse_header(document: Mapping[str, object]) -> tuple[str | None, tuple[str
         {
             "creation_date": dt.datetime(2000, 1, 1, tzinfo=dt.timezone.utc),
             "site": KsatSite("VALIDATION"),
-            "spacecraft": KsatSpacecraft("VALIDATION"),
+            "spacecraft": KsatSpacecraft("2000-001A"),
             "summary": summary,
             "comments": tuple(comments_value),
         },
@@ -314,9 +317,7 @@ def _validate_product_mappings(config: KsatExportConfig) -> None:
             )
         missing = [name for name, value in required if value is None]
         if missing:
-            raise ValueError(
-                "[track] requires mapping(s): " + ", ".join(missing)
-            )
+            raise ValueError("[track] requires mapping(s): " + ", ".join(missing))
     if config.angle is not None:
         if config.angle.receive_band not in _BANDS:
             raise ValueError("angle.receive_band must be one of S, X, or Ka")
@@ -326,9 +327,7 @@ def _validate_product_mappings(config: KsatExportConfig) -> None:
             config.angle.tracking_mode is not None
             and config.angle.tracking_mode not in _TRACKING_MODES
         ):
-            raise ValueError(
-                "angle.tracking_mode must be AUTO, PROGRAM, or SCAN"
-            )
+            raise ValueError("angle.tracking_mode must be AUTO, PROGRAM, or SCAN")
         missing_angles = [
             name
             for name, value in (
@@ -461,6 +460,77 @@ def _normalize_products(
     return tuple(normalized)
 
 
+def _delivery_gate_reason(
+    product: KsatProduct,
+    *,
+    site: KsatSite,
+    spacecraft: KsatSpacecraft,
+    track: TrackMetadata | None,
+    angle: AngleExportConfig | None,
+    antenna_bands: tuple[str, ...],
+) -> str | None:
+    """Return why authoritative metadata cannot support this product."""
+
+    participant = getattr(spacecraft, "identifier", None)
+    if not participant:
+        return "spacecraft has no valid COSPAR or catalog participant identity"
+    requested_band = (
+        track.transmit_band
+        if product is KsatProduct.TRACK and track is not None
+        else angle.receive_band
+        if product is KsatProduct.ANGLE and angle is not None
+        else None
+    )
+    if (
+        requested_band is not None
+        and antenna_bands
+        and requested_band not in antenna_bands
+    ):
+        return (
+            f"configured {requested_band}-band product is not supported by KOGS "
+            f"antenna capabilities {', '.join(antenna_bands)}"
+        )
+    if product is not KsatProduct.TRACK:
+        return None
+    missing: list[str] = []
+    if not getattr(spacecraft, "cospar_id", None):
+        missing.append("COSPAR ID")
+    if not getattr(spacecraft, "catalog_id", None):
+        missing.append("NORAD/catalog ID")
+    if site.pedestal_offset_m is None:
+        missing.append("pedestal offset")
+    if site.tlt_calibration_date is None or site.tlt_band is None:
+        missing.append("TLT calibration date/band")
+    if track is None:
+        missing.append("TRACK metadata")
+    elif site.tlt_band is not None and site.tlt_band != track.transmit_band:
+        return (
+            f"TLT calibration band {site.tlt_band} does not match "
+            f"TRACK band {track.transmit_band}"
+        )
+    if missing:
+        return "TRACK requires authoritative " + ", ".join(missing)
+    return None
+
+
+def _adx_provenance(
+    products: tuple[KsatProduct, ...],
+) -> tuple[KsatProvenance, ...]:
+    if not products:
+        return ()
+    facts = [KsatProvenance("observations.contact_id", KsatAuthority.ADX)]
+    if KsatProduct.TRACK in products:
+        facts.append(KsatProvenance("observations.track", KsatAuthority.ADX))
+        facts.append(KsatProvenance("track.profile", KsatAuthority.CONFIG))
+    if KsatProduct.ANGLE in products:
+        facts.append(KsatProvenance("observations.angle", KsatAuthority.ADX))
+        facts.append(KsatProvenance("angle.profile", KsatAuthority.CONFIG))
+    if KsatProduct.SIGMET in products:
+        facts.append(KsatProvenance("observations.signal_metrics", KsatAuthority.ADX))
+        facts.append(KsatProvenance("signal_metrics.profile", KsatAuthority.CONFIG))
+    return tuple(facts)
+
+
 def export_ksat_contact(
     config: KsatExportConfig,
     *,
@@ -476,7 +546,9 @@ def export_ksat_contact(
 
     if not isinstance(config, KsatExportConfig):
         raise TypeError("config must be a KsatExportConfig")
-    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)):
+    if isinstance(timeout_seconds, bool) or not isinstance(
+        timeout_seconds, (int, float)
+    ):
         raise ValueError("timeout_seconds must be a finite positive number")
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be a finite positive number")
@@ -487,7 +559,32 @@ def export_ksat_contact(
         geocoder=config.geocoder,
         site=config.site,
         spacecraft=config.spacecraft,
+        contact_start=start_time,
+        track=config.track,
+        calibration_provider=ConfigCalibrationProvider(config.site),
     )
+    eligible: list[KsatProduct] = []
+    gated: dict[str, str] = {}
+    for product in selected_products:
+        reason = _delivery_gate_reason(
+            product,
+            site=metadata.site,
+            spacecraft=metadata.spacecraft,
+            track=metadata.track,
+            angle=config.angle,
+            antenna_bands=metadata.antenna_bands,
+        )
+        if reason is None:
+            eligible.append(product)
+        else:
+            gated[product.value] = reason
+    provenance = (*metadata.provenance, *_adx_provenance(tuple(eligible)))
+    if not eligible:
+        return KsatExportResult(
+            skipped=gated,
+            warnings=metadata.warnings,
+            provenance=provenance,
+        )
     selection = KsatAdxQuery(
         contact_ids=(contact_id,),
         start_time=start_time,
@@ -504,18 +601,19 @@ def export_ksat_contact(
     result = export_ksat_tdm_bundle(
         selection,
         header,
-        track=config.track,
+        track=metadata.track,
         angle=config.angle,
         signal_metrics=config.signal_metrics,
-        products=selected_products,
+        products=tuple(eligible),
         output_dir=output_dir,
         overwrite=overwrite,
         timeout_seconds=float(timeout_seconds),
     )
     return KsatExportResult(
         generated=result.generated,
-        skipped=result.skipped,
+        skipped={**gated, **result.skipped},
         warnings=(*metadata.warnings, *result.warnings),
+        provenance=provenance,
     )
 
 

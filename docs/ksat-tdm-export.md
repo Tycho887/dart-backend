@@ -8,6 +8,12 @@ KSAT definition and a weather source are available.
 The service is an in-process Python orchestration API with a thin CLI, not a
 long-running daemon or HTTP endpoint.
 
+The writer intentionally does not depend on `ccsdspy`. That package models
+CCSDS telemetry packets rather than CCSDS 503 Navigation Data Message KVN, so
+it cannot replace the KSAT product models, ordering, precision, or profile
+checks. Rendered output is instead checked by the independent
+`dart.io.ksat_validation` grammar before it is returned or written.
+
 This is a delivery pipeline, not an orbit-determination pipeline. It reads raw
 telemetry and authoritative contact metadata directly, then writes KSAT-profile
 TDM files. It does not construct `Sgp4Input` or `Rk89Input`, invoke either
@@ -26,7 +32,10 @@ scripts/write_tdm.py
                 │   antenna/spacecraft   system, and station identities
                 │          │
                 │          ├── antenna WGS-84 ── satkit ── ITRF/ECEF metres
+                │          ├── contact TLE/OMM ── COSPAR identity
                 │          └── WGS-84 ── reverse geocoder ── place name
+                │
+                ├── calibration provider ── reviewed config now; MEOS later
                 │
                 ├── bounded ADX query ── Polars DataFrame
                 │          │
@@ -99,8 +108,8 @@ unsupported product metadata fail during configuration loading.
 | TOML section | Purpose and authority |
 | --- | --- |
 | `[kogs]` | Required expected spacecraft, system, and station UUIDs, plus an optional KOGS timeout. These values constrain the selected contact; they are not header display names. |
-| `[site]` | Reviewed facts not exposed by KOGS: optional distinct antenna name, pedestal offset, and paired TLT band/date. Location and coordinates are intentionally not configurable here. |
-| `[spacecraft]` | TDM participant/filename identifier and optional COSPAR/catalog fallback. KOGS supplies the runtime common name and catalog value when available and mismatches are rejected. |
+| `[site]` | Reviewed facts not exposed by KOGS: optional distinct antenna name, pedestal offset, and paired TLT band/date. This is the current calibration-provider input and will be replaced by MEOS. |
+| `[spacecraft]` | Optional reviewed name, COSPAR, and catalog cross-checks/fallbacks. The participant and filename normally use COSPAR derived from the contact TLE/OMM, then the KOGS catalog ID. `identifier` is deprecated. |
 | `[geocoder]` | Optional reverse-geocoder URL, user-agent, and timeout. Defaults to the OpenStreetMap Nominatim reverse endpoint. |
 | `[header]` | Optional delivery summary and additional validated ASCII comments. |
 | `[adx]` | Source columns and source units. Its `station_id` column must contain the operational antenna identifier returned by KOGS, such as `SG221`, not the internal system UUID. |
@@ -151,7 +160,15 @@ KOGS credentials, requests, identity mismatches, incomplete antenna
 coordinates, invalid configuration, ADX failures, and unsafe overwrite
 attempts are fatal. Reverse-geocoder failures are non-fatal: the header uses
 `UNKNOWN` and reports a warning. Missing pedestal offset or TLT calibration
-also produces normative `UNKNOWN` comments and warnings.
+produces normative `UNKNOWN` comments and warnings for ANGLE. TRACK is skipped
+unless COSPAR, catalog ID, pedestal offset, same-band TLT calibration, and its
+mode-specific calibration terms are all available.
+
+Calibration currently comes from reviewed configuration. The
+`MeosCalibrationProvider` is the explicit future integration point for the
+antenna-local service and currently fails clearly rather than pretending MEOS
+has been queried. Every export result carries field-level provenance for KOGS,
+contact ephemeris, ADX, configuration, derivation, and geocoder values.
 
 The CLI exits `0` when at least one requested product was written, including
 partial success. It exits `1` for fatal configuration/runtime failures or when
@@ -179,11 +196,13 @@ DART-specific `USER_DEFINED_*` fields.
 
 The export tests are split along the same boundaries as the implementation:
 
-- `tests/test_ksat_metadata.py`: KOGS identity checks, geocoder parsing and
-  failure behavior, and satkit ECEF values;
+- `tests/test_ksat_metadata.py`: KOGS/TLE/OMM identity checks, provider
+  behavior, geocoder parsing and failure behavior, and satkit ECEF values;
 - `tests/test_ksat_export.py`: TOML loading, product discovery, and orchestration;
 - `tests/test_ksat_adx.py`: bounded KQL, conversions, builders, skips, and writes;
 - `tests/test_ksat_tdm.py`: typed profile validation, filenames, and KVN output;
+- `dart.io.ksat_validation`: independent rendered-text block, header, and
+  observation grammar validation applied before a product is returned;
 - `tests/test_write_tdm.py`: CLI forwarding, reporting, and exit statuses;
 - `tests/test_ksat_examples.py`: offline validation of checked-in AWESAT-1 output.
 

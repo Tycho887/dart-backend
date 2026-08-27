@@ -41,3 +41,18 @@ def test_get_contact_accepts_explicit_timeout(monkeypatch):
     kogs.get_contact("secret auth", "c1", timeout_seconds=4.5)
 
     assert calls == [4.5]
+
+
+def test_get_ephemeris_accepts_explicit_timeout(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        kogs.requests,
+        "get",
+        lambda url, *, headers, timeout: calls.append((url, timeout)) or FakeResponse(),
+    )
+
+    kogs.get_ephemeris("secret auth", "eph-1", timeout_seconds=6.5)
+
+    assert calls == [
+        ("https://mgmt.kogs.api.ksat.no/24.08/ephemeris/eph-1", 6.5)
+    ]

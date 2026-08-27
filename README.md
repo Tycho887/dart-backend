@@ -173,14 +173,21 @@ geocoding and supply `summary`/`comments`. `[kogs]` contains the expected
 spacecraft, system, and station UUIDs for the selected contact. The exporter
 rejects a contact whose KOGS identities do not match them.
 
-KOGS supplies the antenna identifier and WGS-84 reference-point coordinates.
+KOGS supplies the antenna identifier, NORAD/catalog ID, and WGS-84
+reference-point coordinates. COSPAR is derived from the selected contact's
+TLE/OMM when available; its catalog identity is cross-checked against the
+spacecraft response. The deprecated `spacecraft.identifier` remains only as a
+compatibility fallback.
 The exporter converts those coordinates directly to ITRF/ECEF metres with
 satkit and reverse-geocodes an English locality, region, and country. A
 geocoder failure produces `UNKNOWN` and a warning; it does not prevent valid
 products from being written. `[site]` contains only reviewed facts that KOGS
 does not currently expose: an optional distinct common name, pedestal offset,
 and a paired TLT band/calibration date. Missing calibration facts are emitted
-as `UNKNOWN` with warnings.
+as `UNKNOWN` with warnings for ANGLE. TRACK is skipped unless COSPAR, catalog,
+pedestal, applicable TLT calibration, and all mode-required calibration terms
+are available. Calibration is behind a provider interface so the current
+reviewed configuration can later be replaced by the antenna-local MEOS source.
 
 Product sections contain the static metadata accepted by the corresponding
 typed writer. ADX observable mappings are nested tables containing exactly

@@ -33,6 +33,10 @@ Use `<TYPE>_<GSID>_<SVID>_<DATE>.tdm`:
   antenna reference-point coordinates, pedestal offset `Lg`, latest TLT
   calibration date, and spacecraft common name/COSPAR/catalog identifiers.
   Write `UNKNOWN` for unavailable header-comment facts.
+- DART derives COSPAR from the contact's KOGS TLE/OMM and cross-checks the KOGS
+  catalog ID. Operational TRACK export requires both identifiers, pedestal
+  offset, and applicable TLT calibration; ANGLE may retain `UNKNOWN`
+  calibration comments with warnings.
 - Every metadata segment contains `TIME_SYSTEM = UTC`.
 - `PARTICIPANT_1` is the KSAT ground-station identifier.
 - `PARTICIPANT_2` is normally the COSPAR ID; a 5- or 9-digit catalog ID is also

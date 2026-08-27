@@ -22,6 +22,7 @@ from dart.io.ksat_tdm import (
     render_ksat_tdm,
     write_ksat_tdm,
 )
+from dart.io.ksat_validation import validate_ksat_tdm_text
 
 UTC = dt.timezone.utc
 CREATION = dt.datetime(2026, 1, 2, 3, 4, 5, 987654, tzinfo=UTC)
@@ -183,6 +184,30 @@ DATA_START
 RANGE = 2025-10-16T11:12:23.987654 0.001234567891
 DATA_STOP
 """
+
+    validate_ksat_tdm_text(render_ksat_tdm(document), KsatProduct.TRACK)
+
+
+def test_profile_validator_rejects_unbalanced_or_wrong_product_data(header):
+    document = _track_document(
+        header,
+        TrackMetadata(
+            mode=1,
+            transmit_band="X",
+            receive_band="X",
+            integration_interval_s=1.0,
+            transmit_delay_s=0.0,
+            receive_delay_s=0.0,
+            correction_range_s=0.0,
+        ),
+        [TrackObservation(epoch=EPOCH_1, range_s=0.1)],
+    )
+    text = render_ksat_tdm(document)
+
+    with pytest.raises(ValueError):
+        validate_ksat_tdm_text(text, KsatProduct.ANGLE)
+    with pytest.raises(ValueError, match="incomplete segment"):
+        validate_ksat_tdm_text(text.removesuffix("DATA_STOP\n"), KsatProduct.TRACK)
 
 
 def test_track_mode_3_golden(header):
@@ -417,6 +442,8 @@ def test_identifiers_reject_invalid_filename_characters():
         KsatSite("-D 32/")
     with pytest.raises(ValueError, match="spacecraft identifier must start"):
         KsatSpacecraft("1964.123 A")
+    with pytest.raises(ValueError, match="COSPAR ID or a 5-/9-digit catalog ID"):
+        KsatSpacecraft("SPACECRAFT")
 
 
 def test_write_to_directory_uses_standard_filename(tmp_path, header):

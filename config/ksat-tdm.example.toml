@@ -26,11 +26,14 @@ station_id = "REPLACE-station-uuid"
 # timeout_seconds = 10.0
 
 [spacecraft]
-# This identifier is used in PARTICIPANT_2 and in the standard filename.
-identifier = "2026-001A"
+# PARTICIPANT_2 and the filename are selected from the contact ephemeris COSPAR
+# ID, falling back to the KOGS NORAD/catalog ID. These optional values are
+# reviewed cross-checks and fallbacks when an ephemeris omits the designator.
 name = "Example spacecraft"
 cospar_id = "2026-001A"
 catalog_id = "12345"
+# Legacy configurations may still set identifier, but new files should omit it.
+# identifier = "2026-001A"
 
 [header]
 summary = "Customer tracking data"

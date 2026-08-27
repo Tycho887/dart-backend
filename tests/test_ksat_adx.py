@@ -236,6 +236,21 @@ def test_bundle_generates_all_supported_products_and_defers_meteo(header):
     assert "PC_N0 = 2026-01-01T00:00:02 32.00" in signal_metrics
 
 
+def test_bundle_rejects_product_timestamp_outside_requested_window(header):
+    result = build_ksat_tdm_bundle(
+        complete_frame(),
+        header,
+        all_columns(),
+        angle=AngleExportConfig(receive_band="X"),
+        products=(KsatProduct.ANGLE,),
+        start_time=datetime.datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC),
+        stop_time=datetime.datetime(2026, 1, 1, 0, 0, 1, 500000, tzinfo=UTC),
+    )
+
+    assert result.generated == {}
+    assert "outside requested contact window" in result.skipped["ANGLE"]
+
+
 def test_bundle_returns_structured_partial_skip_reasons(header):
     columns = KsatAdxColumnMap(tracking_mode="tracking_mode")
     frame = complete_frame().select(columns.projected_columns())

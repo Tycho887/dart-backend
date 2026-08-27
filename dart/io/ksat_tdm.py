@@ -28,6 +28,8 @@ ORIGINATOR = "KSAT"
 _BANDS = frozenset({"S", "X", "Ka"})
 _ANGLE_TYPES = frozenset({"AZEL", "XEYN", "XSYE"})
 _TRACKING_MODES = frozenset({"AUTO", "PROGRAM", "SCAN"})
+_COSPAR_ID = re.compile(r"^\d{4}-\d{3}[A-Z]{1,3}$")
+_CATALOG_ID = re.compile(r"^(?:\d{5}|\d{9})$")
 _TURNAROUND_RATIOS = {
     "S": frozenset({(240, 221)}),
     "X": frozenset({(880, 749)}),
@@ -169,12 +171,22 @@ class KsatSpacecraft:
     catalog_id: str | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "identifier", _identifier("spacecraft identifier", self.identifier)
-        )
+        identifier = _identifier("spacecraft identifier", self.identifier)
         object.__setattr__(self, "name", _optional_text("spacecraft name", self.name))
         object.__setattr__(self, "cospar_id", _optional_text("COSPAR ID", self.cospar_id))
         object.__setattr__(self, "catalog_id", _optional_text("catalog ID", self.catalog_id))
+        if not (_COSPAR_ID.fullmatch(identifier) or _CATALOG_ID.fullmatch(identifier)):
+            raise ValueError(
+                "spacecraft identifier must be a COSPAR ID or a 5-/9-digit catalog ID"
+            )
+        if self.cospar_id is not None and not _COSPAR_ID.fullmatch(self.cospar_id):
+            raise ValueError("COSPAR ID must have form YYYY-NNNP")
+        if self.catalog_id is not None and not _CATALOG_ID.fullmatch(self.catalog_id):
+            raise ValueError("catalog ID must contain 5 or 9 digits")
+        known = {value for value in (self.cospar_id, self.catalog_id) if value is not None}
+        if known and identifier not in known:
+            raise ValueError("spacecraft identifier must equal its COSPAR or catalog ID")
+        object.__setattr__(self, "identifier", identifier)
 
 
 @dataclass(frozen=True, slots=True)

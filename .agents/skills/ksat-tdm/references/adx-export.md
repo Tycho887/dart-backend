@@ -30,10 +30,13 @@ result = export_ksat_tdm_bundle(
 
 Supply all mode-3 metadata explicitly: bands, integration interval, standard
 turnaround ratio, transmit/receive delays, range correction, and Doppler
-correction. Obtain contact, site, and spacecraft metadata from KOGS before
-querying ADX. Use KOGS WGS-84 antenna coordinates and derive ITRF/ECEF
-coordinates with satkit. Keep reviewed calibration facts that KOGS does not
-expose in strict configuration; the ADX query does not derive header metadata.
+correction. Obtain contact, site, spacecraft, and contact-ephemeris metadata
+from KOGS before querying ADX. Derive COSPAR from the contact TLE/OMM and
+cross-check the KOGS catalog identity. Use KOGS WGS-84 antenna coordinates and
+derive ITRF/ECEF coordinates with satkit. Keep reviewed calibration facts that
+KOGS does not expose behind the calibration-provider interface; configuration
+is the current provider and MEOS is the reserved future authority. The ADX
+query does not derive header metadata.
 
 Check both `result.generated` and `result.skipped`. A requested product can be
 skipped for absent mappings, incomplete/non-finite data, station mismatch, or

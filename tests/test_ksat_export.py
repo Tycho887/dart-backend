@@ -202,7 +202,16 @@ def test_export_service_forwards_one_bounded_contact_and_options(monkeypatch, tm
         timeout_seconds=12.5,
     )
 
-    assert result == KsatExportResult(warnings=("location unavailable",))
+    assert result.generated == {}
+    assert result.skipped == {}
+    assert result.warnings == ("location unavailable",)
+    assert {fact.field for fact in result.provenance} == {
+        "observations.contact_id",
+        "observations.angle",
+        "observations.signal_metrics",
+        "angle.profile",
+        "signal_metrics.profile",
+    }
     selection, header, kwargs = calls[0]
     assert selection.contact_ids == ("contact-1",)
     assert selection.start_time == start
@@ -224,7 +233,18 @@ def test_export_service_defaults_to_all_configured_products(monkeypatch, tmp_pat
         ksat_export,
         "load_ksat_contact_metadata",
         lambda **kwargs: KsatMetadataResult(
-            KsatSite("D32"), KsatSpacecraft("2026-001A")
+            KsatSite(
+                "D32",
+                pedestal_offset_m=4.0,
+                tlt_calibration_date=datetime.date(2026, 1, 2),
+                tlt_band="X",
+            ),
+            KsatSpacecraft(
+                "2026-001A",
+                cospar_id="2026-001A",
+                catalog_id="12345",
+            ),
+            track=config.track,
         ),
     )
     monkeypatch.setattr(
@@ -242,3 +262,71 @@ def test_export_service_defaults_to_all_configured_products(monkeypatch, tmp_pat
     )
 
     assert calls[0]["products"] == config.products
+
+
+def test_track_metadata_gate_does_not_block_angle(monkeypatch, tmp_path):
+    config = load_ksat_export_config(write_config(tmp_path))
+    calls = []
+    monkeypatch.setattr(
+        ksat_export,
+        "load_ksat_contact_metadata",
+        lambda **kwargs: KsatMetadataResult(
+            KsatSite("D32"),
+            KsatSpacecraft("12345", catalog_id="12345"),
+            track=config.track,
+        ),
+    )
+    monkeypatch.setattr(
+        ksat_export,
+        "export_ksat_tdm_bundle",
+        lambda *args, **kwargs: calls.append(kwargs) or KsatExportResult(),
+    )
+
+    result = export_ksat_contact(
+        config,
+        contact_id="contact-1",
+        start_time=datetime.datetime(2026, 8, 25, 10, tzinfo=UTC),
+        stop_time=datetime.datetime(2026, 8, 25, 11, tzinfo=UTC),
+        output_dir=tmp_path,
+        products=("track", "angle"),
+    )
+
+    assert calls[0]["products"] == (KsatProduct.ANGLE,)
+    assert "authoritative COSPAR ID" in result.skipped["TRACK"]
+
+
+def test_spacecraft_identifier_is_optional_in_new_configuration(tmp_path):
+    config = load_ksat_export_config(
+        write_config(tmp_path, VALID_CONFIG.replace('identifier = "2026-001A"\n', ""))
+    )
+
+    assert config.spacecraft.identifier is None
+
+
+def test_product_band_is_checked_against_kogs_antenna_capability(monkeypatch, tmp_path):
+    config = load_ksat_export_config(write_config(tmp_path))
+    monkeypatch.setattr(
+        ksat_export,
+        "load_ksat_contact_metadata",
+        lambda **kwargs: KsatMetadataResult(
+            KsatSite("D32"),
+            KsatSpacecraft("2026-001A", cospar_id="2026-001A"),
+            antenna_bands=("S",),
+        ),
+    )
+    monkeypatch.setattr(
+        ksat_export,
+        "export_ksat_tdm_bundle",
+        lambda *args, **kwargs: pytest.fail("ADX must not be queried"),
+    )
+
+    result = export_ksat_contact(
+        config,
+        contact_id="contact-1",
+        start_time=datetime.datetime(2026, 8, 25, 10, tzinfo=UTC),
+        stop_time=datetime.datetime(2026, 8, 25, 11, tzinfo=UTC),
+        output_dir=tmp_path,
+        products=("angle",),
+    )
+
+    assert "not supported by KOGS antenna capabilities" in result.skipped["ANGLE"]

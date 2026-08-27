@@ -77,15 +77,25 @@ def get_antenna(
     url = f'https://mgmt.kogs.api.ksat.no/24.08/systems/antennas/{system_id}'
     return _get(url, auth, timeout_seconds=timeout_seconds)
 
-def get_TLE(auth: str, ephemeris_id: str) -> dict:
+def get_TLE(
+    auth: str,
+    ephemeris_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> dict:
     """https://ksat.stoplight.io/docs/internal-apis-1/294893d364844-locate-ephemeris-entry"""
     url = f"https://mgmt.kogs.api.ksat.no/24.08/ephemeris/{ephemeris_id}"
-    return _get(url, auth)
+    return _get(url, auth, timeout_seconds=timeout_seconds)
 
-def get_ephemeris(auth: str, ephemeris_id: str) -> dict:
+def get_ephemeris(
+    auth: str,
+    ephemeris_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> dict:
     """https://ksat.stoplight.io/docs/internal-apis-1/831bff601c741-fetch-known-ephemeris"""
     url = f"https://mgmt.kogs.api.ksat.no/24.08/ephemeris/{ephemeris_id}"
-    return _get(url, auth)
+    return _get(url, auth, timeout_seconds=timeout_seconds)
 
 @dataclass
 class AntennaData:
