@@ -17,6 +17,11 @@ pointing telemetry, but they are examples rather than approved customer
 deliveries. Confirm the site mappings and header metadata with the site owner
 before operational use.
 
+Equivalent ANGLE configurations for SG162, SG182, and SG184 are included
+alongside SG221. Together they cover four S-band contacts found in the
+requested interval from `2025-11-01T21:59:51Z` through
+`2025-11-05T21:59:51Z`.
+
 ## Why these examples contain ANGLE only
 
 ADX contained many AWESAT-1 contacts. Its frequent SG109 contacts used L-band,
@@ -29,6 +34,13 @@ transmit/receive frequency semantics and calibration terms were not confirmed.
 SIGMET was not emitted because no source was confirmed as KSAT `CARRIER_POWER`,
 `PC_N0`, or `PR_N0`. In particular, the populated Eb/N0 signal is not a valid
 substitute.
+
+The same restriction applies to the four November 2025 contacts below. ADX
+contained no non-null `lr1_ranging_satRange` or `lr2_ranging_satRange`
+measurements. The candidate absolute carrier-frequency fields were `0.0`, and
+the pedestal offset, TLT calibration, delays, and correction terms were not
+available. A TRACK file must therefore be omitted rather than populated with
+inferred or zero-valued observations.
 
 ## Generated files
 
@@ -91,6 +103,28 @@ The timestamps must include `Z` or an explicit UTC offset. A successful run
 prints the generated path and exits 0. A configuration/query failure or a
 window with no usable ANGLE rows exits 1. Use `--overwrite` only when replacing
 the exact standard filename already present in the selected output directory.
+
+## November 2025 requested contacts
+
+Each window starts after the contact's single initial `Idle` angle sample and
+contains only paired azimuth/elevation samples reported as `Programtrack`.
+S-band operation was confirmed from the active S-band converter frequencies.
+
+| Antenna | Contact UUID | Program-tracking window (UTC) | Paired angles |
+| --- | --- | --- | ---: |
+| SG162 | `bcaf75af-00bf-4aa8-80fb-f830689001ae` | `2025-11-02T06:54:19Z`–`07:03:10Z` | 507 |
+| SG221 | `d7c6b504-c929-4255-a6ce-8fb948eececc` | `2025-11-02T14:54:25Z`–`15:05:37Z` | 642 |
+| SG184 | `ecf8c77f-2330-4f4d-81fb-96f051485874` | `2025-11-03T23:06:17Z`–`23:15:48Z` | 571 |
+| SG182 | `050c7e87-83ca-47e5-bc4c-0d55bf51abd9` | `2025-11-04T13:40:02Z`–`13:51:27Z` | 685 |
+
+Generate one file per contact after loading a valid `KOGS_API_KEY`:
+
+```bash
+uv run python scripts/write_tdm.py --config examples/ksat-tdm/awesat-1/sg162-angle.toml --contact-id bcaf75af-00bf-4aa8-80fb-f830689001ae --start 2025-11-02T06:54:19Z --stop 2025-11-02T07:03:10Z --output-dir examples/ksat-tdm/awesat-1/output/2025-11-requested/sg162
+uv run python scripts/write_tdm.py --config examples/ksat-tdm/awesat-1/sg221-angle.toml --contact-id d7c6b504-c929-4255-a6ce-8fb948eececc --start 2025-11-02T14:54:25Z --stop 2025-11-02T15:05:37Z --output-dir examples/ksat-tdm/awesat-1/output/2025-11-requested/sg221
+uv run python scripts/write_tdm.py --config examples/ksat-tdm/awesat-1/sg184-angle.toml --contact-id ecf8c77f-2330-4f4d-81fb-96f051485874 --start 2025-11-03T23:06:17Z --stop 2025-11-03T23:15:48Z --output-dir examples/ksat-tdm/awesat-1/output/2025-11-requested/sg184
+uv run python scripts/write_tdm.py --config examples/ksat-tdm/awesat-1/sg182-angle.toml --contact-id 050c7e87-83ca-47e5-bc4c-0d55bf51abd9 --start 2025-11-04T13:40:02Z --stop 2025-11-04T13:51:27Z --output-dir examples/ksat-tdm/awesat-1/output/2025-11-requested/sg182
+```
 
 ## Find another contact for the spacecraft
 

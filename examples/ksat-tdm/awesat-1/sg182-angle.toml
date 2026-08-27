@@ -1,0 +1,39 @@
+# Reproducible ANGLE-only configuration for AWESAT-1 S-band contacts at SG182.
+
+[site]
+# KOGS supplies the SG182 identity and WGS-84 coordinates. No reviewed
+# pedestal offset or TLT calibration is available for this example, so those
+# comments intentionally render as UNKNOWN with warnings.
+
+[kogs]
+spacecraft_id = "2cd1ce1c-3090-4a5f-b621-2e651c872245"
+system_id = "31893fc0-1384-467a-b7be-afb8717d6c0c"
+station_id = "381776b6-0867-4e9d-8589-0fcd76ee565f"
+
+[spacecraft]
+catalog_id = "60543"
+
+[header]
+summary = "AWESAT-1 S-band antenna pointing example"
+comments = [
+  "Example data only; confirm operational delivery metadata with the site owner",
+]
+
+[adx]
+timestamp = "timestamp"
+angle_timestamp = "timestamp"
+contact_id = "contact_id"
+station_id = "antenna_name"
+
+[adx.angle_1]
+column = "antenna1_position_azimuth"
+unit = "deg"
+
+[adx.angle_2]
+column = "antenna1_position_elevation"
+unit = "deg"
+
+[angle]
+receive_band = "S"
+angle_type = "AZEL"
+tracking_mode = "PROGRAM"

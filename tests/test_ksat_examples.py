@@ -8,12 +8,39 @@ from pathlib import Path
 
 import pytest
 
+from dart.io.ksat_export import load_ksat_export_config
+
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "examples" / "ksat-tdm" / "awesat-1" / "output"
 FILENAME = re.compile(
     r"ANGLE_SG221_2024-149CD_(?P<creation>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.tdm"
 )
+
+
+@pytest.mark.parametrize(
+    ("antenna", "system_id"),
+    [
+        ("sg162", "97403b61-23a5-413a-8353-2974bfbb821b"),
+        ("sg182", "31893fc0-1384-467a-b7be-afb8717d6c0c"),
+        ("sg184", "2aad0014-9264-4009-b4dd-02d327d42031"),
+        ("sg221", "b1de0d11-e2c6-4c54-b319-01a3c1d92ea7"),
+    ],
+)
+def test_awesat_angle_configs(antenna, system_id):
+    config = load_ksat_export_config(
+        ROOT / "examples" / "ksat-tdm" / "awesat-1" / f"{antenna}-angle.toml"
+    )
+
+    assert config.kogs.spacecraft_id == "2cd1ce1c-3090-4a5f-b621-2e651c872245"
+    assert config.kogs.system_id == system_id
+    assert config.kogs.station_id == "381776b6-0867-4e9d-8589-0fcd76ee565f"
+    assert config.spacecraft.catalog_id == "60543"
+    assert config.angle is not None
+    assert config.angle.receive_band == "S"
+    assert config.angle.angle_type == "AZEL"
+    assert config.angle.tracking_mode == "PROGRAM"
+    assert config.track is None
 
 
 @pytest.mark.parametrize(
