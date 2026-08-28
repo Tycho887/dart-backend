@@ -1,0 +1,39 @@
+---
+config: SPHEREX
+
+services:
+  falcon:
+    tags:
+      - XD
+      - SD
+
+    hypermatter_api: http://10.117.111.158:6000
+
+    component_config:
+      component: HDR
+      cortex_addr: 10.117.111.15:3075
+      spacecraft_id: 197
+      # The following is optional
+      # it will default to only the CTX file, using a timestamp in
+      # the ISO8601 format, e.g. '2020-01-01T00:00:00Z.ctx'
+      file_options_config:
+        file_size:
+          value: 208008000
+          unit: BYTES
+        file_name:
+          - ext: CTX
+            time_format: "%Y_%j_%H_%M_%S_%9f" # Uses Chrono strftime format
+            prefix: "SPHEREX_S{spacecraft_id}_PA_{antenna_name}_M00_P{orbit_nr}_R00_C00_G00"
+            delimiter: "_"
+          - ext: FIN
+            time_format: "%Y_%j_%H_%M_%S_%9f" # Uses Chrono strftime format
+            prefix: "SPHEREX_S{spacecraft_id}_PA_{antenna_name}_M00_P{orbit_nr}_R00_C00_G00"
+            delimiter: "_"
+
+    delivery_config:
+      protocol: AWS_ROLE
+      credentials_uuid: 8ccd58cb-26b3-4094-bfbb-dbe32a5709b9
+      role_arn: arn:aws:iam::211125585086:role/falcon-s3-role
+      bucket: falcon-prod-bucket-y6hcmt4
+      bucket_region: eu-central-1
+      target_dir: "ctx/{year}/{doy}/{orbit_nr}"

@@ -1,0 +1,39 @@
+links:
+  ## HUB
+  s_band_downlink_p1_1:
+    direction: down
+    frequency: 2248350000
+    polarization: RHCP
+
+  s_band_uplink_p1_1:
+    direction: up
+    frequency: 2064350000
+    polarization: RHCP
+
+  ## BUS
+  s_band_downlink_p2_1:
+    direction: down
+    frequency: 2245350000
+    polarization: LHCP
+
+  s_band_uplink_p2_1:
+    direction: up
+    frequency: 2067350000
+    polarization: LHCP
+
+  ## SRS-4
+  s_band_downlink_p3_1:
+    direction: down
+    frequency: 2277300000
+    polarization: RHCP
+
+  s_band_uplink_p3_1:
+    direction: up
+    frequency: 2097500000
+    polarization: RHCP
+
+  ## DVB-S2 
+  x_band_downlink_p1_1:
+    direction: down
+    frequency: 8183000000
+    polarization: RHCP

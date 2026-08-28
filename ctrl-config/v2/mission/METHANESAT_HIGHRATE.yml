@@ -1,0 +1,72 @@
+config: METHANESAT
+acu_config: METHANESAT
+
+services:
+
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 192.146.238.195
+      - 100.64.100.0/24
+      - 100.64.12.0/24
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -1
+
+  qradio:
+    config: METHANESAT_MODE1
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+  qrx:
+    tags:
+      - XD
+
+  qmr:
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1200 
+      rf0StreamBW: 98
+      rf0StreamOffset: 25
+
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True 
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: msat-prod-downlink-methanesat-raw
+      profile: methanesat_prod
+      prefix: DATA
+      s3_endpoint_url: https://storage.googleapis.com
+

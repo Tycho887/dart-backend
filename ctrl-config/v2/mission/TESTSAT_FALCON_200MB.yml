@@ -1,0 +1,32 @@
+---
+services:
+  qrx:
+    tags:
+      - XD
+
+    config: noise_100Mbps
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    config: FALCON_TEST_200MB
+
+    record: True
+
+  falcon:
+    tags:
+      - XD
+
+    hypermatter_api: http://10.117.112.171:6000
+    component_config:
+      component: QDRA
+      # an identifier is also required but is set by controller
+
+    credentials_uuid: 22029971-22e8-49f3-80ef-cf31d2a44e14
+
+    delivery_config:
+      protocol: AWS_USER
+      bucket: falcon-test-bucket-5kfhzia
+      bucket_region: eu-central-1
+      target_dir: "qdra/{year}/{doy}"

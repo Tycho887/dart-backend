@@ -1,0 +1,71 @@
+---
+config: SHAREDSAT_X
+acu_config: BALKAN_1
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.195
+      - 100.64.81.0/24
+      
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+      streamBandwidth: 0.5
+      streamOffset: 0.5
+      inputFrequency: 69.5
+
+  qradio:
+    defaults:
+      config: SHAREDSAT_S
+
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    tags:
+      - XD  
+
+  wb_specnet:
+    tags:
+      - XD
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0StreamOffset: -15
+      rf0StreamBW: 168
+ 
+  qrx: 
+    tags:
+      - XD
+
+
+  qdra-inst1:
+    config: SHAREDSAT_2141
+    stream_server: endurosat
+    tags:
+      - XD
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: ksat-xband-files
+      prefix: GSE-HEM/DATA
+      profile: endurosat_new 
+
+
+    

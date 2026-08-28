@@ -1,0 +1,19 @@
+---
+kind: mission
+customer: SSTL
+constellation: SSTL
+
+services:
+  
+  custom_backend:
+    tags:
+      - SD
+      - SU
+      
+    mtx_tags:
+      - [DL, SSTL]
+
+    mtx_tags_downlink:
+      - [DL, SSTL]
+
+    mtx_tags_uplink: [SSTL, U]

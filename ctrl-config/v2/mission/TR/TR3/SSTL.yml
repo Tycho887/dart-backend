@@ -1,0 +1,16 @@
+---
+config: SSTL
+
+services:
+  zodiac_cortex:
+    tags:
+      - SU
+
+    carrier_frequency: 2059000000
+
+  zodiac_cortex_backup:
+    object_id: zodiac_cortex
+    tags:
+      - SU
+
+    carrier_frequency: 2059000000

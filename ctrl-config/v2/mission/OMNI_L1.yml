@@ -1,0 +1,42 @@
+---
+config: OMNI_L1
+acu_config: OMNI_L1
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 172.31.233.17
+      - 172.31.233.88
+      - 192.146.238.242
+      - 100.64.70.0/24 # SDWAN IP-Range
+      #- 100.64.70.64/26 # SDWAN IP-range
+
+    services:
+      - qradio_tcp
+
+  specnet:
+    config: CHARLIE
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -5
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    config: OMNI_L1_268
+    tags:
+      - SD
+      - SU
+
+  

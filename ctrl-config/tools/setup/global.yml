@@ -1,0 +1,20 @@
+---
+IMAGES:  
+  CONTROLLER: registry.gitlab.ksat.no/lite/antenna_stack/controller/stable:1.7.0
+  SCHEDULER: registry.gitlab.ksat.no/lite/antenna_stack/scheduler/stable:0.9.0
+  ACCESS_PROXY: registry.gitlab.ksat.no/lite/antenna_stack/access_proxy/stable:1.0.1
+  CONTROL_API: registry.gitlab.ksat.no/lite/antenna_stack/control_api/stable:1.0.0
+  SPECTRUM_PLOT: registry.gitlab.ksat.no/lite/spectrapparatus/stable:1.0.0
+
+CONTROLLER:
+  PP_USER: opssuprt
+  PP_INBOX: /home/opssuprt/inbox
+  AUTO_PULL: 0
+
+SCHEDULER:
+  DISPATCHERS: main=http://localhost:6000
+  
+
+
+  
+  

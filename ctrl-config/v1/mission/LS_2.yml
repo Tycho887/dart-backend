@@ -1,0 +1,73 @@
+---
+type: mission
+customer: OPEN_COSMOS
+config: LS_2
+no_antenna: True
+load_config: True
+run_mode: production
+autosign: False
+autosign_level: 0
+kmon_autosign: True
+kmon_level: 0
+constellation: OPEN_COSMOS
+watch: True
+watchers:
+  - bjarne@ksat.no
+
+## Special keys:
+## type: mission
+## config: global config name, otherwise file name is used
+## run_mode: used to discard certain functions when running, if none all is run
+
+services:
+
+## Special keys:
+## tags: list of tags, runs all if none
+## functions: list of functions to be run, runs all if none
+## modes: list of modes, runs all if none
+## config: override global config
+## object_id: looks for object
+#  proxy:
+    ## Tags are specific
+#    tags:
+#      - U
+#      - S
+
+  proxy:
+    tags:
+      - U
+      - S
+
+    whitelist:
+      - 10.20.3.0/24
+      - 10.2.30.0/24
+      - 10.2.20.0/24
+      - 10.2.10.0/24
+      - 192.146.238.172
+
+    services:
+      - ctx_tcp
+      - qradio_http
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - U
+      - S
+
+  qradio:
+    tags:
+      - U
+      - S
+
+  qfep:
+    tags:
+      - U
+      - S
+      
+
+
+
+  
+
+

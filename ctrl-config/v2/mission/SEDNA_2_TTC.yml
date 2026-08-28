@@ -1,0 +1,44 @@
+---
+config: SEDNA
+acu_config: SEDNA_2_TTC
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.0/24
+      - 172.31.244.0/24
+      - 100.64.120.0/26 # SD-WAN
+      
+    services:
+      - mc_http
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+    
+    autoconf: 
+      reference_attenuation_adjustment: 0
+      
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    config: SEDNA_128kbps
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    config: SEDNA
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/SPACEQUEST

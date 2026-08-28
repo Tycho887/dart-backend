@@ -56,6 +56,7 @@ PROJECTED_COLUMNS = {
 # fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def secrets_env() -> dict:
     """The parsed secrets file; skips the whole group when it is absent."""
@@ -136,6 +137,7 @@ def _live_query_properties() -> ClientRequestProperties:
 # env sanity (offline)
 # ---------------------------------------------------------------------------
 
+
 def test_secrets_file_has_required_keys(secrets_env):
     for key in REQUIRED_KEYS:
         value = secrets_env.get(key)
@@ -167,6 +169,7 @@ def test_get_client_constructs_from_env(azure_with_env, secrets_env):
 # ---------------------------------------------------------------------------
 # query routing (offline, mocked client)
 # ---------------------------------------------------------------------------
+
 
 class FakeResponse:
     def __init__(self):
@@ -226,6 +229,26 @@ def _mock_client(monkeypatch):
     return fake
 
 
+def test_fetch_contact_columns_is_raw_bounded_and_projected(monkeypatch):
+    fake = _mock_client(monkeypatch)
+
+    frame = azure.fetch_contact_columns(
+        "contact-1",
+        datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
+        datetime.datetime(2026, 1, 1, 1, tzinfo=datetime.timezone.utc),
+        ("timestamp", "contact_id", "antenna_name"),
+        order_by="timestamp",
+    )
+
+    assert len(frame) == 2
+    query = fake.calls[0][1]
+    assert "contact_id == 'contact-1'" in query
+    assert "timestamp between (datetime(2026-01-01T00:00:00.000000Z)" in query
+    assert "project timestamp, contact_id, antenna_name" in query
+    assert "carrierLockState" not in query
+    assert "ebN0" not in query
+
+
 def test_fetch_tracking_data_case1_query(monkeypatch):
     fake = _mock_client(monkeypatch)
     ctx = TrackingContext(
@@ -248,7 +271,10 @@ def test_fetch_tracking_data_case1_query(monkeypatch):
     db, query = fake.calls[0]
     assert db == "telemetry"
     assert "spacecraft_id == 'sc-1234'" in query
-    assert "timestamp between (datetime(2024-01-01T00:00:00Z) .. datetime(2024-01-01T01:00:00Z))" in query
+    assert (
+        "timestamp between (datetime(2024-01-01T00:00:00Z) .. datetime(2024-01-01T01:00:00Z))"
+        in query
+    )
     assert "antenna1_position_elevation >= 5.0" in query
     assert "lr1_receiver1_ebN0 >= 3.0" in query
     assert "lr1_receiver1_actualCarrierFrequencyOffset >= 10.0" in query
@@ -360,6 +386,7 @@ def test_fetch_tracking_data_rejects_nonpositive_timeout(monkeypatch):
 # TrackingContext.from_payload (offline, schema normalization)
 # ---------------------------------------------------------------------------
 
+
 def test_tracking_context_from_payload_full():
     payload = {
         "spacecraft_UUID": "sc-1",
@@ -418,8 +445,8 @@ def test_tracking_context_from_payload_quirks():
         "lockRequirement": False,
         "Mode": "sgp4",
         "minElevation": 0,  # skipped -> default 1.0 kept
-        "minDoppler": 0,    # skipped -> default 1.0 kept
-        "useQmc": False,    # bool -> kept
+        "minDoppler": 0,  # skipped -> default 1.0 kept
+        "useQmc": False,  # bool -> kept
     }
 
     ctx = TrackingContext.from_payload(payload)
@@ -434,6 +461,7 @@ def test_tracking_context_from_payload_quirks():
 # ---------------------------------------------------------------------------
 # live tests — real ADX cluster with the real credentials (default suite)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.timeout(LIVE_TEST_TIMEOUT_SECONDS)
 def test_live_adx_connectivity(azure_with_env):

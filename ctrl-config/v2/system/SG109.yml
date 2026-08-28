@@ -1,0 +1,189 @@
+---
+tags:
+  - electron
+  - spaceport
+  - controller
+  - ksat_acu_orbital
+
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+  - name: nkom_tracking_file
+    type: nkom_tracking_file
+
+acu:
+  vendor: orbital
+  model: 2.4XLC-3.0m
+  feed: FXL-TB-CR-01-01
+  hpa: 
+  converter: 
+  
+defaults:
+
+  nkom:
+    destination:
+      host: "svl-trk-cmd.ksat.no"
+      path: "inbox/"
+    log_tracking_file: false
+    publish_tracking_file: true
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://10.203.116.221:80
+    control_api_enabled: true
+    monitor_api_enabled: true
+    ephemeris_cacher_enabled: true
+
+  controller:
+    auto_pull: 1
+    session: SG109
+
+  aws_s3:
+    web_proxy: 
+
+  ftp3:
+    host: 192.146.239.4
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  proxy:
+    operational: True
+    mode: accept-proxy
+    access: 10.203.116.221
+    site: 10.103.254.109
+    site_sdwan: 100.90.103.109
+
+    nodes:
+      - http://10.203.116.221:80
+
+  ksat_acu_orbital:
+    base_url: http://10.203.116.221:80/ksat_acu_orbital
+
+    reference_hpa_input_attenuation: null
+    reference_hpa_output_control: null
+    reference_hpa_status: null
+
+  specnet:
+    rest: http://10.203.127.129:80
+    qradio_data_ip: 10.203.125.197
+    input_power_mode: inputPower_LR
+    rate: LR
+
+    
+
+    autoconf:
+      enabled: True
+      reference_attenuation: 23
+      inputFrequency: 67.5
+      system_bandwidth: '10.0'
+      gainMode: 'Automatic'
+      rfInputPort: 'rfIn1'
+      AD_bits: 8
+      qradio_data_ip: 10.203.125.197
+      networkInputPort: 50000
+      streamOffset: 2.5
+      maxPacketSize: 1500
+      streamBandwidth: 5
+      packetProtectionEnable: True
+      inputStreamID: 0
+      rxEnable: True
+      invertOutputSpectrum: False
+      attenuation: 24
+      rfOutputPort: 'rfOut1'
+      outputFrequency: 68.5
+      rfOutputSource: 'Packets'
+      dataSource: 'Network'
+      programmedBuffer: 0
+      programmedDelay: 0
+      preserveLatency: False
+      networkOutputPort: 50000
+      outputFrequencyOffset: 1.5
+      useLocalReference: True
+      outputStreamID: 0
+      releaseMode: 'Programmed Delay'
+      multicastEnable: False
+      overrideOutputFrequencyEnable: True
+      txEnable: True
+
+      rf_input_port_rules:
+        s_rhcp: "rfIn1"
+        s_lhcp: "rfIn1"
+        x_lhcp: "rfIn1"
+        x_rhcp: "rfIn1"
+
+      rf_output_port_rules:
+        s_rhcp: "rfOut1"
+        s_lhcp: "rfOut1"
+        x_lhcp: "rfOut1"
+        x_rhcp: "rfOut1"
+
+  ctx:
+    host: 10.203.116.202
+   
+  qradio:
+    rest: http://10.203.116.202:8080
+    specnet_data_ip: 10.203.125.56
+    model: qradio
+    control_api_id: lr_radio
+
+    aws_config:
+      enabled: True
+      base_url: http://10.102.0.100:1979/aws
+      source_host: 10.203.116.202
+      source_port: 56030
+      dest_host: 10.103.0.79
+      dest_port: 3232
+      
+  qfep:
+    enabled: True
+    rest: http://10.203.116.202:30000
+    
+  wb_specnet:
+    enabled: False
+
+  wb_specnet2:
+    enabled: False
+    
+  qrx:
+    enabled: False
+
+  qrx2:
+    enabled: False
+    
+  qmr:
+    enabled: False
+
+  qdra-inst1:
+    enabled: False
+
+  qdra-inst2:
+    enabled: False
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+  controller:
+    tags:
+      - controller
+
+  ksat_acu_orbital:
+    tags:
+      - ksat_acu_orbital
+
+  nkom: {}

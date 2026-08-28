@@ -1,0 +1,37 @@
+---
+kind: mission
+config: Z0001
+customer: HARRIS
+constellation: HARRIS
+
+services:
+
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 172.18.10.32/29
+      - 172.18.10.40/29
+      - 172.18.10.24/29
+      - 172.18.10.0/29
+      - 172.18.10.8/29
+      - 172.18.10.19
+      - 192.146.238.172
+      - 192.146.238.242
+      
+    services:
+      - qradio_tcp
+      - qradio_http
+#      - spectrum_http
+  
+  specnet:
+    tags:
+      - SD
+      - SU
+
+  qradio:
+    tags:
+      - SD
+      - SU

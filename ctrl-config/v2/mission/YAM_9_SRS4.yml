@@ -1,0 +1,97 @@
+---
+config: LOFT_LONGBOW
+acu_config: YAM_9_SRS4
+customer: LOFT
+constellation: LOFT
+
+services:
+  
+  proxy:
+    tags:
+      - SU
+      - SD
+      - XD 
+      - LD
+
+    whitelist:
+      - 10.168.1.0/24
+      - 192.146.238.172
+      - 192.146.238.195
+      - 10.27.254.0/23
+      - 192.146.238.242
+      - 100.64.22.0/24
+      - 100.64.24.0/24
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http
+      - monitor_tcp
+  
+  specnet:
+    tags:
+      - SD
+      - SU
+      - LD
+
+    link_config:
+      uplink_config: s_band_uplink_p3_1
+      downlink_config: s_band_downlink_p3_1
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+  
+  qradio:
+    tags:
+      - SD
+      - SU
+      - LD
+
+    config: LOFT_YAM7_SRS4_withQFEP
+
+    link_config:
+      # For dynamic doppler comp frequency
+      uplink_config: s_band_uplink_p3_1
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    config: LOFT_SRS4_with_randomizationAndDerandomization
+
+    tlm_record: False
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1200
+      rf0StreamOffset: -33
+      rf0StreamBW: 300
+      inputSpectralInversion: True
+
+  qmr:
+    tags:
+      - XD
+
+  qrx:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: loft-orbital-production-gsc-ksat-delivery
+      inst_path: True
+      concurrency: 3
+      s3_endpoint_url: https://storage.googleapis.com
+      profile: loft
+      prefix: DATA
+  

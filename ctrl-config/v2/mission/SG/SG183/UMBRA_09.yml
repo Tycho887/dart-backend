@@ -1,0 +1,80 @@
+acu_config: UMBRA_09
+config: UMBRASAR_2001
+customer: Umbra
+services:
+  custom_backend:
+    system_specific:
+      HA3:
+        mtx_tags_downlink:
+        - - DL
+          - 3XDR
+      SG183:
+        mtx_tags_downlink:
+        - - DL
+          - SG183XDR
+      SG184:
+        mtx_tags_downlink:
+        - - DL
+          - SG184XDR
+      SG185:
+        mtx_tags_downlink:
+        - - DL
+          - SG185XDR
+  proxy:
+    services:
+    - qradio_tcp
+    tags:
+    - XD
+    - SD
+    - SU
+    whitelist:
+    - 10.250.247.0/24
+    - 10.250.249.0/24
+    - 192.146.238.237
+    - 100.64.66.0/24
+  qdra-inst1:
+    aws_s3_transfer:
+      accelerate: True
+      backend: aws_s3
+      bucket_name: prod-prod-delivery-ksat-s3
+      concurrency: 2
+      prefix: DATA
+      profile: umbra_prod_accelerate
+      stream_raw: True
+    record: True
+    tags:
+    - XD
+  qfep:
+    config: default
+    record: False
+    tags:
+    - SD
+    - SU
+  qmr:
+    config: UMBRA_03_no_viterbi
+    tags:
+    - XD
+  qradio:
+    config: UMBRA_05
+    tags:
+    - SD
+    - SU
+  qrx:
+    config: UMBRA_03_no_viterbi
+    tags:
+    - XD
+  specnet:
+    autoconf:
+      reference_attenuation_adjustment: -5
+      spectral_class_dl: s_lhcp
+    tags:
+    - SD
+    - SU
+  wb_specnet:
+    autoconf:
+      inputCenterFrequency: 1200
+      rf0StreamBW: 196
+      rf0StreamOffset: 0
+    config: UMBRA_03_no_viterbi
+    tags:
+    - XD

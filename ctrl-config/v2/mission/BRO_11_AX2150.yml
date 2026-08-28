@@ -1,0 +1,53 @@
+config: BRO_3
+acu_config: BRO_AX2150
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 192.146.238.195
+      - 10.1.5.0/24
+      - 10.3.23.0/24
+      - 100.64.28.0/24 # sdwan
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 3
+
+  qradio:
+    config: BRO_AX2150
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True
+
+    stream_server: unseenlabs
+
+    aws_s3_transfer:
+      accelerate: True
+      backend: aws_s3
+      bucket_name: usl-ingest-ksat
+      profile: unseenlabs

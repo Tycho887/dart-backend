@@ -1,0 +1,145 @@
+---
+config: GNOMES_1
+acu_config: GNOMES_1
+customer: PLANETIQ
+constellation: PLANETIQ
+
+services:
+
+  custom_backend:
+
+    tags:
+      - SD
+      - XD
+
+    system_specific:
+
+      SG183:
+        mtx_tags_downlink:
+          - [DR, SG183SDL]
+
+      SG184:
+        mtx_tags_downlink:
+          - [DR, SG184SDL]
+      
+      SG185:
+        mtx_tags_downlink:
+          - [DR, SG185SDL]
+          
+  tracking_test:
+
+    az_median_threshold: 10.0
+    alt_median_threshold: 10.0
+
+    tags:
+      - tracking_test
+
+    functions:
+      - program_track
+      - hpa_level
+
+  proxy:
+    tags:
+      - SU
+      - SD
+      - XD
+
+    whitelist:
+      - 100.64.12.0/24
+      - 192.168.132.0/24
+      - 192.146.238.242
+      - 192.146.238.172
+      - 192.146.238.223
+      - 192.146.238.128/25
+
+    services:
+      - qradio_tcp
+      - qradio_http
+      - spectrum_http
+      - qmr_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SU
+      - SD
+
+    autoconf:
+      reference_attenuation_adjustment: -6
+      inputFrequency: 1307.5
+      spectral_class_dl: x_rhcp
+
+      system_specific:
+        SG12:
+          inputFrequency: 717.5 # +2.5
+          outputFrequency: 2079.5 # +1.5
+          force_attenuation: 8
+          gainMode: 'Manual'
+          manualGain: 60
+        TR3:
+          inputFrequency: 717.5 # +2.5
+          force_attenuation: 16
+        TR9:
+          inputFrequency: 717.5 # +2.5
+          force_attenuation: 22
+
+  qradio:
+    defaults:
+      config: GNOMES_1_mode1
+      
+    tags:
+      - SU
+      - SD
+
+  qfep:
+    tags:
+      - SU
+      - SD
+          
+  qmr:
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+ 
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0StreamOffset: 60
+      rf0StreamBW: 25
+      rf0InGainMode: "Manual"
+      rf0InManualGain: 0
+ 
+  qrx:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record:
+      streams: [1]
+    
+      #transfer:
+      #backend: ftp3
+      #home: /customers/FTP/PLANETIQ
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: gnomes-tlm-recordings
+      prefix: tlm_recordings/04
+      profile: bct
+
+    config: GNOMES_4_FRAMEhdr
+    
+    #stream_server: bct_planetiq
+    
+    defaults:
+      stream_servers:
+        birk_buffer_proxy:
+          host: localhost
+          port: 39300
+    
+    stream_server: birk_buffer_proxy

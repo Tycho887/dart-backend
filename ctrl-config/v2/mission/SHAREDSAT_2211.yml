@@ -1,0 +1,32 @@
+config: SHAREDSAT_2211
+
+services:
+
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 192.146.238.220
+      - 100.64.81.0/24
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+      streamBandwidth: 0.5
+      streamOffset: 0.5
+      inputFrequency: 69.5
+
+  qradio:
+    tags:
+      - SD
+      - SU

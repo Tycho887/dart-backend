@@ -1,0 +1,38 @@
+---
+config: ICEYE_X2
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+      - XD
+
+    whitelist:
+      - 192.146.238.0/24
+
+    services:
+      - spectrum_http
+ 
+  qradio:
+    tags:
+      - SU
+      - SD
+
+    defaults:
+      rest: http://10.143.127.94:8080 
+
+  wb_specnet:
+    tags:
+      - SU
+      - SD
+
+    defaults:
+      rest: http://10.143.112.54:80
+
+    autoconf:
+      rf0OperationalMode: "VITA 49.0"
+      rf1OperationalMode: "DIFI 1.0"
+      rf1VitaTimestamp: "UTC"
+      rf1Oui: "AABBCC"

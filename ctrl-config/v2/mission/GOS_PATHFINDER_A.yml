@@ -1,0 +1,41 @@
+---
+config: GOS_LEOPNT_128kbp
+acu_config: OTTER_SPIN
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.154.0/24 # sdwan GOS, LEO PNT Path
+      - 172.31.244.114 # guro ip
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+      - monitor_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -4
+      inputFrequency: 68
+      streamOffset: 2
+      streamBandwidth: 4
+      packetProtectionEnable: False
+      spectral_class_dl: s_rhcp
+      spectral_class_ul: s_rhcp
+
+  qradio:
+      
+    tags:
+      - SD
+      - SU
+

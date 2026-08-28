@@ -1,0 +1,35 @@
+---
+acu_config: GAMA_ALPHA
+config: SMART
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 172.31.233.17
+      - 172.31.233.88
+      - 192.146.238.242
+      - 192.146.238.223
+      - 100.64.70.0/26 # SDWAN IP-Range
+      - 100.64.70.64/26 # SDWAN IP range
+      - 100.64.117.0/24 #TSOC SDWAN
+
+    services:
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+
+  qradio:
+    tags:
+      - SD
+      - SU

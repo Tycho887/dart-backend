@@ -1,0 +1,19 @@
+## RUN: 
+---
+- hosts: '{{ host }}'
+  become: true
+  strategy: free
+  
+  vars:
+    _configs: "{{ configs | default('false') }} | bool"
+    _acu_configs: "{{ acu_configs | default('false') }} | bool"    
+    
+  roles:
+    - { role: ctrl_configs, when: _configs }
+    - { role: acu_configs, when: _acu_configs }
+    
+  environment:
+    http_proxy: http://proxy.ksat.site:3128
+    https_proxy: https://proxy.ksat.site:3128
+
+  

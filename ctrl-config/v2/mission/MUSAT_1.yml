@@ -1,0 +1,55 @@
+config: MUSAT
+acu_config: MUSAT_1
+
+services:
+
+  custom_backend:
+    tags:
+      - SU
+      - XD
+
+    dynamic_input:
+
+      downlink: 
+        svalsat_3:
+          MUON_SG_CFE1:
+            - [DL, MUR1]
+          MUON_SG_CFE2:
+            - [DL, MUR2]
+
+      uplink:
+        svalsat_3: 
+          MUON_SG_CFE1: [MUT1, U]
+          MUON_SG_CFE2: [MUT2, U]
+          
+  proxy:
+    tags:
+      - XD
+      - SD
+
+    whitelist:
+      - 172.31.244.44
+      - 172.31.244.0/24
+      - 100.64.121.0/24
+      - 100.64.121.128/28
+      - 100.64.121.248/29
+      - 12.40.220.140
+      - 52.183.85.92
+      - 52.183.13.48    
+      - 10.10.0.101   
+      - 10.10.0.109
+      - 100.64.115.0/26
+
+    services:
+      - mc_http
+   
+  specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputFrequency: 1432.5
+      streamOffset: 2.5
+      txEnable: False
+      spectral_class_dl: x_rhcp   
+

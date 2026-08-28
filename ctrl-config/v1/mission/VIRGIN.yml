@@ -1,0 +1,47 @@
+---
+type: mission
+no_antenna: True # Does not track antenna status
+config:
+load_config: False
+run_mode: production
+autosign: False
+autosign_level: 0
+kmon_autosign: True
+kmon_level: 0
+watch: True
+watchers:
+  - bjarne@ksat.no
+
+## Special keys:
+## type: mission
+## config: global config name, otherwise file name is used
+## run_mode: used to discard certain functions when running, if none all is run
+
+services:
+
+## Special keys:
+## tags: list of tags, runs all if none
+## functions: list of functions to be run, runs all if none
+## modes: list of modes, runs all if none
+## config: override global config
+## object_id: looks for object
+#  proxy:
+    ## Tags are specific
+#    tags:
+#      - U
+#      - S
+
+  acu_proxy:
+    # This is a special case where we give access to orbital ACU, should usually not be used
+    whitelist:
+      - 192.146.238.172
+      - 192.146.238.124
+
+    services:
+      - orbital_tcp
+
+
+
+  
+
+

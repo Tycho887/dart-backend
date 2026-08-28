@@ -1,0 +1,35 @@
+---
+config: EPIC_AX2150_CHIMERA_GEO_2
+acu_config: CHIMERA_GEO_2
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.135.0/27 # SD-WAN
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - monitor_tcp
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      enabled: True
+      reference_attenuation_adjustment: 0
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  

@@ -1,0 +1,74 @@
+config: GHGSAT_CX
+acu_config: GHGSAT_C5
+
+services:
+
+  custom_backend:
+    tags:
+      - XD
+    
+    mtx_tags_downlink:
+      - [DL, GHG]
+
+    system_specific:      
+      SG183:
+        mtx_tags_downlink:
+          - [DR, GHG]
+
+      SG184:
+        mtx_tags_downlink:
+          - [DR, GHG]
+
+      NZ3:
+        mtx_tags_downlink:
+          - [DR, GHG]
+          
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.195
+      - 10.190.165.68
+      - 10.191.48.196
+      - 192.168.63.0/24
+
+    services:
+      - qradio_tcp
+      - qradio_http
+      - mc_http
+      - spectrum_http      
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1300
+      rf0StreamOffset: 20
+      rf0StreamBW: 150
+
+  qrx:
+    tags:
+      - XD
+
+  qdra-inst1:
+    stream_server: ghgsat
+    tags:
+      - XD
+    #record: True

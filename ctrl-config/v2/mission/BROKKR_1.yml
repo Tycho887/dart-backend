@@ -1,0 +1,28 @@
+---
+config: BROKKR_1
+acu_config: BROKKR_1
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+
+    services:
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+
+  qradio:
+    tags:
+      - SD
+      - SU
+

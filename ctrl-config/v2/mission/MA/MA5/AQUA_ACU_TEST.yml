@@ -1,0 +1,50 @@
+---
+config: default
+
+services:
+
+  ksat_antenna_middleware:
+    parameters:
+      links:
+        x_band_downlink:
+          link:
+            frequency: 8e9
+            polarization: RHCP
+
+  proxy:
+    tags:
+      - SD
+
+    services:
+      - qradio_tcp
+      - ctx_tcp
+      - mc_http
+      - monitor_tcp
+
+    whitelist:
+      - 192.146.238.0/24
+
+  specnet:
+    tags:
+      - SD
+
+    config: AQUA
+
+  qradio:
+    tags:
+      - SD
+
+    config: ICEYE_X2
+
+  wb_specnet:
+    tags:
+      - XD
+
+    config: AQUA
+
+  qrx:
+    tags:
+      - XD
+
+    config: AQUA
+

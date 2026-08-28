@@ -1,0 +1,30 @@
+---
+config: SPECTRUM_S1
+acu_config: SPECTRUM_S1
+
+services:
+  proxy:
+    tags:
+      - SD
+
+    whitelist:
+      - 172.31.244.44 #mep-nix
+      - 100.64.68.0/24 #andøyaspace
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+
+    autoconf:
+      txEnable: False
+      reference_attenuation_adjustment: 0
+  
+  qradio:
+    tags:
+      - SD
+

@@ -1,0 +1,41 @@
+---
+config: BLUEWALKER_3
+acu_config: BLUEWALKER_3
+
+services:
+
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 100.64.31.0/24
+      - 100.64.80.0/26
+      - 192.146.238.242
+
+    services:
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    config: BLUEWALKER_3_Highrate_encrypted
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    config: default
+    tlm_record: False

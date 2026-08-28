@@ -1,0 +1,50 @@
+---
+parameters:
+  payload_rx_link_1_id: x_band_downlink_p1_1
+  payload_rx_link_2_id: x_band_downlink_p1_2
+  ttc_tx_link_1_id: s_band_uplink_p1_1
+  ttc_rx_link_1_id: x_band_downlink_p2_1
+
+post: []
+
+tasks:
+- name: electron
+  type: electron
+  parameters: {}
+  
+- name: realtime_processors
+  type: realtime_processors
+  parameters: {}  
+
+- name: ksat_antenna_configurator
+  type: ksat_antenna_configurator
+  parameters: {} 
+
+- type: nb_spectralnet
+  name: nb_spectralnet
+
+  parameters:
+    config_mode: auto
+
+- type: qradio
+  name: qradio
+
+  parameters:
+   config: LEGION
+
+- type: wb_spectralnet
+  name: wb_spectralnet_pri_1
+
+  parameters:
+    config_mode: auto
+
+    auto_config:
+      rf0_enable: true
+      rf0_stream_bandwidth: 380000000
+      rf0_stream_sample_rate: 475000000
+
+- type: qrx
+  name: qrx_1
+
+  parameters:
+    config: LEGION

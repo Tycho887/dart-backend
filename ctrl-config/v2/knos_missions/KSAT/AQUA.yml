@@ -1,0 +1,54 @@
+---
+parameters:
+  payload_rx_link_1_id: x_band_downlink_p1_1
+  ttc_tx_link_1_id: s_band_uplink_p1_1
+  ttc_rx_link_1_id: x_band_downlink_p1_1
+
+post: []
+
+tasks:
+- name: electron
+  type: electron
+  parameters: {}
+  
+- name: realtime_processors
+  type: realtime_processors
+  parameters: {}
+
+- name: ksat_antenna_configurator
+  type: ksat_antenna_configurator
+  parameters:
+    track_config:
+      track_mode: program
+      #autotrack_config:
+      #  mode: manual
+      #  rf_config_file: aqua.json
+
+- type: nb_spectralnet
+  name: nb_spectralnet
+
+  parameters:
+    config: AQUA
+
+- type: qradio
+  name: qradio
+
+  parameters:
+   config: AQUA
+
+- type: wb_spectralnet
+  name: wb_spectralnet_pri_1
+
+  parameters:
+    config_mode: auto
+
+    auto_config:
+      rf0_enable: true
+      rf0_stream_bandwidth: 15000000
+      rf0_stream_sample_rate: 18750000
+
+- type: qrx
+  name: qrx_1
+
+  parameters:
+    config: AQUA

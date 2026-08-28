@@ -1,0 +1,10 @@
+---    
+## Configs, assues that everything is setup
+- name: Deploy configs
+  
+  become_user: scheduler
+  git:
+    accept_hostkey: yes
+    repo: git@gitlab.ksat.no:lite/configs/ctrl-config
+    dest: /opt/lite/var/ctrl-config
+    version:  "{{ ctrl_config_production }}" 

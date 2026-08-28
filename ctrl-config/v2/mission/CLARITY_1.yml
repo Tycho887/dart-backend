@@ -1,0 +1,42 @@
+config: CLARITY_1
+acu_config: CLARITY_1
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 172.31.244.114 # guro ip
+      - 100.64.160.1/26 #albedo sdwan
+
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 1
+      spectral_class_dl: s_rhcp
+      spectral_class_ul: s_rhcp
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    config: CLARITY_1
+
+  qfep:
+    tags:
+      - SD
+      - SU
+    
+    config: CLARITY_1

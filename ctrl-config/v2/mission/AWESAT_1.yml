@@ -1,0 +1,41 @@
+---
+config: AWS_SBAND
+acu_config: AWS_SBAND
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+      - LD
+
+    whitelist:
+      - 10.191.30.0/24
+      - 10.191.36.0/24
+      - 10.191.172.0/23
+      - 10.103.0.79
+      
+    services:
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+      - LD
+
+    autoconf:
+      reference_attenuation_adjustment: -2
+
+  qradio:
+    tags:
+      - SD
+      - SU
+      - LD
+
+  qfep:
+    tags:
+      - SD
+      - SU
+      - LD

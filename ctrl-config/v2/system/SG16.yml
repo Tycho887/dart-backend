@@ -1,0 +1,91 @@
+---
+tags:
+  - controller
+  - meos
+  - yagi
+  - tracking_test
+
+acu:
+  vendor: 
+  model: 
+  feed: 
+  hpa: 
+  converter: 
+
+defaults:
+
+  yagi:
+    enabled: True
+
+  ftp3:
+    host: 192.146.239.4
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  proxy:
+    enabled: False
+      
+  specnet:
+    enabled: False
+
+  specnet_peer:
+    enabled: False
+
+  qradio:
+    enabled: False
+
+  qfep:
+    enabled: False
+
+  qmr:
+    enabled: False
+
+  qdra-inst1:
+    enabled: False
+
+  qdra-inst2:
+    enabled: False
+
+services:
+
+  controller:
+    tags:
+      - controller
+
+  yagi:
+         
+    tags:
+      - yagi
+
+    influx_url: 10.103.0.33
+    port: 8086
+    database: uhf_vhf_antennas
+    antenna: SG16
+  
+  meos:
+    tags:
+      - meos
+
+    object_id: meos
+        
+    dests:
+      remote_sftp:
+        method: sftp
+        host: 10.103.16.21
+        dest: /home/sassy/schedule/
+        user: sassy
+
+
+  tracking_test:
+
+    az_median_threshold: 5.0
+  
+    tags:
+      - tracking_test
+
+    functions:
+      - program_track
+

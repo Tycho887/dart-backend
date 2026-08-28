@@ -1,0 +1,95 @@
+---
+config: GRUS_1X
+customer: AXELSPACE
+constellation: GRUS
+
+services:
+
+  custom_backend:
+
+    system_specific:
+
+      SG183:
+        mtx_tags_downlink:
+          - [DL, SG183XDR]
+
+      SG184:
+        mtx_tags_downlink:
+          - [DL, SG184XDR]
+
+      SG185:
+        mtx_tags_downlink:
+          - [DL, SG185XDR]
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 10.100.25.0/24
+      - 10.100.23.0/24
+      - 100.64.133.0/24 #SDWAN
+
+    services:
+      - qradio_tcp
+      - qradio_http
+      - ctx_tcp
+      - mc_http
+
+  specnet:
+    tags:
+      - SU
+      - SD
+
+    autoconf:
+      reference_attenuation_adjustment: -6
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1200
+      rf0StreamOffset: 25
+      rf0StreamBW: 162
+      rf0OutGainMode: "Manual"
+      rf0OutManualGain: 0
+
+  qradio:
+    defaults:
+      config: GRUS_1D
+    tags:
+      - SU
+      - SD
+
+  qfep:
+    tags:
+      - SU
+      - SD
+
+  qrx:
+    tags:
+      - XD
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: prod-agss-ksat-downlink-us-east-1
+      prefix: DATA
+      profile: axelspace
+   
+      #transfer_staging:
+      #  method: qfte
+      #  stream_raw: False
+      #  backend: ftpSvalSat
+      #  home: /data/customers/axelspace

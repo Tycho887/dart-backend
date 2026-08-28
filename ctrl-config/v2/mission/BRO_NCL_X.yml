@@ -1,0 +1,57 @@
+config: BRO_3
+acu_config: BRO_SR2000
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 192.146.238.195
+      - 172.31.244.25 # saa-nix
+      - 10.1.5.0/24
+      - 10.3.23.0/24
+      - 100.64.28.0/24 # sdwan
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  qmr:
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0StreamOffset: -100
+      rf0StreamBW: 72
+      rf0OutGainMode: "Manual"
+      rf0OutManualGain: 0
+
+  qrx:
+    tags:
+      - XD
+
+  qdra-inst1:
+    config: BRO_TMP_NCL
+    tags:
+      - XD
+
+    record:
+      streams: [1]
+
+    stream_server: unseenlabs
+
+    aws_s3_transfer:
+      accelerate: True
+      backend: aws_s3
+      bucket_name: usl-ingest-ksat
+      profile: unseenlabs

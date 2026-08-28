@@ -1,0 +1,48 @@
+---
+config: ARCSAT
+acu_config: ARCSAT_HSL
+customer: FFI
+constellation: FFI
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 10.10.60.0/24
+      - 100.64.18.0/24
+      - 192.146.238.172
+      - 192.146.238.220
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    config: ARCSAT_HSL
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -7 
+
+  qradio:
+    config: NanoComLink_S_asymmetric_4.4
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    stream_server: arcsat
+    tags:
+      - XD
+

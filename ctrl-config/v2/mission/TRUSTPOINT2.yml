@@ -1,0 +1,18 @@
+---
+config: TRUSTPOINT2
+acu_config: TRUSTPOINT2
+
+services:
+
+  custom_backend:
+    tags:
+      - SD
+      - SU
+
+    mtx_tags_downlink:
+      - [DL, TrPo]
+
+    mtx_tags_uplink: [TrPo, U]
+
+
+

@@ -1,0 +1,47 @@
+---
+kind: mission
+config: Z0001
+customer: HARRIS
+constellation: HARRIS
+acu_config: Z0001SEG2
+
+services:
+
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 172.18.10.32/29
+      - 172.18.10.40/29
+      - 172.18.10.24/29
+      - 172.18.10.0/29
+      - 172.18.10.8/29
+      - 172.18.10.19
+      - 192.146.238.172
+      - 192.146.238.242
+
+    services:
+      - qradio_tcp
+      - qradio_http
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -6
+      inputFrequency: 68.5
+      streamOffset: 1.5
+      streamBandwidth: 3
+      spectral_class_dl: s_lhcp
+      spectral_class_ul: s_rhcp
+
+  qradio:
+    tags:
+      - SD
+      - SU

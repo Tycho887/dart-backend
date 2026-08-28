@@ -1,0 +1,274 @@
+tags:
+  - electron
+  - spaceport
+  - controller
+  - meos
+  - tracking_test
+  - acu
+  - downlink_mtx
+  - uplink_mtx
+  - ksat_acu_orbital
+  
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+acu:
+  vendor: safran
+  model: safran-legion
+  feed: 
+  hpa: 
+  converter: 
+  polarizations:
+    SD:
+      - dual
+    XD:
+      - dual
+    SU:
+      - dual
+
+defaults:
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://10.117.114.189:80
+    control_api_enabled: true
+    monitor_api_enabled: true
+    ephemeris_cacher_enabled: false
+    configure_monitoring_api: true
+
+  controller:
+    # control_api: http://10.117.114.189:9999
+    # monitor_api: http://10.117.114.189:80
+    auto_pull: 0
+    session: PA67
+
+#  safran-legion:
+#    name: "PA67_Safran_Legion_ACU"
+#    device_type: "safran_legion"
+#    ip: "10.117.114.165"
+#    api_url: "http://10.117.114.189:80/mw-legion"
+#    desc: "Safran Legion ACU for PA67"
+#    base_url: http://mw_legion:6012
+#    hpa_input_attenuation: 10
+#    hpa_output_control: Test Termination # Output destination, either Feed or loop signal back for test purposes
+
+  ksat_acu_orbital:
+    legacy_middleware: false
+    acu_type: safran_legion 
+    acu_scraper_type: legion400
+    base_url: http://10.117.114.189:80/acu-orbital
+    rest: http://mw_orbital:6065
+    host: http://10.117.114.165
+    port: '80'
+    reference_hpa_input_attenuation: 10
+    reference_s_tx_polarity: RHCP
+    reference_hpa_output_control: Feed
+    reference_hpa_status: Enable
+
+  aws_s3:
+    web_proxy: 10.117.126.79:8888
+
+  ftp3:
+    host: 192.146.239.5
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  proxy:
+    operational: True
+    mode: accept-proxy
+    access: 10.117.114.189
+    #site: 100.90.117.167 #uncomment when confirmed up by Flage
+    #site_sdwan: 100.90.117.167 #uncomment when confirmed up by Flage
+    nodes:
+      - http://10.117.114.189:80
+
+  # downlink_mtx:
+  #   block: punta_arenas_2
+  #   alias: 5
+  #   antenna_alias: 5
+  #   host: 10.117.127.191
+  #   port: 4000
+  #   vendor: etl
+  #   model: victor
+  #   mode: downlink
+  #   size: 16
+  #   def_routes: []
+
+  #   null: NULL
+
+  # uplink_mtx:
+  #   block: punta_arenas_2
+  #   alias: 5
+  #   antenna_alias: 5
+  #   host: 10.117.127.191
+  #   port: 4000
+  #   vendor: etl
+  #   model: victor
+  #   mode: uplink
+  #   size: 16
+  #   def_routes: []
+
+  specnet:
+    enabled: True
+    rest: http://10.117.114.180:80
+    qradio_data_ip: 10.117.125.102
+
+    link_config:  # Use this if not converted to 70 MHz
+      mode: spacecraft  # Uses frequencies used in v2/spacecrafts for the particular spacecraft
+      uplink_config: s_band_uplink_p1_1  # Default uplink config. Can be overridden in mission
+      downlink_config: s_band_downlink_p1_1  # Default downlink config. Can be overridden in mission
+
+    autoconf:
+      enabled: True
+      reference_attenuation: 23
+      inputFrequency: 67.5
+      system_bandwidth: '10.0'
+      gainMode: 'Automatic'
+      rfInputPort: 'rfIn1'
+      AD_bits: 8
+      qradio_data_ip: 10.117.125.102
+      networkInputPort: 50000
+      streamOffset: 2.5
+      maxPacketSize: 1500
+      streamBandwidth: 5
+      packetProtectionEnable: True
+      inputStreamID: 0
+      rxEnable: True
+      invertOutputSpectrum: False
+      attenuation: 24
+      rfOutputPort: 'rfOut1'
+      outputFrequency: 68.5
+      rfOutputSource: 'Packets'
+      dataSource: 'Network'
+      programmedBuffer: 0
+      programmedDelay: 0
+      preserveLatency: False
+      networkOutputPort: 50000
+      outputFrequencyOffset: 1.5
+      useLocalReference: True
+      outputStreamID: 0
+      releaseMode: 'Programmed Delay'
+      multicastEnable: False
+      overrideOutputFrequencyEnable: True
+      txEnable: True
+
+      rf_input_port_rules:
+        s_rhcp: "rfIn1"
+        s_lhcp: "rfIn1"
+        x_lhcp: "rfIn1"
+        x_rhcp: "rfIn2"
+
+      rf_output_port_rules:
+        s_rhcp: "rfOut1"
+        s_lhcp: "rfOut1"
+        x_lhcp: "rfOut1"
+        x_rhcp: "rfOut1"
+
+  ctx:
+    enabled: True
+    host: 10.117.114.170
+
+  qradio:
+    enabled: False
+    rest: http://10.117.114.170:8080
+    specnet_data_ip: 10.117.125.54
+
+    model: qradio
+    control_api_id: lr_radio
+
+  qfep:
+    enabled: False
+    rest: http://10.117.114.170:30000
+
+  orbital:
+    enabled: False 
+
+  wb_specnet:
+    enabled: False
+    
+  wb_specnet2:
+    enabled: False    
+
+  qrx:
+    enabled: False
+
+  qrx1:
+    enabled: False    
+
+  qrx2:
+    enabled: False    
+    
+  qdra-inst1:
+    enabled: False
+ 
+  qdra-inst2:
+    enabled: False
+  
+  qmr:
+    enabled: False
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+#  safran-legion:
+#    tags:
+#      - acu
+#
+#    object_id: safran-legion
+
+  ksat_acu_orbital:
+    tags:
+      - ksat_acu_orbital
+
+  controller:
+    tags:
+      - controller
+
+  # downlink_mtx:
+  #   tags:
+  #     - downlink_mtx
+
+  #   object_id: etl_downlink
+
+  # uplink_mtx:
+  #   tags:
+  #     - uplink_mtx
+
+  #   object_id: etl_uplink
+
+  # meos:
+  #   tags:
+  #     - meos
+
+  #   object_id: meos
+
+#    dests:
+#      safran-legion:
+#        method: sftp
+#        host: 10.117.114.189
+#        user: safran-legion
+#        dest: /home/safran-legion/schedule
+
+  tracking_test:
+    tags:
+      - tracking_test
+
+    functions:
+      - program_track
+      - hpa_level

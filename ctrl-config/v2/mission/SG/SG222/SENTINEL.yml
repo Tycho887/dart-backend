@@ -1,0 +1,25 @@
+---
+config: SENTINEL_1X
+acu_config: SENTINEL
+services:
+  wb_specnet:
+    tags:
+      - XD
+      
+    autoconf:
+      inputCenterFrequency: 1300
+      rf0StreamOffset: 10
+      rf0StreamBW: 150
+
+  qrx:
+    config: Sentinel_1X
+    tags:
+      - XD
+    
+  qdra-inst1:
+    tags:
+      - XD
+
+  qdra-inst2:
+    tags:
+      - XD

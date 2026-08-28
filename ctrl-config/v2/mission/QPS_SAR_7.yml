@@ -1,0 +1,118 @@
+config: QPS_SAR
+acu_config: QPS_SAR_2 
+
+services:
+
+  custom_backend:
+    tags:
+      - XD
+    
+    mtx_tags_downlink:
+      - [DL, IQPS]
+
+    system_specific:      
+      SG183:
+        mtx_tags_downlink:
+          - [DR, IQPS]
+
+      SG184:
+        mtx_tags_downlink:
+          - [DR, IQPS]
+
+      SG185:
+        mtx_tags_downlink:
+          - [DL, IQPSL]
+          - [DR, IQPSR]
+
+      SG189:
+        mtx_tags_downlink:
+          - [DL, IQPSR]
+
+      SG219:
+        mtx_tags_downlink:
+          - [DL, IQPSL]
+          - [DR, IQPSR]
+      
+      SG220:
+        mtx_tags_downlink:
+          - [DL, IQPSL]
+          - [DR, IQPSR]
+      
+      PA51:
+        mtx_tags_downlink:
+          - [DR, QPSR]
+          - [DL, QPSL]
+ 
+      PA52:
+        mtx_tags_downlink:
+          - [DR, QPSR]
+          - [DL, QPSL]
+
+      NZ2:
+        mtx_tags_downlink:
+          - [DL, IQPR]
+
+      NZ3:
+        mtx_tags_downlink:
+          - [DL, IQPL]
+          - [DR, IQPR]
+
+      NZ4:
+        mtx_tags_downlink:
+          - [DL, IQPR]
+
+
+      PL2:
+        mtx_tags_downlink:
+          - [DL, QPSL]
+          - [DL, QPSR]
+
+      PL3:
+        mtx_tags_downlink:
+          - [DL, QPSL]
+          - [DR, QPSR]
+
+      MN3:
+        mtx_tags_downlink:
+          - [DL, QPSL]
+          - [DR, QPSR]
+
+      MN4:
+        mtx_tags_downlink:
+          - [DR, QPSR]
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 172.31.64.144
+      - 192.146.238.220
+      - 172.31.244.44
+      - 100.64.51.0/24 # iqps sw-wan
+
+    services:
+      - qradio_tcp
+      - qradio_http
+      - mc_http
+      - spectrum_http      
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -1
+      spectral_class_dl: s_rhcp
+      
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    config: QPS_DUMMY
+    tags:
+      - XD

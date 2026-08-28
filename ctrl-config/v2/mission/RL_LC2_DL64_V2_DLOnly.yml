@@ -1,0 +1,62 @@
+---
+kind: minimal
+config: RL_LC2_DL256
+acu_config: F25
+services:
+
+  proxy:
+    tags:
+      - SD
+
+    whitelist:
+      - 192.146.238.0/24
+      - 10.103.236.0/24
+      - 10.120.250.0/24
+      - 10.121.250.0/24
+      - 10.119.250.0/24
+      - 10.124.250.0/24
+      - 10.131.250.0/24
+      - 10.134.250.0/24
+      - 10.141.250.0/24
+      - 100.64.20.0/24
+      - 172.31.244.24/32
+      - 192.146.238.233/32
+      
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+#    defaults:
+#      config: RL_F13   
+    tags:
+      - SD
+
+    autoconf:
+      enabled: True
+      reference_attenuation_adjustment: 0
+      txEnabled: False
+
+      system_specific:
+        LB1:
+          inputFrequency: 2265
+          streamOffset: 0 
+          streamBandwidth: 2
+          gainMode: 'Automatic'
+          packetProtectionEnable: True
+          spectral_class_dl: s_rhcp
+          reference_attenuation_adjustment: 0
+          txEnable: False
+
+  qradio:
+    config: RL_LC2_DL64_V2
+    tags:
+      - SD
+
+    record: True
+
+
+
+
+      

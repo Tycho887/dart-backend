@@ -1,0 +1,137 @@
+config: CAPELLA_2
+acu_config: CAPELLA_2
+
+services:
+
+  custom_backend:
+    tags:
+      - SD
+      - XD
+
+    system_specific:
+      AT1:
+        mtx_tags_downlink:
+          - [DR, 1SDL]
+
+      AT2:
+        mtx_tags_downlink:
+          - [DR, 2SDL]
+
+      SG183:
+        mtx_tags_downlink:
+          - [DR, SG183SDL]
+
+      SG184:
+        mtx_tags_downlink:
+          - [DR, SG184SDL]
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 192.146.238.195
+      - 100.64.143.0/24
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 2
+      inputFrequency: 1076
+      streamOffset: 1
+      streamBandwidth: 2
+      gainMode: 'Automatic'
+      packetProtectionEnable: False
+      spectral_class_dl: x_rhcp
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0StreamOffset: 12.5
+      rf0StreamBW: 250
+      rf0InGainMode: "Manual"
+      rf0IntManualGain: 0
+
+  wb_specnet2:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0StreamOffset: 12.5
+      rf0StreamBW: 250
+      rf0InGainMode: "Manual"
+      rf0InManualGain: 0
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+  qrx:
+    tags:
+      - XD
+
+    config: CAPELLA_2_rawRecord
+
+  qmr:
+    tags:
+      - XD
+
+    config: CAPELLA_2_rawRecord
+
+  qrx2:
+    tags:
+      - XD
+
+    config: CAPELLA_2_rawRecord
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    config: CAPELLA_2_rawRecord
+
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: prod-capella-gsw-downlink-data
+      profile: capella_govcloud
+      prefix: ksat
+      inst_path: True
+      concurrency: 10
+
+  qdra-inst2:
+    tags:
+      - XD
+
+    config: CAPELLA_2_rawRecord
+
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: prod-capella-gsw-downlink-data
+      profile: capella_govcloud
+      prefix: ksat
+      inst_path: True
+      concurrency: 10

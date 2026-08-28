@@ -1,0 +1,67 @@
+---
+config: E3T_PRIMARY
+acu_config: E3T
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+      - XD
+
+    whitelist:
+      - 100.64.59.0/24
+      - 172.31.244.44 # Martinius
+      
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http 
+
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -5
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    config: OBSERVER_1A_25Msps
+    tags:
+      - XD
+
+  qrx:
+    tags:
+      - XD
+
+    config: OBSERVER_1A_25Msps
+
+  wb_specnet:
+    tags:
+      - XD
+    
+    autoconf:
+      inputCenterFrequency: 1350
+      rf0StreamOffset: 40
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    config: E3T_rawRecord
+
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: e3t-ksat
+      profile: e3t_nara
+      prefix: DATA

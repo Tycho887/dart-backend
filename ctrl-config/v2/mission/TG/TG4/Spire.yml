@@ -1,0 +1,32 @@
+---
+
+acu_config: LEMUR_2
+config: LEMUR_2
+
+services:
+  custom_backend:
+    tags:
+      - SD
+      - SU
+
+    mtx_tags_downlink:
+      - [DL, SPRD]
+    
+    mtx_tags_uplink: [SPRU, U]
+
+  qrx:
+    tags:
+      - XD
+  wb_specnet:
+    tags:
+      - XD
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0StreamBW: 12
+      rf0StreamOffset: 0
+  
+  qdra-inst1:
+    stream_server: spire
+    tags:
+      - XD
+

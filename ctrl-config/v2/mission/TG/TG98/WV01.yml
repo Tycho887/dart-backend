@@ -1,0 +1,9 @@
+---
+offload:
+  build: native  # null | native | legacy
+  profile: WV1_TG12 # Used if native offload is enabled
+  mode: run # run | dry
+
+post: []
+
+services: {}

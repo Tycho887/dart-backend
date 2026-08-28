@@ -1,0 +1,75 @@
+---
+config: ASL_IPERLITE
+acu_config: IPERLITE
+customer: AEROSPACELAB_SA
+constellation: AEROSPACELAB_SA
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.53.0/24
+      - 10.1.100.0/24
+      - 192.146.238.172
+      - 192.146.238.220
+      - 192.146.238.223
+      - 172.31.244.114 #guro ip
+      - 172.31.244.110 #anders ip
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -6
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+  qmr: 
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1100 
+      rf0StreamOffset: 40
+      rf0StreamBW: 200
+
+  qrx:
+    tags:
+      - XD
+
+  qdra-inst1:
+    config: ASL_rawRecord
+    tags:
+      - XD
+
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: ksat
+      profile: AEROSPACELAB
+      prefix: NAHLA
+      stream_raw: True
+      s3_endpoint_url: https://s3.aerospacelab.com/ksat

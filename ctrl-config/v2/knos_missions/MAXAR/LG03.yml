@@ -1,0 +1,118 @@
+---
+parameters:
+  payload_rx_link_1_id: x_band_downlink_p1_1
+  payload_rx_link_2_id: x_band_downlink_p1_2
+  ttc_tx_link_1_id: s_band_uplink_p1_1
+  ttc_rx_link_1_id: x_band_downlink_p2_1
+
+post: []
+
+tasks:
+- name: electron
+  type: electron
+  parameters: {}
+  
+- name: realtime_processors
+  type: realtime_processors
+  parameters: {}  
+
+- name: ksat_antenna_configurator
+  type: ksat_antenna_configurator
+  parameters: {} 
+
+- name: proxy
+  type: proxy
+  parameters:
+
+    open: -30
+    close: 30
+    kill: 5
+    open_control: -5
+
+    services:
+      - mc_http
+      - monitor_tcp
+      - dg_qfep_tcp
+      #- dg_qradio_gui
+
+    whitelist:
+      - 192.146.238.133
+      - 192.146.238.105
+      - 192.168.225.149
+      - 10.140.112.11
+      - 10.102.180.8
+      - 10.1.32.0/21
+      - 10.1.31.0/24
+      - 10.1.30.0/24
+      - 10.1.29.0/24
+      - 100.64.94.0/23
+      - 100.72.4.0/26
+      - 10.1.39.0/24
+      - 10.1.82.25
+      - 172.20.0.1
+      - 172.31.244.0/23
+
+- type: nb_spectralnet
+  name: nb_spectralnet
+
+  parameters:
+    config_mode: auto
+
+- type: qradio
+  name: qradio
+
+  parameters:
+   config: LEGION
+
+- type: wb_spectralnet
+  name: wb_spectralnet_pri_1
+
+  parameters:
+    config_mode: auto
+
+    auto_config:
+      rf0_enable: true
+      rf0_stream_bandwidth: 380000000
+      rf0_stream_sample_rate: 475000000
+
+- type: qrx
+  name: qrx_1
+
+  parameters:
+    config: LEGION
+
+# - type: dg_qdra
+#   name: dg_qdra_ch1
+
+#   parameters:    
+#     config: LEGION
+
+# - type: dg_qdra
+#   name: dg_qdra_ch2
+
+#   parameters:    
+#     config: qdra2
+
+# - type: dg_qdra
+#   name: dg_qdra_ch3
+
+#   parameters:    
+#     config: qdra3
+
+# - type: dg_qdra
+#   name: dg_qdra_ch4
+
+#   parameters:    
+#     config: qdra4
+
+# - type: dg_qdra_manager
+#   name: dg_qdra_manager
+
+#   parameters:    
+#     config: default
+  
+#     contact:
+#       data_mode: legion
+#       spacecraft_config: LG3
+#       channel_bit_rate: 600
+#       strip_trailing_byte_count: 0

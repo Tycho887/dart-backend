@@ -1,0 +1,41 @@
+config: SLINGSHOT
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.12.128/26
+      - 100.64.12.64/26
+      - 100.64.12.0/26
+      - 100.64.12.0/24
+      - 172.31.244.44  
+
+    services:
+      - qradio_http
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0 
+      spectral_class_dl: s_rhcp  
+
+  qradio:
+    config: SLINGSHOT_MODE1
+    tags:
+      - SU
+      - SD
+
+  qfep: 
+    tags: 
+      - SD
+      - SU

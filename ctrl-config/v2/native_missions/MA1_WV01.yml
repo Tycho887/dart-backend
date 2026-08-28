@@ -1,0 +1,389 @@
+---
+executor: beehive
+
+parameters:
+  dg_antenna: ANT1HA
+  dg_spacecraft: WV01
+
+post:
+  - type: rx_ebn0_above_threshold_in_carrier_lock
+    name: rx_ebn0_above_threshold_in_carrier_lock_1
+    group: eval
+    handler: electron
+    parameters:
+      chain: payload
+      instance: 1
+      threshold: 13
+
+  - type: rx_ebn0_above_threshold_in_carrier_lock
+    name: rx_ebn0_above_threshold_in_carrier_lock_2
+    group: eval
+    handler: electron
+    parameters:
+      chain: payload
+      instance: 2
+      threshold: 13
+
+  - type: qdra_mgr_ppr_check
+    name: qdra_mgr_ppr_check
+    group: eval
+    handler: electron
+    parameters: {}
+
+  - type: qradio_spectralnet_if_gaps
+    name: qradio_spectralnet_if_gaps
+    group: eval
+    handler: electron
+    parameters: {}
+
+  - type: qrx_spectralnet_if_gaps
+    name: qrx_spectralnet_if_gaps_1
+    group: eval
+    handler: electron
+    parameters:
+      instance: 1
+
+  - type: qrx_spectralnet_if_gaps
+    name: qrx_spectralnet_if_gaps_2
+    group: eval
+    handler: electron
+    parameters:
+      instance: 2
+
+tasks:
+  - type: proxy
+    name: proxy
+
+    parameters:
+      base_url: http://10.131.112.173:80
+      services:
+        - mc_http
+        - monitor_tcp
+        - dg_qfep_tcp
+
+      whitelist:
+        - 192.146.238.133
+        - 192.146.238.105
+        - 192.168.225.149
+        - 10.131.112.171
+        - 10.102.180.8
+        - 10.1.32.0/21
+        - 10.1.31.0/24
+        - 10.1.30.0/24
+        - 10.1.29.0/24
+        - 100.64.94.0/23
+        - 172.20.0.1
+
+      open: -30
+      close: 30
+      kill: 5
+      open_control: -5
+
+  - type: monitor
+    name: monitor
+
+    parameters:
+      base_url: http://10.131.112.172:80/scraper
+      start_padding: 30
+      end_padding: 30
+
+  - type: nb_spectralnet
+    name: nb_spectralnet
+
+    parameters:
+      base_url: http://10.131.127.30:80
+      instance: 1
+      config: WVIEW
+      peer: 10.131.125.10
+      init_teardown: 30
+
+  - type: qradio
+    name: dg_qradio
+
+    parameters:
+      base_url: http://10.131.112.170:8080
+      instance: 1
+      config: WVIEW
+      peer: 10.131.125.30
+
+      doppler_compensation:
+        enabled: true
+        frequency: 2085687500
+
+      filerecorder:
+        enabled: true
+
+      recording_db:
+        enabled: true
+        base_url: http://10.131.127.214:9000
+
+      platform:
+        platform: dockernode
+
+        dockernode:
+          base_url: http://10.131.112.170:1234
+
+          containers:
+            - name: qradio
+
+#  - type: dg_qfep
+#    name: dg_qfep
+#
+#    parameters:
+#      host: 10.131.112.170
+#      setup_port: 21000
+#      port: 20000
+#
+#      config: WV01-Operational
+#
+#      platform:
+#        platform: dockernode
+#
+#        dockernode:
+#          base_url: http://10.131.112.170:1234
+#
+#          containers:
+#            - name: dg_qfep
+#            - name: qfep_cfg_svc
+
+  - type: wb_spectralnet
+    name: wb_spectralnet_pri_1
+
+    parameters:
+      base_url: http://10.131.127.61:80
+      instance: 1
+      config: WVIEW
+
+  - type: qrx
+    name: qrx_1
+
+    parameters:
+      config: WV01_RH
+      base_url: http://10.131.127.83:8071
+      instance: 1
+
+      rx_out_host_1: 10.131.126.11
+      rx_out_host_2: 10.131.126.11
+
+      platform:
+        platform: dockernode
+
+        dockernode:
+          base_url: http://10.131.127.83:1234
+
+          containers:
+            - name: qrx
+
+  - type: wb_spectralnet
+    name: wb_spectralnet_pri_2
+
+    parameters:
+      base_url: http://10.131.127.62:80
+      instance: 2
+      config: WVIEW
+
+  - type: qrx
+    name: qrx_2
+
+    parameters:
+      config: WV01_LH
+      base_url: http://10.131.127.84:8071
+      instance: 2
+
+      rx_out_host_1: 10.131.126.11
+      rx_out_host_2: 10.131.126.11
+
+      platform:
+        platform: dockernode
+
+        dockernode:
+          base_url: http://10.131.127.84:1234
+
+          containers:
+            - name: qrx
+
+  - type: dg_qdra
+    name: dg_qdra_ch1
+
+    parameters:
+      base_url: http://10.131.112.171:8081
+      instance: 1
+      config: qdra1
+
+  - type: dg_qdra
+    name: dg_qdra_ch2
+
+    parameters:
+      base_url: http://10.131.112.171:8082
+      instance: 2
+      config: qdra2
+
+  - type: dg_qdra
+    name: dg_qdra_ch3
+
+    parameters:
+      base_url: http://10.131.112.171:8083
+      instance: 3
+      config: qdra3
+
+  - type: dg_qdra
+    name: dg_qdra_ch4
+
+    parameters:
+      base_url: http://10.131.112.171:8084
+      instance: 4
+      config: qdra4
+
+  - type: dg_qdra_manager
+    name: dg_qdra_manager
+
+    parameters:
+      base_url: http://10.131.112.171:8080
+      instance: 1
+      config: default
+
+      transfer_api:
+        base_url: http://10.131.112.171:7007
+
+      contact:
+        data_mode: wv1_wv2_wv3
+        channel_bit_rate: 200
+        spacecraft_config: WV1
+        processing_host_name: HA1
+        strip_trailing_byte_count: 16
+        dear_enable: true
+        dear_asymalg_index: 2
+        dear_pubkey_index: 1
+
+      platform:
+        platform: dockernode
+
+        dockernode:
+          base_url: http://10.131.112.171:1234
+
+          containers:
+            - name: dg_qdramgr
+            - name: dg_qdra1
+            - name: dg_qdra2
+            - name: dg_qdra3
+            - name: dg_qdra4
+
+          fetch_ppr:
+            - dg_qdra1
+            - dg_qdra2
+            - dg_qdra3
+            - dg_qdra4
+
+## EXTRA SETUP for testing
+
+  - type: qrx
+    name: qrx_3
+
+    parameters:
+      config: WV01_RH
+      base_url: http://10.131.127.81:8080
+      instance: 3
+
+      rx_out_host_1: 10.131.126.12
+      rx_out_host_2: 10.131.126.12
+
+      platform:
+        platform: dockernode
+
+        dockernode:
+          base_url: http://10.131.127.81:1234
+
+          containers:
+            - name: qrx
+
+  - type: qrx
+    name: qrx_4
+
+    parameters:
+      config: WV01_LH
+      base_url: http://10.131.127.82:8080
+      instance: 4
+
+      rx_out_host_1: 10.131.126.12
+      rx_out_host_2: 10.131.126.12
+
+      platform:
+        platform: dockernode
+
+        dockernode:
+          base_url: http://10.131.127.82:1234
+
+          containers:
+            - name: qrx
+
+  - type: dg_qdra
+    name: dg_qdra_ch5
+
+    parameters:
+      base_url: http://10.131.112.174:8081
+      instance: 5
+      config: qdra1
+
+  - type: dg_qdra
+    name: dg_qdra_ch6
+
+    parameters:
+      base_url: http://10.131.112.174:8082
+      instance: 6
+      config: qdra2
+
+  - type: dg_qdra
+    name: dg_qdra_ch7
+
+    parameters:
+      base_url: http://10.131.112.174:8083
+      instance: 7
+      config: qdra3
+
+  - type: dg_qdra
+    name: dg_qdra_ch8
+
+    parameters:
+      base_url: http://10.131.112.174:8084
+      instance: 8
+      config: qdra4
+
+  - type: dg_qdra_manager
+    name: dg_qdra_manager_2
+
+    parameters:
+      base_url: http://10.131.112.174:8080
+      instance: 2
+      config: default
+
+      #transfer_api:
+      #  base_url: http://10.131.112.171:7007
+
+      contact:
+        data_mode: wv1_wv2_wv3
+        channel_bit_rate: 200
+        spacecraft_config: WV1
+        processing_host_name: HA1
+        strip_trailing_byte_count: 16
+        dear_enable: true
+        dear_asymalg_index: 2
+        dear_pubkey_index: 1
+
+      platform:
+        platform: dockernode
+
+        dockernode:
+          base_url: http://10.131.112.174:1234
+
+          containers:
+            - name: dg_qdramgr
+            - name: dg_qdra1
+            - name: dg_qdra2
+            - name: dg_qdra3
+            - name: dg_qdra4
+
+          fetch_ppr:
+            - dg_qdra1
+            - dg_qdra2
+            - dg_qdra3
+            - dg_qdra4

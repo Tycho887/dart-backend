@@ -1,0 +1,25 @@
+tags:
+  - electron
+  - spaceport
+
+defaults:
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://spaceport.mp2.openstack.esp-maspalomas-1.sky.ksat.no
+    control_api_enabled: false
+    monitor_api_enabled: true 
+    #configure_monitoring_api: true 
+    ephemeris_cacher_enabled: false
+
+  proxy:
+    operational: True
+    mode: accept-proxy
+    access: spaceport.mp2.openstack.esp-maspalomas-1.sky.ksat.no
+    site_sdwan: 100.90.140.129
+    cosmic-support: True
+
+    nodes:
+      - http://spaceport.mp2.openstack.esp-maspalomas-1.sky.ksat.no:80

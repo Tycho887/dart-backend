@@ -1,0 +1,35 @@
+---
+config: YAM_1
+customer: LOFT
+constellation: LOFT
+
+services:
+  
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 10.168.1.0/24
+      - 192.146.238.172
+
+    services:
+      - qradio_tcp
+  
+  specnet:
+    tags:
+      - SD
+      - SU
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+

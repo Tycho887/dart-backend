@@ -1,0 +1,15 @@
+---
+
+acu_config: LEMUR_2
+
+services:
+  custom_backend:
+    tags:
+      - SD
+      - SU
+
+    mtx_tags_downlink:
+      - [DL, SPRD]
+    
+    mtx_tags_uplink: [SPRU, U]
+

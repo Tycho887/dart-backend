@@ -1,0 +1,65 @@
+---
+
+KSAT TEST:
+  transfer:
+    ftp:
+      host: 192.146.239.5
+      user: lite
+      dest: /customers/cache/lite/reports/KSAT_TEST
+
+  template:
+    date: date
+    az: az
+    alt: alt
+    # inputPowerRaw_HR_CH1: inputPowerRaw_HR_CH1
+    EsNoI_HR_CH1: EsNoI_HR_CH1
+    frameSyncLockFrameCount_HR_CH1: frameSyncLockFrameCount_HR_CH1
+    frameSyncTotalFrameCount_HR_CH1: frameSyncTotalFrameCount_HR_CH1
+    frameSyncSyncLostCount_HR_CH1: frameSyncSyncLostCount_HR_CH1
+    blockDecoder_totalBlockCount_HR_CH1: blockDecoder_totalBlockCount_HR_CH1
+    blockDecoder_totalBlockErrorCount_HR_CH1: blockDecoder_totalBlockErrorCount_HR_CH1
+    blockDecoder_totalBitCount_HR_CH1: blockDecoder_totalBitCount_HR_CH1
+    blockDecoder_totalBitErrorCount_HR_CH1: blockDecoder_totalBitErrorCount_HR_CH1
+    inputPowerRaw_LR_CH1: inputPowerRaw_LR_CH1
+    EbN0_LR_CH1: EbN0_LR_CH1
+    FSLockState_LR_CH1: FSLockState_LR_CH1
+    FSLockFrameCount_LR_CH1: FSLockFrameCount_LR_CH1
+    FSLockLostCount_LR_CH1: FSLockLostCount_LR_CH1
+    RSDFramesProcessed_LR_CH1: RSDFramesProcessed_LR_CH1
+    RSDFramesCorrectable_LR_CH1: RSDFramesCorrectable_LR_CH1
+    RSDFramesUncorrectable_LR_CH1: RSDFramesUncorrectable_LR_CH1
+
+JPSS DEMO:
+
+  systems:
+    - SG44
+    - TR10
+
+  transfer:
+
+    ftp:
+      host: 192.146.239.5
+      user: lite
+      dest: /customers/FTP/JPSS_DEMO/reports/
+
+  template:
+    date: date
+    az: az
+    alt: alt
+    inputPowerRaw_HR_CH1: inputPowerRaw_HR_CH1
+    EsNoI_HR_CH1: EsNoI_HR_CH1
+    frameSyncLockFrameCount_HR_CH1: frameSyncLockFrameCount_HR_CH1
+    frameSyncTotalFrameCount_HR_CH1: frameSyncTotalFrameCount_HR_CH1
+    frameSyncSyncLostCount_HR_CH1: frameSyncSyncLostCount_HR_CH1
+    blockDecoder_totalBlockCount_HR_CH1: blockDecoder_totalBlockCount_HR_CH1
+    blockDecoder_totalBlockErrorCount_HR_CH1: blockDecoder_totalBlockErrorCount_HR_CH1
+    blockDecoder_totalBitCount_HR_CH1: blockDecoder_totalBitCount_HR_CH1
+    blockDecoder_totalBitErrorCount_HR_CH1: blockDecoder_totalBitErrorCount_HR_CH1
+    inputPowerRaw_LR_CH1: inputPowerRaw_LR_CH1
+    EbN0_LR_CH1: EbN0_LR_CH1
+    FSLockState_LR_CH1: FSLockState_LR_CH1
+    FSLockFrameCount_LR_CH1: FSLockFrameCount_LR_CH1
+    FSLockLostCount_LR_CH1: FSLockLostCount_LR_CH1
+    RSDFramesProcessed_LR_CH1: RSDFramesProcessed_LR_CH1
+    RSDFramesCorrectable_LR_CH1: RSDFramesCorrectable_LR_CH1
+    RSDFramesUncorrectable_LR_CH1: RSDFramesUncorrectable_LR_CH

@@ -1,0 +1,203 @@
+tags:
+  - electron
+  - spaceport
+  - acu
+  - controller
+  - meos
+  - tracking_test
+
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+acu:
+  vendor: orbital
+  model: 3.0TSAS1-3.0m
+  feed: FA-B-B-2-01-C  #this is Ka band feed, exist also an S-band feed
+  hpa: PA-01
+  converter: MM-SST-01
+
+defaults:
+
+  nkom:
+    destination:
+      host: "svl-trk-cmd.ksat.no"
+      path: "inbox/"
+    log_tracking_file: false
+    publish_tracking_file: true
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://spaceport:80
+    control_api_enabled: true
+    monitor_api_enabled: false
+    ephemeris_cacher_enabled: false
+
+  controller:
+    control_api: http://10.104.10.20:9999
+    session: TR10
+
+  aws_s3:
+    web_proxy: 10.104.251.79:3128   
+
+  ftp3:
+    host: 192.146.239.4
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  proxy:
+    operational: False
+    mode: accept-proxy
+    access: 10.104.10.20
+    site: 10.104.241.110
+    site_sdwan: 100.90.104.110
+
+    nodes:
+      - http://10.104.252.92:80
+
+  orbital:
+    host: 10.104.10.10
+    rest: http://10.104.10.15:3000
+    use_monitor: false
+
+  specnet:
+    rest: http://10.104.252.71:80
+    qradio_data_ip: 10.104.251.72
+    input_power_mode: inputPower_LR
+    rate: LR
+
+    autoconf:
+      enabled: False
+      reference_attenuation: 0
+      inputFrequency: 67.5
+      system_bandwidth: '10.0'
+      gainMode: 'Automatic'
+      rfInputPort: 'rfIn1'
+      AD_bits: 8
+      qradio_data_ip: 10.104.251.72
+      networkInputPort: 50000
+      streamOffset: 2.5
+      maxPacketSize: 1500
+      streamBandwidth: 5
+      packetProtectionEnable: True
+      inputStreamID: 0
+      rxEnable: True
+      invertOutputSpectrum: False
+      attenuation: 24
+      rfOutputPort: 'rfOut1'
+      outputFrequency: 68.5
+      rfOutputSource: 'Packets'
+      dataSource: 'Network'
+      programmedBuffer: 0
+      programmedDelay: 0
+      preserveLatency: False
+      networkOutputPort: 50000
+      outputFrequencyOffset: 1.5
+      useLocalReference: True
+      outputStreamID: 0
+      releaseMode: 'Programmed Delay'
+      multicastEnable: False
+      overrideOutputFrequencyEnable: True
+      txEnable: True
+
+      rf_input_port_rules:
+        s_rhcp: "rfIn1"
+        s_lhcp: "rfIn1"
+        x_lhcp: "rfIn1"
+        x_rhcp: "rfIn1"
+
+      rf_output_port_rules:
+        s_rhcp: "rfOut1"
+        s_lhcp: "rfOut1"
+        x_lhcp: "rfOut1"
+        x_rhcp: "rfOut1"
+
+  qradio_v5:
+    enabled: True
+    rest: http://10.104.252.72:8080
+    specnet_data_ip: 10.104.251.71
+
+    model: qradio
+    control_api_id: lr_radio
+
+  qfep:
+    rest: http://10.104.252.72:30000
+
+  qmr:
+    rest: http://10.104.252.79:80 
+    qdra_host_inst1: 10.104.251.73
+    qdra_port_inst1: 50022
+    qdra_host_inst2: 10.104.251.73
+    qdra_port_inst2: 50032
+    input_power_mode: inputPower_HR
+    rate: HR
+
+    model: qmr
+    control_api_id: hr_radio
+
+  qdra-inst1:
+    inst: 1
+    rest: http://10.104.252.73:8080
+    ch: CH1
+    rate: HR
+
+    model: qdra
+    control_api_id: hr_fep
+
+ 
+  qdra-inst2:
+    inst: 2
+    rest: http://10.104.252.73:8081
+    ch: CH2
+    rate: HR
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+  controller:
+    tags:
+      - controller
+
+  meos:
+    tags:
+      - meos
+
+    object_id: meos
+
+    dests:
+      orbital:
+        method: sftp
+        host: 10.104.10.15
+        user: orbital
+        dest: /home/orbital/schedule
+
+  orbital:
+    tags:
+      - acu
+  
+  tracking_test:
+    tags:
+      - tracking_test
+
+    functions:
+      - program_track
+      - hpa_level
+
+  nkom: {}
+
+

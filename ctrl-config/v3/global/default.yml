@@ -1,0 +1,34 @@
+---
+tags:
+#  - autosign
+#  - controller
+#  - kmon
+#  - meos
+  - packed
+
+tasks:
+
+  simple_debugger:
+    tags:
+      - simple_debugger
+
+  controller:
+    tags:
+      - controller
+
+  autosign:
+    tags:
+      - autosign
+
+  kmon:
+    tags:
+      - kmon
+
+  packed:
+    tags:
+      - packed
+
+    host: 192.146.239.5
+    user: opssuprt
+    port: 22
+    dest: /home/opssuprt/events/contact

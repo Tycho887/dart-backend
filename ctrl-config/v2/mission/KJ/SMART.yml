@@ -1,0 +1,66 @@
+---
+config: SMART
+customer: FFI
+constellation: FFI
+
+services:
+
+  meos_acu:
+    tags:
+      - meos_acu
+
+    config:
+      - name: lband_ttc_ch1
+        polarity: RHCP
+        hpa_gain: 80
+        band: L
+        direction: UP
+
+      - name: lband_ttc_ch1
+        polarity: RHCP
+        band: L
+        direction: DOWN
+        hpa_gain: 80
+
+      - name: xband_payload_ch1
+        polarity: RHCP
+        band: X
+        frequency: 8323000000
+        direction: DOWN
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 10.10.60.0/24
+      - 100.64.18.0/24
+      - 192.146.238.172
+      - 192.146.238.220
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    config: SMART_720
+    tags:
+      - XD
+
+  qdra-inst1:
+    stream_server: smart
+    tags:
+      - XD
+

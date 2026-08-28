@@ -1,0 +1,70 @@
+---
+config: ETV_A1
+acu_config: ETV_A1
+customer: SEN
+constellation: SEN
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 172.31.233.17
+      - 172.31.233.88
+      - 192.146.238.172
+      - 192.146.238.220
+      - 192.146.238.223
+      - 100.64.43.0/24
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0StreamOffset: -99
+      rf0StreamBW: 150
+      rf0OutGainMode: "Manual"
+      rf0OutManualGain: 0
+
+  qrx:
+    tags:
+      - XD
+
+  qdra-inst1:
+    config: ETV_A1_frame
+    tags:
+      - XD
+
+    record:
+      streams: [1]
+
+    transfer_staging:
+      method: qfte
+      backend: ftp3
+      home: /customers/FTP/SEN

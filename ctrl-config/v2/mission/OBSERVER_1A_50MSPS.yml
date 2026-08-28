@@ -1,0 +1,72 @@
+---
+acu_config: OBSERVER
+config: OBSERVER_1A
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.59.0/24
+      - 192.146.238.242
+      - 172.31.244.25 # saa-nix
+      - 172.31.244.114 # Guro IP
+      - 192.146.238.223 #Internal Ip mmy
+      #need input from IT what IP adress to whitelist from site proxy to access proxy
+      
+
+    services:
+      - qradio_tcp
+      - qradio_http
+      - mc_http
+      - monitor_tcp
+      - spectrum_http
+      - qmr_http 
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 4
+
+  qradio:
+    tags:
+      - SD
+      - SU
+  
+  qmr:
+    config: OBSERVER_1A_50Msps
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1400
+      rf0StreamOffset: 20
+      rf0StreamBW: 50
+
+  qrx:
+    config: OBSERVER_1A_50Msps
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True        
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: nstgs-ksat
+      profile: obs1
+      prefix: 
+      post_transfer_delete: True

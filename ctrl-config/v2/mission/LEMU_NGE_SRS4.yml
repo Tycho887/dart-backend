@@ -1,0 +1,69 @@
+config: NANO_SRS_4_3
+acu_config: LEMU_NGE_SRS4
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242 # ben-nix
+      - 192.146.238.223 # mmy-nix
+      - 172.31.244.44 # mep-nix
+      - 172.31.246.23 # gve-nix
+      - 172.31.233.17
+      - 172.31.233.88
+      - 172.31.244.25 # saa-nix IP
+      - 100.64.70.0/24 # SDWAN IP-Range for Nano
+      #- 100.64.70.64/26 # SDWAN IP range
+
+    services:
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -5
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    config: LEMU_NGE
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1400
+      rf0StreamOffset: 17
+      rf0StreamBW: 70
+
+  qrx:
+    config: LEMU_NGE
+    tags:
+      - XD
+
+  qdra-inst1:
+    config: NANO_PROTOMETHEE
+    tags:
+      - XD
+
+    record: 
+      streams: [1]
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: kna-ksat-post-pass-transfer
+      profile: KNA
+

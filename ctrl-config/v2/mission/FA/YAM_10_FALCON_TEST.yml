@@ -1,0 +1,146 @@
+---
+config: LOFT_LONGBOW
+acu_config: YAM_10_BUS
+
+services:
+  ksat_acu_orbital:
+    tags:
+      - ksat_acu_orbital
+
+    link_config:
+      uplink_config: s_band_uplink_p2_1 # For setting UL Polarization
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+      - monitor_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+    
+    link_config:
+      uplink_config: s_band_uplink_p2_1
+      downlink_config: s_band_downlink_p2_1
+
+    autoconf:
+      reference_attenuation_adjustment: -6
+
+      spectral_class_dl: s_lhcp
+      spectral_class_ul: s_lhcp
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    config: LOFT_LONGBOW_BUS
+
+    link_config:
+      # For dynamic doppler comp frequency
+      uplink_config: s_band_uplink_p2_1
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    tlm_record: False
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1200
+      rf0StreamOffset: -33
+      rf0StreamBW: 300
+      inputSpectralInversion: True
+
+  wb_specnet2:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1200
+      rf0StreamOffset: -33
+      rf0StreamBW: 300
+      inputSpectralInversion: True
+
+  qmr:
+    tags:
+      - XD
+
+  qrx:
+    tags:
+      - XD
+
+    config: noise_750Mbps_tcp
+
+  qrx2:
+    tags:
+      - XD
+
+    config: noise_750Mbps_tcp
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    config: LOFT_LONGBOW_200MB
+
+    record: True
+
+  qdra-inst2:
+    tags:
+      - XD
+
+    config: LOFT_LONGBOW_200MB
+
+    record: True
+
+  falcon:
+    tags:
+      - XD
+
+    recorders:
+      - hypermatter_api: http://10.151.112.11:6000
+        component_config:
+          component: QDRA
+          file_options_config:
+            file_name:
+              - ext: DAT
+                enumerate: true # added at the end of the file name before the file extension
+                sub_dir: "/qdra-inst1/"
+                delimiter: "_"
+
+      - hypermatter_api: http://10.151.112.12:6000
+        component_config:
+          component: QDRA
+          file_options_config:
+            file_name:
+              - ext: DAT
+                enumerate: true # added at the end of the file name before the file extension
+                sub_dir: "/qdra-inst2/"
+                delimiter: "_"
+
+    delivery_config:
+      protocol: AWS_USER
+      credentials_uuid: 1604bc42-ebe1-4e28-aa33-a37ed86cb0cf
+      bucket: falcon-direct-test-4j9xwqv-us-east-1
+      bucket_region: us-east-1
+      target_dir: "DATA/{contact_id}/payload"
+
+
+  
+

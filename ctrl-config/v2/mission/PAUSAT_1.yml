@@ -1,0 +1,32 @@
+---
+kind: mission
+config: PAUSAT_1
+acu_config: PAUSAT_1
+
+services:
+
+  proxy:
+    tags:
+      - SD
+      - SU
+
+
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -6
+      txEnable: False
+      inputFrequency: 68.5
+      streamOffset: 1.5
+      streamBandwidth: 3
+
+
+  qradio:
+    tags:
+      - SD
+      - SU
+

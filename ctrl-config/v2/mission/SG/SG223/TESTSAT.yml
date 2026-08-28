@@ -1,0 +1,62 @@
+---
+
+acu_config: ICEYE_X2
+config: ICEYE_X2
+
+services:
+
+  proxy:
+    tags:
+      - SD
+      - SU
+      
+    whitelist:
+      - 192.146.238.0/24
+
+    services:
+      - qradio_tcp
+      - ctx_tcp
+      - spectrum_http
+      - mc_http
+
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -2
+      spectral_class_dl: x_rhcp
+      spectral_class_ul: x_rhcp
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    transfer:
+      backend: ftpSvalSat
+      home: /home/lite/DATA/  
+    
+  
+  ctx:
+    tags:
+      - SD
+      - SU
+
+    id_flavour: legacy  
+
+    transfer:
+      backend: ftp3
+      home: /home/lite
+      
+ # qradio_v5:
+ #   config: JPSS_1_mod1_spread
+ #   tags:
+ #q     - SD

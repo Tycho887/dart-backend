@@ -1,0 +1,46 @@
+---
+config: ASTROCAST_1_X
+acu_config: ASTROCAST_1_X
+customer: ASTROCAST
+constellation: ASTROCAST
+
+check_tle: False # While investigating SG191
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 10.10.12.0/24
+      - 10.10.13.0/24
+      - 10.103.231.0/24
+      - 192.146.238.172
+      - 192.146.238.220
+      - 192.146.238.223
+      - 192.146.238.237
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 1
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU

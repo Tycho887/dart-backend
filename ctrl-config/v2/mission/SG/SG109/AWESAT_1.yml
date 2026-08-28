@@ -1,0 +1,43 @@
+---
+config: AWS_LBAND
+acu_config: AWS_LBAND
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+      - LD
+
+    whitelist:
+      - 10.191.30.0/24
+      - 10.191.36.0/24
+      - 10.191.172.0/24
+      - 10.191.173.0/24
+      - 10.103.0.79
+      
+    services:
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+      - LD
+
+    autoconf:
+      reference_attenuation_adjustment: -8
+      inputFrequency: 142.0
+
+  qradio:
+    tags:
+      - SD
+      - SU
+      - LD
+
+  qfep:
+    tags:
+      - SD
+      - SU
+      - LD

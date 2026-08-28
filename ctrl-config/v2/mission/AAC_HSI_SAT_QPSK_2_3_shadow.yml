@@ -1,0 +1,38 @@
+config: AAC_HSI_SAT1
+acu_config: AAC_HSI_SAT1
+
+services:
+  qmr:
+    tags:
+      - XD
+
+    config: AAC_HSI_SAT_modcod6
+
+
+
+  wb_specnet: 
+    tags: 
+      - XD
+    
+    autoconf: 
+      inputCenterFrequency: 1350
+      inputSpectralInversion: True
+      rf0StreamOffset: -5
+      rf0StreamBW: 100
+
+  qrx:
+    tags:
+      - XD
+
+    config: AAC_HSI_SAT_modcod6 
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True
+  
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/CLYDESPACE
+

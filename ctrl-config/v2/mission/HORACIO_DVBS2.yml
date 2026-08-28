@@ -1,0 +1,75 @@
+---
+acu_config: HORACIO
+config: HORACIO
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 192.146.238.223
+      - 100.64.32.0/26 # Satlantis
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    link_config:  # Use this if not converted to 70 MHz
+      mode: spacecraft  # Uses frequencies used in v2/spacecrafts for the particular spacecraft
+      uplink_config: s_band_uplink_p1_1  # Default uplink config. Can be overridden in mission
+      downlink_config: s_band_downlink_p1_1  # Default downlink config. Can be overridden in mission
+
+    autoconf:
+      reference_attenuation_adjustment: -3
+
+  qradio:
+    config:
+    tags:
+      - SD
+      - SU
+ 
+  qmr:
+    tags:
+      - XD
+
+    config: URDANETA_DVBS2
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1200
+      rf0StreamOffset: 0
+      rf0StreamBW: 120
+      rf0InGainMode: "Manual"
+      rf0InManualGain: 0
+
+  qrx:
+    tags:
+      - XD
+
+    config: URDANETA_DVBS2
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True        
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: mcs-data-storage
+      profile: urdaneta
+      prefix: horacio/x-band
+      post_transfer_delete: True

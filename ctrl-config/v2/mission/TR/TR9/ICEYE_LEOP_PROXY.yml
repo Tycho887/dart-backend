@@ -1,0 +1,36 @@
+---
+customer: ICEYE
+constellation: ICEYE
+
+services:
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 10.100.4.1
+      - 100.64.52.0/24
+      - 192.146.238.0/24
+
+    services:
+      - ctx_tcp
+
+    defaults:
+      nodes:
+        - http://10.104.252.81:6000 ## Maxlite access proxy
+
+
+  ctx:    
+    functions:
+      - reset
+
+    tags:
+      - SD
+      - SU
+
+    defaults:
+      host: 10.104.9.13 # TR9 max cortex
+
+
+   

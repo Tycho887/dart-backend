@@ -1,0 +1,60 @@
+---
+config: TYVAK_0161
+customer: TYVAK
+constellation: TYVAK
+acu_config: TYVAK_0415
+
+services:
+  
+  proxy:
+    tags:
+      - SD
+
+    whitelist:
+      - 192.168.37.0/24
+      - 10.103.222.0/24
+      - 172.31.244.114 # Guro ip
+
+    services:
+      - ctx_tcp
+      - qradio_tcp
+      - spectrum_http
+  
+  specnet:
+    autoconf:
+      inputFrequency: 67.5
+      streamOffset: 2.5
+      streamBandwidth: 5
+      txEnabled: False
+      spectral_class_dl: s_rhcp
+    tags:
+      - SD
+
+  qradio:
+    config: TYVAK_0820
+    tags:
+      - SD
+
+  qfep:
+    tags:
+      - SD
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/TYVAK
+
+  ctx:
+    idtype: legacy
+    id_flavour: legacy
+
+    tags:
+      - SD
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/TYVAK
+
+  ctx_legacy:
+
+    tags:
+      - SD

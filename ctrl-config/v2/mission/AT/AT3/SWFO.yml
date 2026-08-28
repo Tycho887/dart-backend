@@ -1,0 +1,31 @@
+---
+config: SWFO_L1
+acu_config: SWFO
+
+services:
+  proxy:
+    tags:
+      - SD
+      - XD
+
+    whitelist:
+      - 192.146.238.0/24
+      - 172.31.244.0/23
+      - 100.64.26.0/24 # might use /26 if functional
+
+    services:
+      - monitor_tcp
+
+  amergint:
+    config_file_name: "XBandTLMLoopTest_Emil.json"
+    file_name_scheme: "{antenna_name}_amergint_{aos}"
+    src_ftp:
+      dir_path: "/exports/"
+    dst_ftp:
+      host: gnapi.at3.gn.ksat.site
+      port: 21
+      url: "ftp://ftpuser@gnapi.at3.gn.ksat.site"
+      username: "ftpuser"
+      password: "ftpisbad"
+      dir_path: "/"
+      protocol: "FTP"

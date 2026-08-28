@@ -1,0 +1,52 @@
+---
+config: ATHENA
+customer: MAXAR
+constellation: 
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      #- 192.168.132.0/24
+      #- 192.146.238.242
+      #- 192.146.238.172
+
+    services:
+      - ctx_tcp
+      - qradio_tcp
+      - qradio_http
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SU
+      - SD
+
+  qradio:
+    autorestart: True
+    defaults:
+      config: ATHENA
+      
+    tags:
+      - SU
+      - SD
+
+  qfep:
+    tags:
+      - SU
+      - SD
+          
+  #qmr:
+  #  tags:
+  #    - XD
+
+  #qdra-inst1:
+  #  tags:
+  #    - XD
+
+  # record: True        
+

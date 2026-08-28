@@ -1,0 +1,99 @@
+---
+config: ICEYE_X6
+acu_config: ICEYE_S5
+
+services:
+  proxy:
+    tags:
+      - XD
+      - SD
+
+    whitelist:
+      - 10.100.4.1
+      - 100.64.52.0/24
+      - 192.146.238.242
+      
+    services:
+      - ctx_tcp
+      - qradio_http
+      - qmr_http
+      - spectrum_http
+      - monitor_tcp
+      - mc_http
+
+  ctx:    
+    tags:
+      - SD
+      - SU
+        
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      enabled: True
+      reference_attenuation_adjustment: 0
+      system_specific:
+        JJ1:
+          force_attenuation: 21
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    config: ICEYE_2086M9_64k
+      
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    config: ICEYE
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/ICEYE
+      
+  qmr:
+    tags:
+      - XD
+    
+    config: ICEYE_TCM_250Msps_tcp
+
+    modulation_personality: TCM
+
+  wb_specnet:
+    tags:
+      - XD
+
+    config: ICEYE_DVBS2_250Msps
+
+    autoconf:
+      inputCenterFrequency: 1250 
+      rf0StreamOffset: 12.5 
+      rf0StreamBW: 320
+
+  qrx:
+    tags:
+      - XD
+
+    config: ICEYE_TCM_250Msps_tcp
+
+  qdra-inst1:
+    stream_server: iceye
+    tags:
+      - XD
+
+    config: ICEYE_HR_tcp
+
+    record: True   
+         
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: iceye-ksat-raw-downlinks-production
+      profile: iceye
+      stream_raw: True
+      prefix: DATA
+      concurrency: 3

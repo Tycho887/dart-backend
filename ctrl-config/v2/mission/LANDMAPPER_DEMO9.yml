@@ -1,0 +1,11 @@
+---
+acu_config: LD9
+
+services:
+
+  custom_backend:
+    tags:
+      - LD
+
+    mtx_tags_downlink:
+      - [DL, ASTRODIG]

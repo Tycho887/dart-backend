@@ -1,0 +1,15 @@
+config: AQUA
+
+services:
+
+  orbital-ng:
+    transmit_time_offset: 0
+    hpa_input_attenuation: 0
+    hpa_output_control: Test Termination
+    autotrack: "Yes"
+  
+  cortex_crt1:
+    enabled: False
+
+  cortex_crt2:
+    enabled: False

@@ -1,0 +1,61 @@
+acu_config: HAWK_7B_TTC
+config: HAWK_2B
+services:
+  custom_backend:
+    system_specific:
+      SG183:
+        mtx_tags_downlink:
+        - - DL
+          - SG183SDL
+      SG184:
+        mtx_tags_downlink:
+        - - DR
+          - SG184SDL
+      SG185:
+        mtx_tags_downlink:
+        - - DR
+          - SG185SDL
+    tags:
+    - SD
+    - XD
+  proxy:
+    services:
+    - qradio_tcp
+    - qradio_http
+    - qmr_http
+    - mc_http
+    - spectrum_http
+    tags:
+    - SU
+    - SD
+    - XD
+    whitelist:
+    - 10.103.235.0/24
+    - 10.104.213.0/24
+    - 192.146.238.172
+    - 192.146.238.242
+    - 10.117.235.0/24
+    - 10.121.235.0/24
+    - 10.131.235.0/24
+    - 10.197.255.0/28
+    - 10.141.209.0/28
+    - 10.120.201.32/28
+  qradio:
+    tags:
+    - SD
+    - SU
+    - XD
+  specnet:
+    autoconf:
+      inputFrequency: 1345
+      inputFrequencyOffset: 2
+      packetProtectionEnable: False
+      reference_attenuation_adjustment: 0
+      spectral_class_dl: x_rhcp
+      streamBandwidth: 4
+      streamOffset: 2
+    config: HAWK_2B
+    tags:
+    - SD
+    - SU
+    - XD

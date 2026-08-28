@@ -1,0 +1,399 @@
+tags:
+  - electron
+  - spaceport
+  - controller
+  - meos
+  - tracking_test
+  - acu
+    #  - downlink_mtx
+    #  - uplink_mtx
+    #
+
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+  - name: nkom_tracking_file
+    type: nkom_tracking_file
+
+acu:
+  vendor: orbital
+  model: 3.0TSXS7-3.7m
+  feed: FTSXS-0B0-PBP-101-01
+  hpa: PA-03
+  converter: MM-SST-01
+  polarizations:
+    SD:
+      - dual
+    XD:
+      - dual
+    SU:
+      - dual
+
+defaults:
+
+  nkom:
+    destination:
+      host: "svl-trk-cmd.ksat.no"
+      path: "inbox/"
+    log_tracking_file: false
+    publish_tracking_file: true
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://10.197.112.93:80
+    control_api_enabled: true
+    monitor_api_enabled: true 
+    ephemeris_cacher_enabled: false  
+
+  controller:
+    #control_api: http://10.197.112.93:9999
+    #monitor_api: http://10.197.112.94:80
+    auto_pull: 0
+    session: MU3
+
+  orbital:
+    host: 10.197.112.69
+    rest: http://10.197.112.93:30000
+    vendor: orbital
+    model: orbital
+    feed:  FTSXS-0B0-PBP-101-01
+    hpa: PA-03
+    converter: MM-SST-01
+    control_api_id: acu
+    polarizations:
+      SD:
+        - dual
+      XD:
+        - dual
+      SU:
+        - dual
+
+  aws_s3:
+    web_proxy: 10.197.126.79:8888
+
+  ftp3:
+    host: 192.146.239.4
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  proxy:
+    operational: True
+    mode: accept-proxy
+    access: 10.197.112.93
+    site: 10.197.241.103
+    nodes:
+      - http://10.197.112.93:80
+
+#  downlink_mtx:
+#    block: maui_1
+#    alias: 3
+#    antenna_alias: 3
+#    host: 10.197.127.190
+#    port: 4000
+#    vendor: etl
+#    model: victor
+#    mode: downlink
+#    size: 16
+#
+#    def_routes:
+#      -[]
+#
+#  uplink_mtx:
+#    block: maui_1
+#    alias: 3
+#    antenna_alias: 3
+#    host: 10.197.127.190
+#    port: 4000
+#    vendor: etl
+#    model: victor
+#    mode: uplink
+#    size: 16
+#    def_routes: []
+
+  specnet:
+    enabled: True
+    rest: http://10.197.127.32:80
+    qradio_data_ip: 10.197.125.103
+
+    autoconf:
+      enabled: True
+      reference_attenuation: 31
+      inputFrequency: 67.5
+      inputFrequencyOffset: 1.5
+      system_bandwidth: '10.0'
+      gainMode: 'Automatic'
+      rfInputPort: 'rfIn1'
+      AD_bits: 8
+      qradio_data_ip: 10.197.125.103
+      networkInputPort: 50000
+      streamOffset: 2.5
+      maxPacketSize: 1500
+      streamBandwidth: 5
+      packetProtectionEnable: True
+      inputStreamID: 0
+      rxEnable: True
+      invertOutputSpectrum: False
+      rfOutputPort: 'rfOut1'
+      outputFrequency: 68.5
+      rfOutputSource: 'Packets'
+      dataSource: 'Network'
+      programmedBuffer: 0
+      programmedDelay: 0
+      preserveLatency: False
+      networkOutputPort: 50000
+      outputFrequencyOffset: 1.5
+      useLocalReference: True
+      outputStreamID: 0
+      releaseMode: 'Programmed Delay'
+      multicastEnable: False
+      overrideOutputFrequencyEnable: True
+      txEnable: True
+
+      rf_input_port_rules:
+        s_rhcp: "rfIn1"
+        s_lhcp: "rfIn1"
+        x_lhcp: "rfIn1"
+        x_rhcp: "rfIn2"
+
+      rf_output_port_rules:
+        s_rhcp: "rfOut1"
+        s_lhcp: "rfOut1"
+        x_lhcp: "rfOut1"
+        x_rhcp: "rfOut1"
+
+  ctx:
+    enabled: True
+    host: 10.197.112.74
+
+  qradio:
+    enabled: True
+    rest: http://10.197.112.74:8080
+    specnet_data_ip: 10.197.125.32
+    model: qradio
+    control_api_id: lr_radio
+
+  qfep:
+    enabled: True
+    rest: http://10.197.112.74:30000
+
+  qmr:
+    enabled: False
+
+  wb_specnet:
+    enabled: True
+    rest: http://10.197.127.55:80
+
+    autoconf:
+      enabled: True
+      qrx_host_rf0: 10.197.126.103
+      qrx_port_rf0: 50000
+
+  wb_specnet2:
+    enabled: False
+
+  qrx:
+    enabled: True
+    rest: http://10.197.112.77:8080
+
+    qdra_host_inst1: 10.197.126.203
+    qdra_port_inst1: 50022
+    rate: HR
+
+  qrx2:
+    enabled: False
+    
+  qdra-inst1:
+    enabled: True
+    inst: 1
+    rest: http://10.197.112.75:8080
+    rate: HR
+    model: qdra
+    control_api_id: hr_fep
+    stream_servers:
+      kestrel_0a:
+        host: 10.197.255.4
+        port: 50012
+      hawk_a:
+        host: 10.197.255.4
+        port: 50013
+      hawk_b:
+        host: 10.197.255.4
+        port: 50014
+      hawk_c:
+        host: 10.197.255.4
+        port: 50015
+      hawk_2a:
+        host: 10.197.255.4
+        port: 50016
+      hawk_2b:
+        host: 10.197.255.4
+        port: 50017
+      hawk_2c:
+        host: 10.197.255.4
+        port: 50018
+      hawk_3a:
+        host: 10.197.255.4
+        port: 50019
+      hawk_3b:
+        host: 10.197.255.4
+        port: 50020
+      hawk_3c:
+        host: 10.197.255.4
+        port: 50021
+      hawk_4a:
+        host: 10.197.255.4
+        port: 50022
+      hawk_4b:
+        host: 10.197.255.4
+        port: 50023
+      hawk_4c:
+        host: 10.197.255.4
+        port: 50024
+      hawk_5a:
+        host: 10.197.255.4
+        port: 50025
+      hawk_5b:
+        host: 10.197.255.4
+        port: 50026
+      hawk_5c:
+        host: 10.197.255.4
+        port: 50027
+      hawk_6a:
+        host: 10.197.255.4
+        port: 50028
+      hawk_6b:
+        host: 10.197.255.4
+        port: 50029
+      hawk_6c:
+        host: 10.197.255.4
+        port: 50030
+      hawk_7a: 
+        host: 10.197.255.4 
+        port: 50031 
+      hawk_7b: 
+        host: 10.197.255.4 
+        port: 50032 
+      hawk_7c: 
+        host: 10.197.255.4 
+        port: 50033 
+      hawk_8a: 
+        host: 10.197.255.4 
+        port: 50034 
+      hawk_8b: 
+        host: 10.197.255.4 
+        port: 50035 
+      hawk_8c: 
+        host: 10.197.255.4 
+        port: 50036 
+      hawk_9a: 
+        host: 10.197.255.4 
+        port: 50037 
+      hawk_9b: 
+        host: 10.197.255.4 
+        port: 50038 
+      hawk_9c: 
+        host: 10.197.255.4 
+        port: 50039 
+      hawk_10a: 
+        host: 10.197.255.4 
+        port: 50040 
+      hawk_10b: 
+        host: 10.197.255.4 
+        port: 50041 
+      hawk_10c: 
+        host: 10.197.255.4 
+        port: 50042 
+      hawk_11a: 
+        host: 10.197.255.4 
+        port: 50043 
+      hawk_11b: 
+        host: 10.197.255.4 
+        port: 50044 
+      hawk_11c: 
+        host: 10.197.255.4 
+        port: 50045 
+      hawk_12a: 
+        host: 10.197.255.4 
+        port: 50046 
+      hawk_12b: 
+        host: 10.197.255.4 
+        port: 50047 
+      hawk_12c: 
+        host: 10.197.255.4 
+        port: 50048
+      hawk_13a: 
+        host: 10.197.255.4 
+        port: 50049 
+      hawk_13b: 
+        host: 10.197.255.4 
+        port: 50050 
+      hawk_13c: 
+        host: 10.197.255.4 
+        port: 50051
+
+  qdra-inst2:
+    enabled: False
+    #inst: 2
+    #rest: http://10.197.112.76:8081
+    #rate: HR2
+    #model: qdra
+    #control_api_id: hr_fep
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+  orbital:
+    tags:
+      - acu
+    object_id: orbital
+
+  controller:
+    tags:
+      - controller
+
+#  downlink_mtx:
+#    tags:
+#      - downlink_mtx
+#    object_id: etl_downlink
+#
+#  uplink_mtx:
+#    tags:
+#      - uplink_mtx
+#    object_id: etl_uplink
+
+  meos:
+    tags:
+      - meos
+    object_id: meos
+    dests:
+      orbital:
+        method: sftp
+        host: 10.197.112.93
+        user: orbital
+        dest: /home/orbital/schedule
+
+  tracking_test:
+    tags:
+      - tracking_test
+
+    functions:
+      - program_track
+    #  - hpa_level
+  
+  nkom: {}

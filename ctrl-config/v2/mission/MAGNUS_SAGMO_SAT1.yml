@@ -1,0 +1,16 @@
+---
+services:
+  cortex_crt:
+    tags:
+      - SU
+      - SD
+
+    defaults:
+      device_id: "cortex_crt1"
+      device_name: "cortex_crt_test_a"
+      device_type: "cortex_crt"
+      ip: "test_ip"
+      api_url: "test_api_url"
+      base_url: "test_base_url"
+
+    

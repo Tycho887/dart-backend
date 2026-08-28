@@ -1,0 +1,48 @@
+---
+config: TROPICS_PATHFINDER
+acu_config: TROPICS_PATHFINDER
+customer: TROPICS
+
+services:
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 100.64.12.0/24 # BCT SDWAN and VPN
+      - 192.146.238.242
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+      spectral_class_dl: s_rhcp
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    defaults:
+      config: TROPICS_PATHFINDER_2m_10k
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    record: True
+
+    transfer:
+      backend: ftpSvalSat
+      home: /data/customers/mit
+

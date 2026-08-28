@@ -1,0 +1,63 @@
+config: PROTEUS
+acu_config: MERCURYONE
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 172.31.244.114 # gve-nix
+      - 100.64.152.0/24 # proteus sdwan
+      - 172.31.244.112 # Ksatus-nix
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 1
+
+  qradio:
+    config: PROTEUS_AX2150_38kbps
+    tags:
+      - SD
+      - SU
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1200 # frequency is 8200MHz
+      rf0StreamOffset: 50
+      rf0StreamBW: 150
+      rfInGainMode: "Manual"
+      rf0InManualGain: 0
+
+  qrx:
+    config: PROTEUS
+    tags:
+      - XD
+
+  
+  qdra-inst1:
+    config: PROTEUS
+    tags:
+      - XD
+
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: #TBD
+      prefix: DATA
+      profile: #TBD

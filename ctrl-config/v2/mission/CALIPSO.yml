@@ -1,0 +1,13 @@
+---
+config: CALIPSO
+
+services:
+
+  specnet:
+    tags:
+    - SD
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+      inputFrequency: 2266 # + 2.5 offset
+      spectral_class_dl: s_rhcp

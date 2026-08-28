@@ -1,0 +1,63 @@
+config: AGRISAT_SA
+acu_config: AGRISAT
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.195
+      - 100.64.34.0/24
+  
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -3
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    tags:
+      - XD
+    config: DFA_SA_XA
+
+  qrx:
+    tags:
+      - XD
+
+  qdra-inst1:
+    config: DFA_SA_XA
+    tags:
+      - XD
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: satellite-eossat-raw-euc1
+      profile: EOSDA
+      extension: .cadu
+      post_transfer_delete: True
+      
+    #aws_s3_transfer:
+    #  backend: aws_s3
+    #  bucket_name: as-tlm-raw.deimos-space.com
+    #  profile: EOSDA_cloudsigma
+    #  extension: .cadu
+    #  prefix: inTray
+    #  inst_path: True
+    #  s3_endpoint_url: https://os.gva.cloudsigma.com

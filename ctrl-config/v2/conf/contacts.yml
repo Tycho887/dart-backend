@@ -1,0 +1,21 @@
+---
+Bjarne:
+  email: bjarne@ksat.no
+  alerts:
+    automation:
+      events:        
+        - all
+
+    satellites:
+      events:
+        - all
+
+      elems:
+        - all
+
+  reports:
+    daily:
+      - status
+
+    
+    

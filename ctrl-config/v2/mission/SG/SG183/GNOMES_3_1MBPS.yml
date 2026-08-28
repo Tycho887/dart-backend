@@ -1,0 +1,110 @@
+acu_config: GNOMES_1
+config: GNOMES_1
+constellation: PLANETIQ
+customer: PLANETIQ
+services:
+  custom_backend:
+    system_specific:
+      SG183:
+        mtx_tags_downlink:
+        - - DL
+          - SG183SDL
+      SG184:
+        mtx_tags_downlink:
+        - - DR
+          - SG184SDL
+      SG185:
+        mtx_tags_downlink:
+        - - DR
+          - SG185SDL
+    tags:
+    - SD
+    - XD
+  proxy:
+    services:
+    - qradio_tcp
+    - qradio_http
+    - spectrum_http
+    - qmr_http
+    - mc_http
+    tags:
+    - SU
+    - SD
+    - XD
+    whitelist:
+    - 100.64.12.0/24
+    - 192.168.132.0/24
+    - 192.146.238.242
+    - 192.146.238.172
+    - 192.146.238.223
+    - 192.146.238.128/25
+  qdra-inst1:
+    defaults:
+      config: GNOMES_3
+      stream_servers:
+        bct_sdwan:
+          host: 100.64.12.86
+          port: 51000
+    record:
+      streams:
+      - 1
+    stream_server: bct_sdwan
+    tags:
+    - XD
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/PLANETIQ
+  qfep:
+    tags:
+    - SU
+    - SD
+  qmr:
+    tags:
+    - XD
+  qradio:
+    defaults:
+      config: GNOMES_1MB
+    tags:
+    - SU
+    - SD
+  qrx:
+    tags:
+    - XD
+  specnet:
+    autoconf:
+      inputFrequency: 1307.5
+      reference_attenuation_adjustment: -6
+      spectral_class_dl: x_rhcp
+      system_specific:
+        SG12:
+          force_attenuation: 8
+          gainMode: Manual
+          inputFrequency: 717.5
+          manualGain: 60
+          outputFrequency: 2079.5
+        TR3:
+          force_attenuation: 16
+          inputFrequency: 717.5
+        TR9:
+          force_attenuation: 22
+          inputFrequency: 717.5
+    tags:
+    - SU
+    - SD
+  tracking_test:
+    alt_median_threshold: 10.0
+    az_median_threshold: 10.0
+    functions:
+    - program_track
+    - hpa_level
+    tags:
+    - tracking_test
+  wb_specnet:
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0OutGainMode: Manual
+      rf0OutManualGain: 0
+      rf0StreamBW: 25
+      rf0StreamOffset: 60
+    tags:
+    - XD

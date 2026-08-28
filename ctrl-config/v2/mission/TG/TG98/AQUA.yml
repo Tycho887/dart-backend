@@ -1,0 +1,9 @@
+---
+offload:
+  build: native  # null | native | legacy
+  profile: AQUA_TG98 # Used if native offload is enabled
+  mode: run # run | dry
+
+post: []
+
+services: {}

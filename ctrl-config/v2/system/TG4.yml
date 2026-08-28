@@ -1,0 +1,259 @@
+---
+tags:
+  - electron
+  - spaceport
+  - scheduler
+  - acu
+  - controller
+  - tracking_test
+  - meos
+
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+acu:
+  vendor: orbital
+  model: 3.0TSXS7-3.7m
+  feed: FTSXS-XBX-PCP-01
+  hpa: PA-01
+  converter: MM-SST-01
+  polarizations:
+    SD:
+      - dual
+    XD:
+      - dual
+    SU:
+      - dual
+
+defaults:
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://10.102.4.29:80
+    control_api_enabled: true
+    monitor_api_enabled: true
+    ephemeris_cacher_enabled: true
+
+  controller:
+    # control_api: http://10.102.4.29:9999
+    # monitor_api: http://10.102.4.30:80
+    monitor_api_unavailable: True
+    disable_monitor_websocket_stream_check: True
+    auto_pull: 0
+    session: TG4
+
+  ftpSite:
+    host:
+
+  aws_s3:
+    web_proxy: 10.102.126.79:8888
+
+  ftp3:
+    host: 192.146.239.4
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  proxy:
+    operational: True
+    mode: accept-proxy
+    access: 10.102.4.29
+    site: 10.102.241.105
+    site_sdwan: 100.90.102.105
+
+    nodes:
+      - http://10.102.4.29:80
+
+  orbital:
+    host: 10.102.4.10
+    rest: http://10.102.4.29:30000
+    use_monitor: false
+    vendor: orbital
+    model: orbital
+    feed: FTSXS-0B0-PCP-101-01
+    hpa: PA-01
+    converter: MM-SST-01
+    control_api_id: acu
+    polarizations:
+      SD:
+        - dual
+      XD:
+        - dual
+      SU:
+        - dual
+
+  specnet:
+    enabled: True
+    rest: http://10.102.127.30:80
+    qradio_data_ip: 10.102.125.154
+
+    autoconf:
+      enabled: True
+      reference_attenuation: 20
+      inputFrequency: 67.5
+      system_bandwidth: '10.0'
+      gainMode: 'Automatic'
+      rfInputPort: 'rfIn1'
+      AD_bits: 8
+      qradio_data_ip: 10.102.125.154
+      networkInputPort: 50000
+      streamOffset: 2.5
+      maxPacketSize: 1500
+      streamBandwidth: 5
+      packetProtectionEnable: True
+      inputStreamID: 0
+      rxEnable: True
+      invertOutputSpectrum: False
+      attenuation: 24
+      rfOutputPort: 'rfOut1'
+      outputFrequency: 68.5
+      rfOutputSource: 'Packets'
+      dataSource: 'Network'
+      programmedBuffer: 0
+      programmedDelay: 0
+      preserveLatency: False
+      networkOutputPort: 50000
+      outputFrequencyOffset: 1.5
+      useLocalReference: True
+      outputStreamID: 0
+      releaseMode: 'Programmed Delay'
+      multicastEnable: False
+      overrideOutputFrequencyEnable: True
+      txEnable: True
+
+      rf_input_port_rules:
+        s_rhcp: 'rfIn1'
+        s_lhcp: 'rfIn1'
+        x_lhcp: 'rfIn1'
+        x_rhcp: 'rfIn1'
+
+      rf_output_port_rules:
+        s_rhcp: 'rfOut1'
+        s_lhcp: 'rfOut1'
+        x_lhcp: 'rfOut1'
+        x_rhcp: 'rfOut1'
+
+  ctx:
+    enabled: True
+    host: 10.102.4.15
+
+  qradio:
+    enabled: True
+    rest: http://10.102.4.15:8080
+    specnet_data_ip: 10.102.125.30
+
+    model: qradio
+    control_api_id: lr_radio
+
+  qfep:
+    enabled: True
+    rest: http://10.102.4.15:30000
+
+  wb_specnet:
+    enabled: True
+    rest: http://10.102.127.50:80
+
+    autoconf:
+      enabled: True
+      qrx_host_rf0: 10.102.126.104
+      qrx_port_rf0: 50000
+
+  wb_specnet2:
+    enabled: False
+  
+  qrx:
+    enabled: True
+    rest: http://10.102.4.133:8080
+
+    qdra_host_inst1: 10.102.126.154
+    qdra_port_inst1: 50022
+    rate: HR
+
+  qrx2:
+    enabled: False
+    
+  qmr:
+    enabled: False
+
+
+  qdra-inst1:
+    enabled: True
+    inst: 1
+    rest: http://10.102.4.110:8080
+    rate: HR
+
+    model: qdra
+    control_api_id: hr_fep
+
+    stream_servers:
+      spire_test:
+        host: 10.102.126.79
+        port: 33100
+      spire:
+        host: 10.102.126.79
+        port: 33116
+      iceye:
+        host: 10.102.126.79
+        port: 9199
+      sentinel:
+        host: 10.102.126.79
+        port: 7979
+
+  qdra-inst2:
+    enabled: False
+    inst: 2
+    rest: http://10.102.4.11:8081
+    rate: HR2
+
+    model: qdra
+    control_api_id: hr_fep
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+  scheduler:
+    tags:
+      - scheduler
+
+  orbital:
+    tags:
+      - acu
+
+  controller:
+    tags:
+      - controller
+
+  tracking_test:
+    tags:
+      - tracking_test
+
+    functions:
+      - program_track
+
+  meos:
+    tags:
+      - meos
+
+    object_id: meos
+
+    dests:
+      orbital:
+        method: sftp
+        host: 10.102.4.29
+        user: orbital
+        dest: /home/orbital/schedule

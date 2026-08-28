@@ -1,0 +1,17 @@
+links:
+  s_band_downlink_p1_1: #TTC
+    direction: down
+    frequency: 2280000000
+    polarization: RHCP
+  s_band_downlink_p2_1: #FEEDER
+    direction: down
+    frequency: 2204000000
+    polarization: RHCP
+  s_band_uplink_p1_1: #TTC
+    direction: up
+    frequency: 2099500000
+    polarization: RHCP
+  s_band_uplink_p2_1: #FEEDER
+    direction: up
+    frequency: 2029500000
+    polarization: RHCP

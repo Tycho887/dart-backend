@@ -1,0 +1,38 @@
+---
+config: ION
+acu_config: PLD_SCV_011
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 10.1.1.0/24
+      - 192.146.238.242
+      - 172.31.244.44
+      - 172.31.240.8
+      - 10.0.4.8
+      
+
+    services:
+      - qradio_tcp
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 1
+
+  qradio:
+    config: PLD_SCV_128kbps
+    tags:
+      - SD
+      - SU
+
+  

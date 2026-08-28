@@ -1,0 +1,72 @@
+---
+config: GRUS_1A
+customer: AXELSPACE
+constellation: GRUS
+
+services:
+
+  custom_backend:
+
+    system_specific:
+
+      SG183:
+        mtx_tags_downlink:
+          - [DL, SG183XDR]
+
+      SG184:
+        mtx_tags_downlink:
+          - [DL, SG184XDR]
+
+      SG185:
+        mtx_tags_downlink:
+          - [DL, SG185XDR]
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 10.100.25.0/24
+      - 10.100.23.0/24
+
+    services:
+      - qradio_tcp
+      - ctx_tcp
+      - mc_http
+
+  specnet:
+    tags:
+      - SU
+      - SD
+
+  qradio:
+    tags:
+      - SU
+      - SD
+
+  qfep:
+    tags:
+      - SU
+      - SD
+
+  qmr:
+    tags:
+      - XD
+
+    defaults:
+      qdra_port_inst2: 50022
+      qdra_port_inst1: 50032
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: prod-agss-ksat-downlink-us-east-1
+      prefix: DATA
+      profile: axelspace
+      post_transfer_delete: False

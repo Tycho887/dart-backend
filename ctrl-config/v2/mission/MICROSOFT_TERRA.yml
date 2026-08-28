@@ -1,0 +1,78 @@
+---
+config: TERRA
+acu_config: TERRA
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+      - XD
+
+    whitelist:
+      - 192.146.238.242
+      - 100.64.96.0/24
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+  
+
+  specnet:
+    tags:
+      - SD
+      - SU
+      - XD
+
+    autoconf:
+      txEnable: False
+
+  qradio:
+    tags:
+      - SD
+      - SU
+      - XD 
+
+    defaults:
+      config: default
+
+  qfep:
+    tags:
+      - SD
+      - SU
+      - XD
+
+    defaults:
+      config: microsoft_loopback
+
+  qmr:
+    tags:
+      - XD
+
+  wb_specnet:
+    tags: 
+      - XD
+    
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0StreamOffset: 12.5
+      rf0StreamBW: 50
+
+  qrx: 
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    config: AQUA
+
+    stream_server: aqua_microsoft
+
+    defaults:
+      stream_servers:
+        aqua_microsoft:
+          host: 100.64.96.43
+          port: 56004

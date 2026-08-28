@@ -1,0 +1,6 @@
+---
+config: SENTINEL-2C
+constellation: SENTINEL
+
+services:
+

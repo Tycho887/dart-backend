@@ -1,0 +1,40 @@
+---
+config: NANO_SRS_4_2
+acu_config: CHARLIE
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 172.31.233.17
+      - 172.31.233.88
+      - 192.146.238.242
+      - 100.64.70.0/24 # SDWAN IP-Range
+      #- 100.64.70.64/26 # SDWAN IP range
+      - 100.64.117.0/24 # quindar
+      - 10.191.170.132
+
+    services:
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -7
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU

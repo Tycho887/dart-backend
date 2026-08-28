@@ -1,0 +1,5 @@
+links:
+  x_band_downlink_p1_1:
+    direction: down
+    frequency: 8164000000
+    polarization: LHCP

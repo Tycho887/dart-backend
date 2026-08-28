@@ -1,0 +1,38 @@
+---
+config: HYPSO_1
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 172.31.233.17
+      - 172.31.233.88
+      - 192.146.238.220
+      - 192.146.238.242
+      - 10.166.120.0/24
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf: 
+      reference_attenuation_adjustment: -6
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU

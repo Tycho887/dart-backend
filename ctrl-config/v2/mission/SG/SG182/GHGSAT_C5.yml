@@ -1,0 +1,34 @@
+config: GHGSAT_CX
+acu_config: GHGSAT_C5
+
+services:
+     
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.195
+      - 10.190.165.68
+      - 10.191.48.196
+      - 192.168.63.0/24
+
+    services:
+      - qradio_tcp
+      - qradio_http
+      - mc_http
+      - spectrum_http      
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+
+  qradio:
+    tags:
+      - SD
+      - SU

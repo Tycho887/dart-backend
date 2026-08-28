@@ -1,0 +1,131 @@
+---
+## Special keys
+type: antenna
+object_id: orbital_30TSXS2_37m
+#lat: 78.22745
+#lon: 15.38444
+#altitude: 498.07
+
+mtx:
+  
+  dl:
+    instance_id: dl
+    present: False
+    file: 
+
+    tags:
+      - X
+      - S
+
+    input:
+      bands:
+        - multi
+
+      polarizations:
+        - dual
+
+      tag: none
+
+    output:
+      bands:
+        - S
+        - X
+        
+      polarizations:
+        - dual
+
+      tag: lite
+      
+    defaults:
+      
+      polarization:
+        - dual
+
+      channels: 1
+    
+  up:
+    instance_id: up
+    present: False
+    file: 
+
+    tags:
+      - U
+
+bands:
+  - S
+  - X
+
+links:
+  - down
+  - up
+
+polarization:
+  - RHCP
+  - LHCP
+
+### Defaults
+
+defaults:
+
+  acu:
+    rest: http://10.120.102.11
+
+  proxy:
+    nodes:
+      - http://10.120.102.102:5000
+  
+  specnet:
+    rest: http://10.120.102.34:80
+    qradio_data_ip: 10.120.198.35
+
+  qradio:
+    rest: http://10.120.102.35:8080
+    ctrl-agent: http://10.120.102.35:5000
+    specnet_data_ip: 10.120.198.25
+      
+  qfep:
+    rest: http://10.120.102.35:30000
+    ctrl-agent: http://10.120.102.35:5000
+
+  ctx:
+    host: 10.120.102.35
+
+  qmr:
+    rest: http://10.120.102.33:80
+    eth2: 
+    eth3: 
+    qdra_host_inst1: 10.120.102.36
+    qdra_port_inst1: 50022
+    qdra_host_inst2: 10.120.102.36
+    qdra_port_inst2: 50032
+
+  qdra_inst1:
+    rest: http://10.120.102.36:8080
+    ctrl-agent: http://10.120.102.36:5000
+
+  qdra_inst2:
+    rest: http://10.120.102.36:8081
+    ctrl-agent: http://10.120.102.36:5000
+
+### Model specific
+orbital_30TSXS2_37m:
+  
+  statusall: http://10.120.102.50:3002
+  feed: FTSXS-XBX-PCP-01
+  hpa: PA-01
+  converter: MM-SST-01
+  fibre: FIP-11N1
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  

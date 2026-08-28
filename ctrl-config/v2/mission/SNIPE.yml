@@ -1,0 +1,37 @@
+---
+config: SNIPE
+acu_config: SNIPE
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+
+    services:
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      packetProtectionEnable: False
+  
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    transfer_staging:
+      backend: ftp3
+      home: /customers/FTP/SNIPE
+      qfte: True

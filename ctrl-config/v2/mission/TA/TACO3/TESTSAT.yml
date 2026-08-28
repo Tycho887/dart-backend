@@ -1,0 +1,24 @@
+---
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.0/24
+      - 172.22.96.152
+      - 172.22.96.153
+
+    services:
+      - qradio_tcp
+      - ctx_tcp
+      - spectrum_http
+      - mc_http
+  
+  specnet:
+    config: default
+    tags:
+      - SD
+      - SU

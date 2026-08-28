@@ -1,0 +1,65 @@
+tags:
+  - scheduler
+
+defaults:
+
+  ftp3:
+    host: 192.146.239.4
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  proxy:
+    nodes:
+      - http://10.103.0.125:5000 # alternative 10.103.0.81
+
+  scheduler:
+    host: localhost
+    type: vm
+
+  ctx:
+    host: 192.168.12.10
+
+  zodiac_cortex:
+    host: 10.103.6.13
+
+  zodiac_cortex_backup:
+    host: 10.103.6.14
+
+  qmr:
+    rest: http://10.203.127.71:80
+    qdra_host_inst1: 10.203.126.168
+    qdra_port_inst1: 50032
+    qdra_host_inst2: 10.203.126.168
+    qdra_port_inst2: 50022
+    input_power_mode: inputPower_HR
+    rate: HR
+
+  qdra-inst1:
+    inst: 1
+    rest: http://10.103.0.168:8080
+    ch: CH2
+    rate: HR
+    stream_servers:
+      tsx:
+        host: 10.203.126.79
+        port: 5555
+      iceye:
+        host: 13.53.65.131
+        port: 9199
+
+  qdra-inst2:
+    inst: 2
+    rest: http://10.103.0.168:8081
+    ch: CH2
+    rate: HR
+    stream_servers:
+
+
+services:
+
+  scheduler:
+    tags:
+      - scheduler

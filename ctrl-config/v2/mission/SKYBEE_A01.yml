@@ -1,0 +1,42 @@
+---
+config: NANO_SRS_4_3
+acu_config: SKYBEE
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 172.31.233.17
+      - 172.31.233.88
+      - 172.31.244.44
+      - 192.146.238.242
+      - 100.64.70.0/24 # SDWAN IP-Range
+      #- 100.64.70.64/26 # SDWAN IP range
+
+    services:
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -5
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    config: default
+    record: False
+    tags:
+      - SD
+      - SU
+

@@ -2,9 +2,9 @@
 
 Python loaders pull telemetry from ADX/Kusto and metadata from the KOGS API
 into a single transport struct; a Rust solver consumes it and returns a
-result struct; both can be exported as CCSDS TDM files. A separate strict
-KSAT profile combines KOGS metadata with bounded ADX telemetry to create
-delivery products without invoking a solver.
+result struct; both can be exported as CCSDS TDM files. A separate compact
+KSAT path combines KOGS metadata with bounded ADX telemetry to create a
+Doppler-only TRACK mode-4 product without invoking a solver.
 
 ## Documentation
 
@@ -13,9 +13,12 @@ delivery products without invoking a solver.
 - [Solver models and mathematics](docs/solvers.md) — solver contracts,
   parameterizations, Doppler geometry, objectives, Jacobians, covariance, and
   the current RK89 implementation status.
-- [KSAT TDM export service](docs/ksat-tdm-export.md) — service architecture,
-  KOGS/ADX integration, configuration ownership, runtime behavior, and
-  extension points.
+- [Combined-pass Doppler results](docs/combine-passes-results.md) — evaluation
+  of joint and per-pass TLE corrections using direct GPS position error.
+- [Asynchronous processing API](docs/async-api.md) — submission, durable worker,
+  TimescaleDB schema/views, trusted identity headers, and operations.
+- [KSAT TRACK export](docs/ksat-tdm-export.md) — mode-4 KOGS/ADX integration,
+  control-config frequencies, calibration ownership, and command-line use.
 
 ## Pipeline
 
@@ -31,9 +34,8 @@ KOGS metadata ─┴─────────────────► Sgp4I
 
 KSAT delivery path
 
-KOGS contact/antenna ──► ksat_metadata ──┐
-                                         ├─► ksat_export/ksat_adx ─► ksat_tdm ─► delivery TDMs
-bounded ADX contact ─────────────────────┘
+KOGS contact/antenna ─┐
+bounded ADX contact ──┴─► dart.tdm.ranging ─► TRACK mode-4 TDM
 ```
 
 The KSAT delivery path is independent of the schema, MessagePack, and solver
@@ -121,101 +123,19 @@ If the installed Rust extension predates these cache keys, rebuild it once with
 `uv sync --reinstall-package dart`. Subsequent `uv run` commands automatically
 rebuild the extension when the Rust manifest, lockfile, or sources change.
 
-## KSAT TDM export
+## KSAT TRACK export
 
-`dart.io.ksat_export` is the high-level service for one-contact KSAT delivery.
-It combines strict TOML configuration with KOGS identity/antenna enrichment
-from `dart.io.ksat_metadata`, a bounded telemetry query from
-`dart.io.ksat_adx`, and typed rendering/file naming from `dart.io.ksat_tdm`.
-This path does not change the solver wire schema or use the legacy
-`dart.io.tdm` writer.
+`dart.tdm.ranging.write_track_tdm` writes a KSAT-profile CCSDS 503.0-B-2
+Doppler-only TRACK mode-4 file for one KOGS contact. It resolves metadata
+through the existing KOGS client, reads exact named uplink/downlink frequencies
+from `ctrl-config/v2/spacecrafts`, and retrieves raw telemetry through a
+contact- and reservation-bounded ADX helper.
 
-Only ADX timestamps and antenna position angles have default mappings. Range
-delay, absolute transmit/receive frequencies, carrier power, PC/N0, and PR/N0
-must be mapped explicitly because similarly named telemetry fields are not
-semantically interchangeable. TRACK additionally requires an explicitly
-selected timestamp column confirmed to represent the end of the integration
-interval. Each export is bounded to one contact and rejects incomplete mapped
-rows rather than silently dropping them. METEO is reported as deferred until
-its missing normative KSAT definition and the weather API are available.
+Range modes 1 and 3 fail explicitly until an authoritative round-trip delay
+source is selected. Carrier-phase mode 2 is unsupported by the supplied KSAT
+profile. Reviewed pedestal, TLT, and Doppler-correction constants belong in
+`dart.io.meos.TRACK_CALIBRATIONS`; missing entries prevent export.
 
-See [KSAT TDM export service](docs/ksat-tdm-export.md) for the complete runtime
-flow, module boundaries, Python service API, configuration authority, result
-model, and extension guidance.
-
-The reusable authoring and validation rules live in
-`.agents/skills/ksat-tdm/SKILL.md`; its references document the source PDFs,
-known errata, supported modes, units, and field matrices.
-
-### Export command
-
-Copy [`config/ksat-tdm.example.toml`](config/ksat-tdm.example.toml), replace
-its placeholders with site-confirmed values and ADX columns, and run:
-
-```bash
-uv run python scripts/write_tdm.py \
-  --config /path/to/ksat-tdm.toml \
-  --contact-id CONTACT_ID \
-  --start 2026-08-25T10:00:00Z \
-  --stop 2026-08-25T10:15:00Z \
-  --output-dir /path/to/delivery
-```
-
-`--start` and `--stop` must include `Z` or a UTC offset. By default the command
-exports every product whose `[track]`, `[angle]`, or `[sigmet]` section is
-present. Repeat `--product track|angle|sigmet` to select a subset. Use
-`--timeout-seconds` to change the 30-second ADX timeout and `--overwrite` to
-replace existing standard filenames. METEO is intentionally unavailable.
-
-The TOML file has required `[site]`, `[spacecraft]`, `[kogs]`, and `[adx]`
-sections; optional `[geocoder]` and `[header]` sections configure reverse
-geocoding and supply `summary`/`comments`. `[kogs]` contains the expected
-spacecraft, system, and station UUIDs for the selected contact. The exporter
-rejects a contact whose KOGS identities do not match them.
-
-KOGS supplies the antenna identifier, NORAD/catalog ID, and WGS-84
-reference-point coordinates. COSPAR is derived from the selected contact's
-TLE/OMM when available; its catalog identity is cross-checked against the
-spacecraft response. The deprecated `spacecraft.identifier` remains only as a
-compatibility fallback.
-The exporter converts those coordinates directly to ITRF/ECEF metres with
-satkit and reverse-geocodes an English locality, region, and country. A
-geocoder failure produces `UNKNOWN` and a warning; it does not prevent valid
-products from being written. `[site]` contains only reviewed facts that KOGS
-does not currently expose: an optional distinct common name, pedestal offset,
-and a paired TLT band/calibration date. Missing calibration facts are emitted
-as `UNKNOWN` with warnings for ANGLE. TRACK is skipped unless COSPAR, catalog,
-pedestal, applicable TLT calibration, and all mode-required calibration terms
-are available. Calibration is behind a provider interface so the current
-reviewed configuration can later be replaced by the antenna-local MEOS source.
-
-Product sections contain the static metadata accepted by the corresponding
-typed writer. ADX observable mappings are nested tables containing exactly
-`column` and `unit`.
-
-The configured ADX `station_id` column must contain the operational antenna
-identifier returned by KOGS (for example `SG221`), rather than its internal
-system UUID, so the TDM participant and selected telemetry remain consistent.
-Supported source units are seconds through picoseconds for range delay, Hz
-through GHz for frequencies, degrees or radians for angles, dBW for carrier
-power, and dB-Hz for PC/N0 and PR/N0. Unknown keys, incomplete mappings, and
-incompatible units fail before a database connection is made.
-
-Credentials remain outside TOML. Set `KOGS_API_KEY`,
-`AZURE_ADX_CLUSTER_ENDPOINT`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, and
-`AZURE_TENANT_ID` in the environment or the existing `.env` file;
-`HTTP_PROXY` remains optional. KOGS metadata is required before the bounded
-ADX query runs. The default reverse geocoder is OpenStreetMap Nominatim;
-`[geocoder]` can override its URL, user-agent, and timeout without storing
-credentials.
-
-Generated files are written immediately beneath `--output-dir` using
-`<TYPE>_<GSID>_<SVID>_<CREATION_DATE>.tdm`. Skipped products are warnings. The
-command exits successfully if at least one requested product was written and
-exits with status 1 on configuration/runtime failure or if none were written.
-Argparse usage errors retain status 2.
-
-A complete, reproducible ANGLE walkthrough for spacecraft UUID
-`2cd1ce1c-3090-4a5f-b621-2e651c872245`, including three checked-in time-window
-outputs, is available in
-[`examples/ksat-tdm/awesat-1/README.md`](examples/ksat-tdm/awesat-1/README.md).
+See [KSAT TRACK export](docs/ksat-tdm-export.md) for the Python API, data-source
+rules, and command-line example. Credentials remain in `KOGS_API_KEY` and the
+existing Azure ADX environment variables.

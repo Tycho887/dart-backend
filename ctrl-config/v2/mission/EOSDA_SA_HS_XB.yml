@@ -1,0 +1,58 @@
+config: AGRISAT_SA
+acu_config: AGRISAT
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.195
+      - 100.64.34.0/24
+  
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -3
+
+  qradio:
+    tags:
+      - SD
+      - SU
+   
+  qmr:
+    tags:
+      - XD
+
+    defaults:
+      config: DFA_SA_XB
+
+  wb_specnet:
+    config: DFA_SA_XB
+    tags:
+      - XD
+  qrx:
+    tags:
+      - XD
+    defaults:
+      config: DFA_SA_XB
+ 
+  qdra-inst1:
+    tags:
+      - XD
+    defaults:    
+      config: DFA_SA_XA
+    record: True
+
+

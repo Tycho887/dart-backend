@@ -1,0 +1,109 @@
+---
+config: ICEYE_X4
+customer: ICEYE
+constellation: ICEYE
+acu_config: ICEYE_X12
+
+services:
+
+  proxy:
+    tags:
+      - XD
+      - SD
+
+    whitelist:
+      - 10.100.4.1
+      - 100.64.52.0/24
+      - 192.146.238.242
+      
+    services:
+      - ctx_tcp
+      - qradio_http
+      - qmr_http
+      - spectrum_http
+      - monitor_tcp
+      - mc_http      
+  
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      enabled: True
+      reference_attenuation_adjustment: 0
+      system_specific:
+        JJ1:
+          force_attenuation: 21
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    defaults:
+      config: ICEYE_2088M3_128k
+      
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/ICEYE
+      
+  ctx:    
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    config: ICEYE_SQPSK_140Mbps_tcp
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+
+    config: ICEYE_SQPSK_140Mbps
+
+    autoconf:
+      inputCenterFrequency: 1350
+      rf0StreamOffset: 0
+      rf0StreamBW: 140
+
+  qrx:
+    tags:
+      - XD
+
+    config: ICEYE_SQPSK_140Mbps_tcp
+
+  qdra-inst1:
+    stream_server: iceye
+    tags:
+      - XD
+
+    config: ICEYE_LR_tcp
+
+    record: True        
+    
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: iceye-ksat-raw-downlinks-production
+      profile: iceye
+      stream_raw: True
+      prefix: DATA
+      concurrency: 3
+
+  capricorn:
+    tags:
+      - capricorn
+    
+  contec:
+    tags:
+      - contec
+
+    reserve: True
+    contec_satellite_id: 1045

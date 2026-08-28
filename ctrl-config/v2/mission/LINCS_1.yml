@@ -1,0 +1,42 @@
+---
+config: LINCS_1
+customer: GA
+constellation: GA
+
+services:
+  
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.168.8.0/25
+      - 192.146.238.172
+      - 192.146.238.195
+      - 192.146.238.242
+      - 192.146.238.237
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http
+  
+  specnet:
+    tags:
+      - SD
+      - SU
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+#  qmr:
+#    tags:
+#      - XD
+
+#  qdra-inst1:
+#    tags:
+#      - XD
+

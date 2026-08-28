@@ -1,0 +1,46 @@
+---
+config: KAZSTSAT
+
+services:
+
+#  custom_backend:
+#    tags:
+#      - SD
+#      
+#    mtx_tags:
+#      - [DL, KAZST]
+#
+#    mtx_tags_downlink:
+#      - [DL, KAZST]
+#
+#    mtx_tags_uplink: [KAZ, U]
+#
+#    system_specific:
+#
+#      SG183:
+#        mtx_tags_downlink:
+#          - [DR, SG183XDL]
+#          - [DL, SG183XDR]
+#
+#      SG184:
+#        mtx_tags_downlink:
+#          - [DR, SG184XDL]
+#          - [DL, SG184XDR]
+
+
+  qmr:
+
+    defaults:
+      qdra_host_inst1: 10.203.126.79
+      qdra_port_inst1: 53000
+        
+    tags:
+      - XD
+
+## Non essential data          
+metadata:
+  XD:
+    freq:
+    bw:
+
+    

@@ -1,0 +1,65 @@
+---
+type: mission
+config: ICEYE_X2
+no_antenna: False
+load_config: True
+run_mode: production
+autosign: True
+autosign_level: 0
+kmon_autosign: True
+kmon_level: 0
+customer: KSAT TEST ## Needed for autosign matching
+watch: True ## Sends event log for pass
+watchers:
+  - bjarne@ksat.no
+  
+## Special keys:
+## type: mission
+## config: global config name, otherwise file name is used
+## run_mode: used to discard certain functions when running, if none all is run
+
+services:
+
+## Special keys:
+## tags: list of tags, runs all if none
+## functions: list of functions to be run, runs all if none
+## modes: list of modes, runs all if none
+## config: override global config
+## object_id: looks for object
+#  proxy:
+    ## Tags are specific
+#    tags:
+#      - U
+#      - S
+
+  ctx:
+    tags:
+      - U
+      - S
+
+    storage:
+      record: False
+      filename_flavour: std
+            
+    reset: True
+
+  specnet:
+    tags:
+      - U
+      - S
+
+  qradio:
+    tags:
+      - U
+      - S
+
+  qfep:
+    tags:
+      - U
+      - S
+
+
+
+  
+
+

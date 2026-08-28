@@ -1,0 +1,37 @@
+config: WV3
+acu_config: WV3
+
+services:
+#  custom_backend:
+#    tags:
+#      - SD
+#        
+#    system_specific:
+#      
+#      HA3:
+#        mtx_tags_downlink:
+#          - [DL, 3SDL]
+#
+#  specnet:
+#    tags:
+#      - SD
+#      - SU
+#    config: WORLDVIEW
+
+  wb_specnet:
+    config: WVIEW
+    tags:
+      - XD
+  wb_specnet2:
+    config: WVIEW
+    tags: 
+      - XD
+  qrx:
+    config: WV01_RH
+    tags:
+      - XD
+
+  qdra-inst1:
+    config: WVIEW
+    tags:
+      - XD

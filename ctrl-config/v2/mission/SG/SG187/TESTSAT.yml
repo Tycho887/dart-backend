@@ -1,0 +1,32 @@
+---
+config: YAM_3
+
+services:
+
+  proxy:
+    tags:
+      - XD
+
+    whitelist:
+      - 192.146.238.0/24
+
+    services:
+      - spectrum_http
+      - mc_http
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    sfx_record: True
+
+    sfx_transfer:
+      backend: ftp3
+      home:  /customers/cache/lite
+      remove_sfx_session_path: True
+      post_transfer_delete: False
+      tarball: True

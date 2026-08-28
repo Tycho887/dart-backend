@@ -1,0 +1,291 @@
+tags:
+  - electron
+  - spaceport
+  - controller
+  - ksat_acu_orbital
+
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+acu:
+  vendor: #orbital
+  model: #3.0TSXS7-3.7m
+  feed: #FTSXS-0B0-PBP-101-01
+  hpa: #PA-03
+  converter: #MM-SST-01
+  #polarizations:
+  #  SD:
+  #    - dual
+  #  XD:
+  #    - dual
+  #  SU:
+  #    - dual
+
+defaults:
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://10.117.114.61:80
+    control_api_enabled: true
+    monitor_api_enabled: true
+
+  controller:
+    # control_api: http://10.117.114.61:9999
+    # monitor_api: http://10.117.114.61:80
+    auto_pull: 1
+    session: PA17
+
+  aws_s3:
+    web_proxy: 10.117.126.79:8888
+
+  ftp3:
+    host: 192.146.239.5
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  #marius_ftp:
+  #  host: 10.141.177.148
+  #  user: lite
+  #  port: 22
+
+  orbital:
+    host: 10.117.114.37
+
+  ksat_acu_orbital:
+    base_url: http://10.117.114.61:80/ksat_acu_orbital
+
+    reference_hpa_input_attenuation: 10
+    reference_s_tx_polarity: RHCP
+    reference_hpa_output_control: Feed
+    reference_hpa_status: Enable
+
+  proxy:
+    operational: True
+    mode: accept-proxy
+    access: 10.117.114.61
+    site: 100.90.117.17
+    site_sdwan: 100.90.117.17
+
+    nodes:
+      - http://10.117.114.61:80
+
+  downlink_mtx:
+    block: punta_arenas_2
+    alias: 17
+    antenna_alias: 17
+    host: 10.117.127.191
+    port: 4000
+    vendor: etl
+    model: victor
+    mode: downlink
+    size: 16
+
+    def_routes: []
+
+    null: NULL
+
+  uplink_mtx:
+    block: punta_arenas_2
+    alias: 17
+    antenna_alias: 17
+    host: 10.117.127.191
+    port: 4000
+    vendor: etl
+    model: victor
+    mode: uplink
+    size: 16
+    def_routes: []
+
+
+  specnet:
+    enabled: True
+    rest: http://10.117.114.52:80
+    qradio_data_ip: 10.117.125.103
+
+    link_config:  # Use this if not converted to 70 MHz
+      mode: spacecraft  # Uses frequencies used in v2/spacecrafts for the particular spacecraft
+      uplink_config: s_band_uplink_p1_1  # Default uplink config. Can be overridden in mission
+      downlink_config: s_band_downlink_p1_1  # Default downlink config. Can be overridden in mission
+
+    autoconf:
+      enabled: True
+      reference_attenuation: 16
+      inputFrequency: 67.5
+      system_bandwidth: '10.0'
+      gainMode: 'Automatic'
+      rfInputPort: 'rfIn1'
+      AD_bits: 8
+      qradio_data_ip: 10.117.125.103
+      networkInputPort: 50000
+      streamOffset: 2.5
+      maxPacketSize: 1500
+      streamBandwidth: 5
+      packetProtectionEnable: True
+      inputStreamID: 0
+      rxEnable: True
+      invertOutputSpectrum: False
+      attenuation: 24
+      rfOutputPort: 'rfOut1'
+      outputFrequency: 68.5
+      rfOutputSource: 'Packets'
+      dataSource: 'Network'
+      programmedBuffer: 0
+      programmedDelay: 0
+      preserveLatency: False
+      networkOutputPort: 50000
+      outputFrequencyOffset: 1.5
+      useLocalReference: True
+      outputStreamID: 0
+      releaseMode: 'Programmed Delay'
+      multicastEnable: False
+      overrideOutputFrequencyEnable: True
+      txEnable: True
+
+      rf_input_port_rules:
+        s_rhcp: 'rfIn1'
+        s_lhcp: 'rfIn2'
+        x_rhcp: 'rfIn1'
+        x_lhcp: 'rfIn2'
+
+      rf_output_port_rules:
+        s_rhcp: 'rfOut1'
+        s_lhcp: 'rfOut1'
+        x_lhcp: 'rfOut1'
+        x_rhcp: 'rfOut2'
+
+  ctx:
+    enabled: True
+    host: 10.117.114.42
+
+  qradio:
+    enabled: True
+    rest: http://10.117.114.42:8080
+    specnet_data_ip: 10.117.125.41
+
+    model: qradio
+    control_api_id: lr_radio
+
+  qfep:
+    enabled: True
+    rest: http://10.117.114.42:30000
+
+  wb_specnet:
+    enabled: True
+    rest: http://10.117.114.53:80
+
+    autoconf:
+      enabled: True
+      qrx_host_rf0: 10.117.126.107
+      qrx_port_rf0: 50000
+
+  wb_specnet2:
+    enabled: True
+    rest: http://10.117.114.54:80
+
+    autoconf:
+      enabled: True
+      qrx_host_rf0: 10.117.126.108
+      qrx_port_rf0: 50000
+
+  qrx:
+    enabled: True
+    rest: http://10.117.114.45:8080
+    qdra_host_inst1: 10.117.126.242
+    qdra_port_inst1: 50022
+    qdra_host_inst2: 10.117.126.242
+    qdra_port_inst2: 50032
+    rate: HR
+
+    model: qrx
+    control_api_id: hr_radio
+
+  qrx2:
+    enabled: True
+    object_id: qrx
+    instance: 2
+    rest: http://10.117.114.46:8080
+    qdra_host_inst1: 10.117.126.243
+    qdra_port_inst1: 50032
+    qdra_host_inst2: 10.117.126.243
+    qdra_port_inst2: 50022
+    rate: HR
+
+    model: qrx
+    control_api_id: hr_radio
+
+  qdra-inst1:
+    enabled: True
+    inst: 1
+    rest: http://10.117.114.43:8080
+    rate: HR
+
+    model: qdra
+    control_api_id: hr_fep
+
+    stream_servers:
+      ororatech:
+        host: 10.117.126.9
+        port: 7914
+
+  qdra-inst2:
+    enabled: True
+    inst: 2
+    rest: http://10.117.114.44:8081
+    rate: HR2
+
+    model: qdra
+    control_api_id: hr_fep
+
+    stream_servers:
+
+  qmr:
+    enabled: False
+
+  falcon:
+    recorders:
+      - hypermatter_api: http://10.117.114.43:6000
+        component_config:
+          component: QDRA
+          file_options_config:
+            file_name:
+              - ext: DAT
+                enumerate: true # added at the end of the file name before the file extension
+                sub_dir: "/qdra-inst1/"
+                delimiter: "_"
+ 
+      - hypermatter_api: http://10.117.114.44:6000
+        component_config:
+          component: QDRA
+          file_options_config:
+            file_name:
+              - ext: DAT
+                enumerate: true # added at the end of the file name before the file extension
+                sub_dir: "/qdra-inst2/"
+                delimiter: "_"
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+  controller:
+    tags:
+      - controller
+
+  ksat_acu_orbital:
+    tags:
+      - ksat_acu_orbital

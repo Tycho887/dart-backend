@@ -1,0 +1,55 @@
+acu_config: HAWK_2B
+config: HAWK_2B
+services:
+  custom_backend:
+    system_specific:
+      SG183:
+        mtx_tags_downlink:
+        - - DL
+          - SG183SDL
+      SG184:
+        mtx_tags_downlink:
+        - - DR
+          - SG184SDL
+      SG185:
+        mtx_tags_downlink:
+        - - DR
+          - SG185SDL
+    tags:
+    - SD
+    - XD
+  proxy:
+    services:
+    - qradio_tcp
+    - qradio_http
+    - qmr_http
+    - mc_http
+    - spectrum_http
+    tags:
+    - SU
+    - SD
+    - XD
+    whitelist:
+    - 10.103.235.0/24
+    - 10.104.213.0/24
+    - 192.146.238.172
+    - 192.146.238.242
+    - 10.117.235.0/24
+    - 10.121.235.0/24
+    - 10.131.235.0/24
+    - 10.141.209.0/28
+    - 10.120.201.32/28
+  qradio:
+    defaults:
+      config: HAWK_2B_S
+    tags:
+    - SD
+    - SU
+    - XD
+  specnet:
+    autoconf:
+      reference_attenuation_adjustment: 1
+    tags:
+    - SD
+    - SU
+    - XD

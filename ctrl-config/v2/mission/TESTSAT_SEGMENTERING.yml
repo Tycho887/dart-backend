@@ -1,0 +1,27 @@
+---
+services:
+  qmr:
+    tags:
+      - XD
+      
+    config: noise_100kbps
+  
+  qrx:
+    tags:
+      - XD
+
+    config: noise_100kbps
+
+  qdra-inst1:
+    config: segmentation_test
+    tags:
+      - XD
+
+    record: 
+      streams: [1,2,5]
+
+    s3_transfer:
+      backend: aws_s3
+      bucket_name: birksat-us-east-1
+      profile: birk
+

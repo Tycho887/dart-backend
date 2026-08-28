@@ -1,0 +1,67 @@
+---
+config: SIGI
+acu_config: SIGI
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.124.0/26 
+
+    services:
+      - qradio_tcp
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -5
+      system_bandwidth: '22.0'
+      streamBandwidth: 5
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1300
+      rf0StreamOffset: 5
+      rf0StreamBW: 50
+ 
+
+  qrx:
+    tags:
+      - XD
+    
+    config: SIGI_XBAND
+
+  qdra-inst1:
+    tags:
+      - XD
+      
+    record: True
+
+    config: SIGI
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: reflex-ksat-payload-data
+      profile: reflexaerospace
+      prefix: DATA  

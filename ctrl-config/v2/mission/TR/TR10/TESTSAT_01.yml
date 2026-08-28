@@ -1,0 +1,14 @@
+---
+
+config: ICEYE_X2
+
+services:
+  qradio:
+    tags:
+      - SD
+
+  qfep:
+    tags:
+      - SD
+
+  

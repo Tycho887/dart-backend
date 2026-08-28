@@ -1,0 +1,14 @@
+---
+config: MICROSOFT_BLACKSKY_GLOBAL
+acu_config: GLOBAL_1
+
+services:
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    stream_server: microsoft_blacksky_global

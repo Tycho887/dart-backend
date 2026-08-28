@@ -1,0 +1,63 @@
+---
+config: PANDORA
+acu_config: PANDORA
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+      - XD
+
+    whitelist:
+      - 100.64.83.0/24
+      - 100.64.100.0/24
+      - 100.64.12.0/24
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -6
+      streamBandwidth: 7
+      streamOffset: 3.5
+      inputFrequency: 66.5
+      system_bandwidth: "22.0"
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    config: PANDORA_lowrate
+
+  qrx:
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1500
+      rf0StreamOffset: 5
+      rf0StreamBW: 20
+
+  qdra-inst1:
+    config: PAY_EXTR_TO_RAW_RECORD
+    tags:
+      - XD
+
+    record: True
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/LAWRENCELIVERMORE

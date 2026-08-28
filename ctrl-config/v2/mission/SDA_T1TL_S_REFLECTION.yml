@@ -1,0 +1,44 @@
+---
+config: YORK_T1TL_S_TEST
+acu_config: YORK
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 172.31.244.111 # hsc-nix
+      - 100.64.78.0/24 # YORK SD-WAN
+      - 100.64.72.0/24 # LM SD-WAN
+      - 100.64.54.0/24 # NG  
+      
+
+    
+
+    services:
+      - qradio_tcp
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+    
+    autoconf:
+      enabled: True
+      reference_attenuation_adjustment: -5
+
+
+  qradio:
+    config: SDA_TEST
+    tags:
+      - SD
+      - SU
+
+
+
+
+

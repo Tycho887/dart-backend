@@ -1,0 +1,110 @@
+config: HAWK_2A
+acu_config: HAWK_9A_DVBS2
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+      - XD
+
+    whitelist:
+      - 10.103.235.0/24
+      - 10.104.213.0/24
+      - 192.146.238.172
+      - 192.146.238.242
+      - 192.146.238.237
+      - 10.117.235.0/24
+      - 10.121.235.0/24
+      - 10.131.235.0/24
+      - 10.197.255.0/28
+      - 10.141.209.0/28
+      - 10.120.201.32/28
+  
+
+    services:
+      - qradio_tcp
+      - qradio_http
+      - qmr_http
+      - mc_http
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+      - XD
+
+    autoconf:
+      reference_attenuation_adjustment: -3
+      inputFrequency: 1339
+      inputFrequencyOffset: 2
+      streamOffset: 2
+      streamBandwidth: 4
+      packetProtectionEnable: False
+      spectral_class_dl: x_rhcp
+
+  wb_specnet:
+    config: HAWK_2A
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1100
+      rf0StreamOffset: -40
+      rf0StreamBW: 200
+      inputSpectralInversion: True
+      system_specific:
+        NZ7:
+          qrx_host_rf0: 10.121.126.157
+
+  wb_specnet2:
+    config: HAWK_2A
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1100
+      rf0StreamOffset: -40
+      rf0StreamBW: 200
+      inputSpectralInversion: True
+      system_specific:
+        NZ7:
+          qrx_host_rf0: 10.121.126.156
+          
+
+  qradio:
+    config: HAWK_2AX
+    tags:
+      - SD
+      - SU
+      - XD
+  
+  qfep:
+    tags:
+      - SD
+      - SU
+      - XD
+
+    config: default
+
+  qrx:
+    config: HAWK_DVBS2
+    tags:
+      - XD
+
+  qmr:
+    tags:
+      - XD
+
+    config: HAWK_A_DVBS2
+    defaults:
+      qdra_port_inst2: 50022
+      qdra_port_inst1: 50032
+
+  qdra-inst1:
+    config: HAWK
+    stream_server: hawk_9a
+    tags:
+      - XD

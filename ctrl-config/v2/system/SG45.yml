@@ -1,0 +1,188 @@
+tags:
+  - electron
+  - spaceport
+  - controller
+  - meos
+  - tracking_test
+  - acu
+  # Removing matrix since does not seem to be used
+  # - downlink_mtx
+  # - uplink_mtx
+
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+  - name: nkom_tracking_file
+    type: nkom_tracking_file
+
+acu:
+  vendor: orbital
+  model: 3.0TSXS7-3.7m
+  feed: FTSS-00-CC-11-01
+  hpa: PA-03
+  converter: MM-SST-01
+  polarizations:
+    SD:
+      - dual
+    XD:
+      - dual
+
+defaults:
+
+  nkom:
+    destination:
+      host: "svl-trk-cmd.ksat.no"
+      path: "inbox/"
+    log_tracking_file: false
+    publish_tracking_file: true
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://10.203.114.93:80
+    control_api_enabled: true
+    monitor_api_enabled: true
+    ephemeris_cacher_enabled: false
+
+  controller:
+    # control_api: http://10.203.114.93:9999
+    # monitor_api: http://10.203.114.94:80 #needs to be changed
+    disable_monitor_websocket_stream_check: True
+    auto_pull: 0
+    session: SG45
+
+  orbital:
+    host: 10.203.114.69
+    rest: http://10.203.114.93:30000
+    vendor: orbital
+    model: orbital
+    feed:  FTSS-00-CC-11-01
+    hpa: PA-03
+    converter: MM-SST-01
+    control_api_id: acu
+    polarizations:
+      SD:
+        - dual
+      XD:
+        - dual
+
+  aws_s3:
+    web_proxy: 10.203.126.79:8888
+
+  ftp3:
+    host: 192.146.239.4
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  proxy:
+    nodes:
+      - http://10.103.0.81:5000
+
+  downlink_mtx:
+    block: svalsat_1
+    host: 10.103.0.140
+    port: 4000
+    vendor: etl
+    model: nigma
+    mode: downlink
+
+  uplink_mtx:
+    block: svalsat_1
+    alias: 94
+    antenna_alias: 94
+    host: 10.103.0.40
+    port: 4000
+    vendor: etl
+    model: victor
+    mode: uplink
+
+  specnet:
+    enabled: False
+
+  ctx:
+    enabled: False
+
+  qradio:
+    enabled: False
+
+
+  qfep:
+    enabled: False
+
+  wb_specnet:
+    enabled: False
+
+  qrx:
+    enabled: False
+
+  qmr:
+    enabled: False
+
+  qdra-inst1:
+    enabled: False
+
+  qdra-inst2:
+    enabled: False
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+  orbital:
+    tags:
+      - acu
+
+    object_id: orbital
+
+  controller:
+    tags:
+      - controller
+
+  downlink_mtx:
+    tags:
+      - downlink_mtx
+
+    object_id: etl_downlink
+
+  uplink_mtx:
+    tags:
+      - uplink_mtx
+
+    object_id: etl_uplink
+
+  meos:
+    tags:
+      - meos
+
+    object_id: meos
+
+    dests:
+      orbital:
+        method: sftp
+        host: 10.203.114.93
+        user: orbital
+        dest: /home/orbital/schedule
+
+  tracking_test:
+    tags:
+      - tracking_test
+
+    functions:
+      - program_track
+      # - hpa_level
+
+  nkom: {}

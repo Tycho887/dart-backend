@@ -1,0 +1,156 @@
+tags:
+  - electron
+  - spaceport
+  - controller
+
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+acu: {}
+
+defaults:
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+    ephemeris_cacher:
+      enabled: true
+
+    electron_configure:
+      enabled: true
+      default_method: native
+      native:
+        default_naming: spacecraft+antenna
+
+  uplink_rf_switch:
+    base_url: http://10.103.50.70
+    configure_switch:
+      input_port: 1
+      output_port: 2
+
+  spaceport:
+    base_url: http://10.103.50.190:80
+    control_api_enabled: true
+    configure_monitoring_api: true
+    monitor_api_enabled: true
+  
+  controller:
+    enabled: True
+    cosmic_monitor_api_host: 10.203.127.150
+    cosmic_monitor_api_port: 8080
+    end-delay: 30
+
+  orbital-ng:
+    name: "SG50_Orbital_ACU"
+    device_type: "orbital"
+    ip: "10.103.50.21"
+    api_url: "http://10.103.50.190:80/acu-orbital" 
+    desc: "Orbital ACU for SG50"
+    base_url: http://mw_orbital:6065
+
+  cortex_crt1:
+    device_id: "cortex_crt1"
+    device_name: "cortex_crt_sg50_a"
+    device_type: "cortex_crt"
+    ip: "10.103.50.13"
+    api_url: "http://10.103.50.190:80/mw_safran_crt"
+    base_url: http://mw-safran-crt:6009
+
+
+
+  cortex_crt2:
+    device_id: "cortex_crt2"
+    device_name: "cortex_crt_sg50_b"
+    device_type: "cortex_crt"
+    ip: "10.103.50.14"
+    api_url: "http://10.103.50.190:80/mw_safran_crt_backup"
+    base_url: http://mw-safran-crt-backup:6010
+
+  nkom:
+    destination:
+      host: "svl-trk-cmd.ksat.no"
+      path: "inbox/"
+    log_tracking_file: True
+    publish_tracking_file: True
+    use_cosmic_metrics: true
+    cosmic_host: 10.203.127.150
+    cosmic_port: 5432
+    cosmic_username: electron
+    cosmic_password: electron
+
+
+  orbital:
+    enabled: False
+
+  proxy:
+    enabled: False
+
+  specnet:
+    enabled: False
+
+  ctx:
+    enabled: False
+
+  qradio:
+    enabled: False
+    
+  qfep:
+    enabled: False    
+
+  wb_specnet:
+    enabled: False
+    
+  wb_specnet2:
+    enabled: False    
+
+  qrx:
+    enabled: False
+
+  qrx1:
+    enabled: False    
+
+  qrx2:
+    enabled: False    
+    
+  qdra-inst1:
+    enabled: False
+ 
+  qdra-inst2:
+    enabled: False
+  
+  qmr:
+    enabled: False
+
+electron:
+
+  electron:
+    parameters:
+      monitor_api:
+        base_url: http://10.103.50.190:80/scraper
+        start_padding: 30
+        end_padding: 30
+
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+  controller:
+    tags:
+      - controller
+
+  uplink_rf_switch: {}
+  cortex_crt1: {}
+  cortex_crt2: {}
+  orbital-ng: {}
+  nkom: {}

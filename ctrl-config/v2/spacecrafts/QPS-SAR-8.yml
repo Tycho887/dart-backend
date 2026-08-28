@@ -1,0 +1,21 @@
+links:
+  s_band_downlink_p1_1:
+    direction: down
+    frequency: 2254000000
+    polarization: RHCP
+  s_band_downlink_p2_1:
+    direction: down
+    frequency: 2254000000
+    polarization: LHCP
+  s_band_uplink_p1_1:
+    direction: up
+    frequency: 2050000000
+    polarization: RHCP
+  s_band_uplink_p2_1:
+    direction: up
+    frequency: 2050000000
+    polarization: LHCP
+  x_band_downlink_p1_1:
+    direction: down
+    frequency: 8054000000
+    polarization: RHCP

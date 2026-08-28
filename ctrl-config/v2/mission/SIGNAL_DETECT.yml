@@ -1,0 +1,13 @@
+---
+config: ICEYE_X2
+customer: KSAT
+constellation: TEST
+
+services:    
+  specnet:      
+    tags:
+      - SD
+
+  qmr:
+    tags:
+      - XD

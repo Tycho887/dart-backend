@@ -1,0 +1,19 @@
+---
+customer: SPIRE
+constellation: LEMUR_2
+
+services:
+
+  qrx: 
+    config: LEMUR_2 
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf: 
+      inputCenterFrequency: 1250
+      rf0StreamBW: 12
+      rf0StreamOffset: 0

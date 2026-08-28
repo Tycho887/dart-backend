@@ -1,0 +1,64 @@
+---
+config: ELARA
+acu_config: ELARA
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 100.64.130.0/24
+      - 172.31.245.74 # Emil IP
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    config: GILMOUR_SRS3_ulCcOn_dlCcOn_dlCrcOn_dlRsOn
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1350
+      rf0StreamOffset: 40
+      rf0StreamBW: 25
+
+  qmr:
+    tags:
+      - XD
+
+  qrx:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True
+    
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: mms1-ksat.7276f62d-9dd5-4f45-a926-07fc981fa768
+      profile: gilmour
+      prefix: DATA
+

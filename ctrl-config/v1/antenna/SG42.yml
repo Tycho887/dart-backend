@@ -1,0 +1,131 @@
+---
+## Special keys
+type: antenna
+object_id: orbital_30TSXS2_37m
+#lat: 78.22745
+#lon: 15.38444
+#altitude: 498.07
+
+mtx:
+  
+  dl:
+    instance_id: dl
+    present: True
+    file: SG_litemtx1.yml
+
+    tags:
+      - X
+      - S
+
+    input:
+      bands:
+        - multi
+
+      polarizations:
+        - dual
+
+      tag: none
+
+    output:
+      bands:
+        - S
+        - X
+        
+      polarizations:
+        - dual
+
+      tag: lite
+      
+    defaults:
+      
+      polarization:
+        - dual
+
+      channels: 1
+    
+  up:
+    instance_id: up
+    present: False
+    file: SG_litemtx1.yml
+
+    tags:
+      - U
+
+bands:
+  - S
+  - X
+
+links:
+  - down
+  - up
+
+polarization:
+  - RHCP
+  - LHCP
+
+### Defaults
+
+defaults:
+
+  acu:
+    rest: http://10.103.42.10
+
+  proxy:
+    nodes:
+      - http://10.103.0.81:5000
+  
+  specnet:
+    rest: https://admin:admin@10.103.42.25:25443
+    qradio_data_ip: 172.23.20.30
+
+  qradio:
+    rest: http://10.103.0.51:8080
+    ctrl-agent: http://10.103.0.51:5000
+    specnet_data_ip: 172.23.20.11
+      
+  qfep:
+    rest: http://10.103.0.51:30000
+    ctrl-agent: http://10.103.0.51:5000
+
+  ctx:
+    host: 10.103.0.51
+
+  qmr:
+    rest: http://10.103.182.20:80
+    eth2: 
+    eth3: 
+    qdra_host_inst1: 172.23.20.42
+    qdra_port_inst1: 50022
+    qdra_host_inst2: 172.23.20.42
+    qdra_port_inst2: 50032
+
+  qdra_inst1:
+    rest: http://10.103.0.62:8080
+    ctrl-agent: http://10.103.0.62:5000
+
+  qdra_inst2:
+    rest: http://10.103.0.62:8081
+    ctrl-agent: http://10.103.0.62:5000
+
+### Model specific
+orbital_30TSXS2_37m:
+  
+  statusall: http://10.103.0.80:3020/
+  feed: FTSXS-XBX-RRR-01
+  hpa: PA-01
+  converter: MM-SST-01
+  fibre: FIP-11N1
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  

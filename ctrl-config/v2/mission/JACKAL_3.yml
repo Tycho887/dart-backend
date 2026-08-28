@@ -1,0 +1,42 @@
+---
+config: JACKAL_3
+acu_config: JACKAL_3
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 100.64.113.0/26 
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -2
+  
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    config: JACKAL_3
+
+  qfep:
+    tags:
+      - SD
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/TRUEANOMALY

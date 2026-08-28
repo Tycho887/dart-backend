@@ -1,0 +1,73 @@
+---
+acu_config: URDANETA
+config: URDANETA
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 192.146.238.223
+      - 100.64.32.0/26 # Satlantis
+
+    services:
+      - qradio_tcp
+
+  specnet:
+    config: CHARLIE
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -7
+
+  qradio:
+    config:
+    tags:
+      - SD
+      - SU
+
+  qfep: 
+    tags:
+      - SD
+      - SU
+  
+  qmr:
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1200
+      rf0StreamOffset: 0
+      rf0StreamBW: 67
+      rf0OutGainMode: "Manual"
+      rf0OutManualGain: 0
+
+  qrx:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True        
+#    transfer:
+#      backend: ftp3
+#      home: /customers/FTP/satlantis
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: mcs-data-storage
+      profile: urdaneta
+      prefix: urdaneta-armsat1/x-band
+      post_transfer_delete: True

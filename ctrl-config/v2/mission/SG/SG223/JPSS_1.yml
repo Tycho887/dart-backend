@@ -1,0 +1,70 @@
+---
+
+acu_config: JPSS_1
+config: JPSS_1_mod1
+
+services:
+
+  custom_backend:
+    tags:
+      - LD
+      - XD
+
+    system_specific:
+      SG44:
+
+        mtx_tags_downlink:
+          - [DL, SG44XDR]       
+
+  proxy:
+    tags:
+      - SD
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+
+    whitelist:
+      - 100.64.21.0/24
+      - 192.146.238.242
+      - 192.146.238.223      
+
+  specnet:
+    tags:
+      - SD
+
+  qradio_v5:
+    config: JPSS_1_mod1_spread
+    tags:
+      - SD
+  
+  qfep:
+    config: JPSS_1_mod1_spread
+    tags:
+      - SD
+
+    record: True
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/JPSS_DEMO
+      
+  qmr:
+    tags:
+      - LD
+      - XD
+
+  qdra-inst1:
+    tags:
+      - LD
+      - XD
+
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: fes-jpss-us-east-1-prod-all-orbitdata-s3
+      prefix: j01/ksat-svalbard/DATA
+      profile: jpss_demo_svalbard
+      extension: .cadu
+      post_transfer_delete: True

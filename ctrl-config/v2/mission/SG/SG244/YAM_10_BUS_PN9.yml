@@ -1,0 +1,146 @@
+---
+config: LOFT_LONGBOW
+acu_config: YAM_10_BUS
+
+services:
+  ksat_acu_orbital:
+    tags:
+      - ksat_acu_orbital
+
+    link_config:
+      uplink_config: s_band_uplink_p2_1 # For setting UL Polarization
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 100.64.22.0/24
+      - 100.64.24.0/24
+      - 172.31.245.74/23 #Emil for LEOP
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+      - monitor_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+    
+    link_config:
+      uplink_config: s_band_uplink_p2_1
+      downlink_config: s_band_downlink_p2_1
+
+    autoconf:
+      reference_attenuation_adjustment: -6
+
+      spectral_class_dl: s_lhcp
+      spectral_class_ul: s_lhcp
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    config: LOFT_LONGBOW_BUS_PN9
+
+    link_config:
+      # For dynamic doppler comp frequency
+      uplink_config: s_band_uplink_p2_1
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    tlm_record: False
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1200
+      rf0StreamOffset: -33
+      rf0StreamBW: 300
+      inputSpectralInversion: True
+
+  wb_specnet2:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1200
+      rf0StreamOffset: -33
+      rf0StreamBW: 300
+      inputSpectralInversion: True
+
+  qmr:
+    tags:
+      - XD
+
+  qrx:
+    tags:
+      - XD
+
+  qrx2:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    config: LOFT_LONGBOW_200MB
+
+    record: True
+
+  qdra-inst2:
+    tags:
+      - XD
+
+    config: LOFT_LONGBOW_200MB
+
+    record: True
+
+  falcon:
+    tags:
+      - XD
+
+    recorders:
+      - hypermatter_api: http://10.203.118.203:6000
+        component_config:
+          component: QDRA
+          file_options_config:
+            file_name:
+              - ext: DAT
+                enumerate: true # added at the end of the file name before the file extension
+                sub_dir: "/qdra-inst1/"
+                delimiter: "_"
+
+      - hypermatter_api: http://10.203.118.204:6000
+        component_config:
+          component: QDRA
+          file_options_config:
+            file_name:
+              - ext: DAT
+                enumerate: true # added at the end of the file name before the file extension
+                sub_dir: "/qdra-inst2/"
+                delimiter: "_"
+
+    delivery_config:
+      protocol: AWS_ROLE
+      credentials_uuid: 22029971-22e8-49f3-80ef-cf31d2a44e14
+      role_arn: arn:aws:iam::025066254418:role/ksat-delivery
+      bucket: yac-1-ksat-data-delivery-bucket-production
+      bucket_region: us-east-1
+      target_dir: "DATA/{contact_id}/payload"
+
+
+  
+

@@ -1,0 +1,44 @@
+---
+kind: mission
+  
+services:
+  
+  custom_backend:
+    tags:
+      - SD
+      - SU
+      
+    mtx_tags_downlink:
+      - [DL, PLD1]
+
+    mtx_tags_uplink: [PLU1, U]
+  
+  contec:
+    tags:
+      - contec
+      
+    reserve: True
+    contec_satellite_id: 397
+
+summary: 
+anomaly_mail_template: ''
+contacts:
+  ksat:
+    - name: 
+      role: Project Manager
+      email: 
+    - name: Lite system Engineer
+      role: System Engineer
+  customer:
+    - name: 
+      role: Project Manager
+      email: 
+      phone: 
+    - name: 
+      role: Technical Contact
+      email: 
+      phone:
+    - name: 
+      role: Operations Centre
+      email: 
+      phone: 

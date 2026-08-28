@@ -1,0 +1,146 @@
+---
+type: mission
+config: ICEYE_X5
+load_config: True
+no_antenna: False
+run_mode: production
+autosign: True
+autosign_level: 0
+kmon_autosign: True
+kmon_level: 0
+customer: ICEYE ## Needed for autosign matching
+constellation: ICEYE
+series: X
+watch: True ## Sends event log for pass
+watchers:
+  - bjarne@ksat.no
+
+summary: SmallSat SAR constellation based in Finland. Plans a constellation of 18 satellites. Uses API for reservation. Tier 1 customer on Svalbard / Troll. Tier 3 for mid-latitide. 
+contacts:
+  ksat:
+    - name: Krister Konst
+      role: Project Manager
+      email: krister@ksat.no
+    - name: Birk Engegård
+      role: System Engineer
+      email: birk.engegard@ksat.no
+  customer:
+      - name: Johnny Finnholm
+        role: Project Manager
+        email: johnny.finnholm@iceye.fi
+      - name: Marcus Granér
+        role: Technical Contact
+        email: marcus.graner@iceye.fi
+      - name: ICEYE Operations
+        role: Operations Centre
+        email: operations@iceye.fi
+        
+## Special keys:
+## type: mission
+## config: global config name, otherwise file name is used
+## run_mode: used to discard certain functions when running, if none all is run
+
+services:
+
+## Special keys:
+## tags: list of tags, runs all if none
+## functions: list of functions to be run, runs all if none
+## modes: list of modes, runs all if none
+## config: override global config
+## object_id: looks for object
+#  proxy:
+    ## Tags are specific
+#    tags:
+#      - U
+#      - S
+
+  proxy:
+    tags:
+      - U
+      - S
+
+    whitelist:
+      - 10.100.4.1
+      - 192.146.238.172
+      - 192.146.238.242
+
+    services:
+      - ctx_tcp
+      - qradio_http
+      - qmr_http
+      - spectrum_http
+
+  ctx:
+    tags:
+      - U
+      - S
+
+    storage:
+      record: True
+      filename_flavour: std
+            
+    reset: True
+
+
+  specnet:
+    tags:
+      - U
+      - S
+
+  qradio:
+    tags:
+      - U
+      - S
+
+  qfep:
+    tags:
+      - U
+      - S
+
+    record:
+
+      transfer:
+        ftp:
+          host: 192.146.238.4
+          port: 22
+          user: lite
+          home: /customers/FTP/ICEYE
+          
+        transfer: True
+      
+  qmr:
+    tags:
+      - X
+
+  qdra_inst1:
+
+    rest: http://10.103.0.242:8080
+    ctrl-agent: http://10.103.0.242:5000
+  
+    tags:
+      - X
+      
+    record:
+      streams:
+        - raw
+
+      transfer:
+        ftp:
+          host: 192.146.239.4
+          port: 22
+          user: lite
+          home: /customers/FTP/ICEYE
+    
+    transfer: True
+    stream: True
+    
+  qdra_inst2:
+    rest: http://10.103.0.242:8081
+    ctrl-agent: http://10.103.0.242:5000
+
+    tags:
+      - X
+
+  
+
+

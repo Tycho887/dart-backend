@@ -1,0 +1,44 @@
+---
+config: TYVAK_0095
+customer: TYVAK
+constellation: TYVAK
+
+services:
+
+  proxy:
+    tags:
+      - SD
+
+    whitelist:
+      - 192.168.37.0/24
+      - 10.103.222.0/24
+      - 192.146.238.172
+
+    services:
+      - ctx_tcp
+    
+  specnet:      
+    tags:
+      - SD
+
+  qradio:
+    tags:
+      - SD
+
+  qfep:
+    tags:
+      - SD
+
+  ctx:
+    idtype: legacy
+    tags:
+      - SD
+
+  ctx_legacy:
+    tags:
+      - SD
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/TYVAK
+

@@ -1,0 +1,37 @@
+---
+
+services:
+
+  custom_backend:
+    tags:
+      - SD
+      - SU
+
+    services:
+      - spectrum_http
+      - monitor_tcp
+      - mc_http
+
+    system_specific:
+      BYA32:
+        mtx_tags_downlink:
+          - [RH1, 1CD1] #Cortex Nominal Input 1
+          - [RH1, 1CD2] #Cortex Nominal Input 2
+
+        mtx_tags_uplink:
+          - [1CU1, TX1] #Cortex Nominal Output 1
+
+#      BYA180:
+#        mtx_tags_downlink:
+#          - [RH1, 1CD1]
+#          - [RH1, 1CD2]
+
+#        mtx_tags_uplink:
+#          - [1CU1, TX1]
+#      BYA183:
+#        mtx_tags_downlink:
+#          - [RH1, 1CD1]
+#          - [RH1, 1CD2]
+
+#        mtx_tags_uplink:
+#          - [1CU1, TX1]

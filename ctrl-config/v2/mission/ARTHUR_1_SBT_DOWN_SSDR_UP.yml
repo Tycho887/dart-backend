@@ -1,0 +1,60 @@
+---
+config: ARTHUR_1
+acu_config: ARTHUR_1
+customer: AEROSPACELAB_SA
+constellation: AEROSPACELAB_SA
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.53.0/24
+      - 10.1.100.0/24
+      - 192.146.238.172
+      - 192.146.238.220
+      - 192.146.238.223
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+      - monitor_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -6
+
+  qradio:
+    config: ARTHUR_1_SBT_down_SSDR_up
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    config: ARTHUR_1_SSDR
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record:
+      streams: [1]
+
+    transfer:
+      backend: ftpSvalSat
+      home: /data/customers/aerospacelab

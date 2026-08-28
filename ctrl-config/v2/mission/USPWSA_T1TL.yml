@@ -1,0 +1,34 @@
+---
+config: USPWSA_T1TL
+customer: NorthropGrummanTL
+
+services:
+
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 10.174.90.0/24
+
+
+    services:
+      - qradio_tcp
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+

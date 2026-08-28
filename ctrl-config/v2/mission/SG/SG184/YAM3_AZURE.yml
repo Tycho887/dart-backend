@@ -1,0 +1,54 @@
+---
+config: YAM_3
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+      - XD
+
+    whitelist:
+      - 192.146.238.242
+      - 100.64.96.0/24
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+      - monitor_tcp
+  
+  qradio:
+    tags:
+      - SD
+      - SU
+      - XD
+
+    defaults:
+     config: default
+
+  qfep:
+    tags:
+      - SD
+      - SU
+      - XD
+
+    defaults:
+      config: microsoft_loopback
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+    stream_server: aqua_microsoft
+
+    defaults:
+      config: YAM_3_bypass_proxy
+
+      stream_servers:
+        aqua_microsoft:
+          host: 100.64.96.43
+          port: 50001

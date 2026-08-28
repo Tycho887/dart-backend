@@ -1,0 +1,37 @@
+---
+config: MISSIONPOSSIBLE
+acu_config: MISSIONPOSSIBLE
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.89.0/24
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+      - monitor_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -4
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+
+  qfep:
+    tags:
+      - SD
+      - SU

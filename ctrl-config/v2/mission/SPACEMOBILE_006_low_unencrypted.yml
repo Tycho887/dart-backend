@@ -1,0 +1,31 @@
+acu_config: SPACEMOBILE_006
+config: SPACEMOBILE
+services:
+  proxy:
+    services:
+    - qradio_tcp
+    tags:
+    - SD
+    - SU
+    whitelist:
+    - 100.64.31.0/24
+    - 100.64.80.0/26
+    - 192.146.238.242
+  qfep:
+    config: default
+    tags:
+    - SD
+    - SU
+    tlm_record: false
+  qradio:
+    config: SPACEMOBILE_006_Lowrate
+    tags:
+    - SD
+    - SU
+  specnet:
+    autoconf:
+      reference_attenuation_adjustment: 0
+      streamBandwidth: 3
+    tags:
+    - SD
+    - SU

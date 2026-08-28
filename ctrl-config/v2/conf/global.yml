@@ -1,0 +1,13 @@
+---
+
+smtp:
+  host: smtp.ksat.no
+  port: 25
+  sender: lite-techinical@ksat.no
+
+ptah:
+  host: ptah.ksat.no
+  port: 21
+  
+  
+

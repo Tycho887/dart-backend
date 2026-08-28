@@ -1,0 +1,182 @@
+---
+tags:
+  - electron
+  - spaceport
+  - controller
+  - ksat_acu_orbital
+  - tracking_test
+
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+acu:
+  vendor: 
+  model: 
+  feed: 
+  hpa: 
+  converter: 
+
+defaults:
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://spaceport.openstack.usa-fairbanks-1.sky.ksat.lan:80
+    #base_url: http://spaceport.fb4.openstack.usa-fairbanks-1.sky.ksat.no:80
+    #base_url: http://10.42.0.231:80/ksat_acu_orbital
+    control_api_enabled: true
+    monitor_api_enabled: true
+
+  controller:
+    auto_pull: 1
+    session: FB4
+  
+  #aws_s3:
+  #  web_proxy: site_hr_streaming_IP:8888
+
+  ftp3:
+    host: 192.146.239.5
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  orbital:
+    host: 10.144.112.5
+
+  ksat_acu_orbital:
+    #base_url: http://10.42.0.231:80/ksat_acu_orbital
+    #base_url: http://spaceport.fb4.openstack.usa-fairbanks-1.sky.ksat.no:80/ksat_acu_orbital
+    base_url: http://spaceport.openstack.usa-fairbanks-1.sky.ksat.lan:80/ksat_acu_orbital
+    rest: http://ksat_acu_orbital:5000
+
+    reference_hpa_input_attenuation: 10
+    reference_s_tx_polarity: RHCP
+    reference_hpa_output_control: Feed
+    reference_hpa_status: Enable
+
+  proxy:
+    operational: True
+    mode: accept-proxy
+    #access: spaceport.fb4.openstack.usa-fairbanks-1.sky.ksat.no
+    access: spaceport.openstack.usa-fairbanks-1.sky.ksat.lan
+    #access: 10.42.0.231
+    site: 100.90.144.104
+    site_sdwan: 100.90.144.104
+
+    nodes:
+      - http://spaceport.openstack.usa-fairbanks-1.sky.ksat.lan:80
+      #- http://spaceport.fb4.openstack.usa-fairbanks-1.sky.ksat.no:80
+      #- http://10.42.0.231:80
+
+  specnet:
+    enabled: True
+    rest: http://10.144.127.125:80
+    qradio_data_ip: 10.144.125.28
+
+    link_config:  # Use this if not converted to 70 MHz
+      mode: spacecraft  # Uses frequencies used in v2/spacecrafts for the particular spacecraft
+      uplink_config: s_band_uplink_p1_1  # Default uplink config. Can be overridden in mission
+      downlink_config: s_band_downlink_p1_1  # Default downlink config. Can be overridden in mission
+
+    autoconf:
+      enabled: True
+      reference_attenuation: 26
+      inputFrequency: 67.5
+      system_bandwidth: '10.0'
+      gainMode: 'Automatic'
+      rfInputPort: 'rfIn1'
+      AD_bits: 8
+      qradio_data_ip: 10.144.125.28
+      networkInputPort: 50000
+      streamOffset: 2.5
+      maxPacketSize: 1500
+      streamBandwidth: 5
+      packetProtectionEnable: True
+      inputStreamID: 0
+      rxEnable: True
+      invertOutputSpectrum: False
+      attenuation: 24
+      rfOutputPort: 'rfOut1'
+      outputFrequency: 68.5
+      rfOutputSource: 'Packets'
+      dataSource: 'Network'
+      programmedBuffer: 0
+      programmedDelay: 0
+      preserveLatency: False
+      networkOutputPort: 50000
+      outputFrequencyOffset: 1.5
+      useLocalReference: True
+      outputStreamID: 0
+      releaseMode: 'Programmed Delay'
+      multicastEnable: False
+      overrideOutputFrequencyEnable: True
+      txEnable: True
+
+      rf_input_port_rules:
+        s_rhcp: "rfIn1"
+        s_lhcp: "rfIn2"
+        x_lhcp: "rfIn1"
+        x_rhcp: "rfIn2"
+
+      rf_output_port_rules:
+        s_rhcp: "rfOut1"
+        s_lhcp: "rfOut1"
+        x_lhcp: "rfOut1"
+        x_rhcp: "rfOut1"
+
+  ctx:
+    enabled: False
+
+  qradio:
+    enabled: True
+    rest: http://qradio.openstack.usa-fairbanks-1.sky.ksat.lan:8080 # http://10.42.0.102:8080 # http://qradio.openstack.usa-fairbanks-1.sky.ksat.lan:8080
+    specnet_data_ip: 10.144.125.125
+
+    model: qradio
+    control_api_id: lr_radio
+
+  qfep:
+    enabled: false
+    #rest: http://spaceport.fb4.openstack.usa-fairbanks-1.sky.ksat.no:30000
+
+  wb_specnet:
+    enabled: False
+
+  qrx:
+    enabled: False
+
+  qmr:
+    enabled: False
+
+  qdra-inst1:
+    enabled: False
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+  controller:
+    tags:
+      - controller
+
+  ksat_acu_orbital:
+    tags:
+      - ksat_acu_orbital
+
+  tracking_test:
+    alt_median_threshold: 5.0
+    tags:
+      - tracking_test

@@ -1,0 +1,103 @@
+config: HAWK_A
+
+services:
+
+  custom_backend:
+    tags:
+      - SD
+
+    system_specific:
+
+      SG185:
+        mtx_tags_downlink:
+          - [DL, HAWK-A]
+
+      SG187:
+        mtx_tags_downlink:
+          - [DL, HAWK-A]
+
+      SG189:
+        mtx_tags_downlink:
+          - [DL, HAWK-A]
+
+      SG214:
+        mtx_tags_downlink:
+          - [DL, HAWK-A]
+
+      SG215:
+        mtx_tags_downlink:
+          - [DL, HAWK-A]
+
+      SG216:
+        mtx_tags_downlink:
+          - [DL, HAWK-A]
+
+      SG220:
+        mtx_tags_downlink:
+          - [DL, HAWK-A]
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 10.103.235.0/24
+      - 10.104.213.0/24
+      - 192.146.238.172
+      - 192.146.238.242
+      - 10.117.235.0/24
+      - 10.121.235.0/24 
+      - 10.131.235.0/24
+      - 10.197.255.0/28
+      - 10.141.209.0/28
+      - 10.120.201.32/28
+
+    services:
+      - qradio_tcp
+      - qradio_http
+      - qmr_http
+      - mc_http
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    link_config:  # Use this if not converted to 70 MHz
+      mode: spacecraft  # Uses frequencies used in v2/spacecrafts for the particular spacecraft
+      uplink_config: s_band_uplink_p1_1  # Default uplink config. Can be overridden in mission
+      downlink_config: null
+
+    autoconf:
+      reference_attenuation_adjustment: -3
+      spectral_class_dl: s_rhcp
+
+  wb_specnet:
+    config: HAWK_A
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1100
+      rf0StreamBW: 200
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qrx:
+    config: HAWK
+    tags:
+      - XD
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    stream_server: hawk_a
+    tags:
+      - XD

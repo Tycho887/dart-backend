@@ -1,0 +1,55 @@
+---
+config: GRUS_1
+customer: AXELSPACE
+constellation: GRUS
+
+frequencies:
+  SU: 2097700000
+  SD: 2275900000
+  XD: 
+
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 10.100.25.0/24
+      - 10.100.23.0/24
+                
+    services:
+      - qradio_tcp
+      - ctx_tcp
+  
+  specnet:
+    tags:
+      - SU
+      - SD
+
+  qradio:
+    tags:
+      - SU
+      - SD
+
+  qfep:
+    tags:
+      - SU
+      - SD
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True
+
+    transfer_staging:
+      method: qfte
+      backend: ftpSvalSat
+      home: /data/customers/axelspace

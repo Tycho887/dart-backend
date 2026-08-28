@@ -1,0 +1,32 @@
+config: AAC_AIS_SAT_MISSION
+acu_config: AAC_AIS_SAT1
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.195
+      - 100.64.48.0/24 # Clyde SDWAN
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+      # - monitor_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -1
+
+  qradio:
+    tags:
+      - SD
+      - SU

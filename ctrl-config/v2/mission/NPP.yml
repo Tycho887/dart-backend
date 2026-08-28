@@ -1,0 +1,75 @@
+---
+config: NPP_mod1
+
+services:
+
+  custom_backend:
+    tags:
+      - LD
+      - XD
+
+    system_specific:
+      SG44:
+
+        mtx_tags_downlink:
+          - [I14MTX, SG44XDR]
+
+  proxy:
+    tags:
+      - SD
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+
+    whitelist:
+      - 100.64.21.0/24
+      - 192.146.238.242      
+
+  specnet:
+    tags: 
+      - SD
+
+    defaults:
+      config: NPP_lite
+      
+  qradio: 
+    tags:
+      - SD
+
+    defaults:
+      config: NPP_lite
+  
+  qfep:
+    tags:
+      - SD
+
+    defaults:
+      config: NPP_lite
+
+    tlm_record: True
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/JPSS_DEMO
+      
+  qmr:
+    tags:
+      - LD
+      - XD
+
+  qdra-inst1:
+    tags:
+      - LD
+      - XD
+
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: fes-jpss-us-east-1-prod-all-orbitdata-s3
+      prefix: snpp/ksat-svalbard
+      profile: jpss_demo_svalbard
+      extension: .bit
+      post_transfer_delete: True
+      accelerate: False

@@ -1,0 +1,275 @@
+---
+tags:
+  - electron
+  - spaceport
+  - controller
+  - ksat_acu_orbital
+  - downlink_mtx
+
+
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+  - name: nkom_tracking_file
+    type: nkom_tracking_file
+
+acu:
+  vendor: 
+  model: 
+  feed:
+  hpa:
+  converter:
+
+defaults:
+
+  nkom:
+    destination:
+      host: "svl-trk-cmd.ksat.no"
+      path: "inbox/"
+    log_tracking_file: false
+    publish_tracking_file: true
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://10.203.115.221:80
+    control_api_enabled: true
+    monitor_api_enabled: true
+
+    special_ops_system_operators:
+      - name: qradio_doppler_collector
+        operator: qradio_doppler_collector
+        configuraton:
+          qradio_base_url: http://10.203.115.202:8080
+
+  controller:
+    # control_api: http://10.203.115.221:9999
+    auto_pull: 1
+    session: SG243
+
+  aws_s3:
+    web_proxy: 10.203.126.79:8888
+
+  ftp3:
+    host: 192.146.239.4
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  downlink_mtx:
+    block: svalsat_3
+    alias: 243
+    antenna_alias: 243
+    host: 10.203.127.192
+    port: 4000
+    vendor: etl
+    model: victor
+    mode: downlink
+    size: 16
+    def_routes: 
+      - [R, X]
+    null: NULL
+
+  orbital:
+    host: 10.203.115.197
+
+  ksat_acu_orbital:
+    base_url: http://10.203.115.221:80/ksat_acu_orbital
+
+    reference_hpa_input_attenuation: 10
+    reference_s_tx_polarity: RHCP
+    reference_hpa_output_control: Feed
+    reference_hpa_status: Enable
+
+  proxy:
+    operational: True
+    mode: accept-proxy
+    access: 10.203.115.221
+    site: 10.103.254.243
+    site_sdwan: 100.90.103.243 
+
+    nodes:
+      - http://10.203.115.221:80
+
+  specnet:
+    enabled: True
+    rest: http://10.203.127.136:80
+    qradio_data_ip: 10.203.125.164
+
+    link_config:  # Use this if not converted to 70 MHz
+      mode: spacecraft  # Uses frequencies used in v2/spacecrafts for the particular spacecraft
+      uplink_config: s_band_uplink_p1_1  # Default uplink config. Can be overridden in mission
+      downlink_config: s_band_downlink_p1_1  # Default downlink config. Can be overridden in mission
+
+    autoconf:
+      enabled: True
+      reference_attenuation: 13
+      inputFrequency: 67.5
+      system_bandwidth: '10.0'
+      gainMode: 'Automatic'
+      rfInputPort: 'rfIn1'
+      AD_bits: 8
+      qradio_data_ip: 10.203.125.164
+      networkInputPort: 50000
+      streamOffset: 2.5
+      maxPacketSize: 1500
+      streamBandwidth: 5
+      packetProtectionEnable: True
+      inputStreamID: 0
+      rxEnable: True
+      invertOutputSpectrum: False
+      attenuation: 24
+      rfOutputPort: 'rfOut1'
+      outputFrequency: 68.5
+      rfOutputSource: 'Packets'
+      dataSource: 'Network'
+      programmedBuffer: 0
+      programmedDelay: 0
+      preserveLatency: False
+      networkOutputPort: 50000
+      outputFrequencyOffset: 1.5
+      useLocalReference: True
+      outputStreamID: 0
+      releaseMode: 'Programmed Delay'
+      multicastEnable: False
+      overrideOutputFrequencyEnable: True
+      txEnable: True
+
+      rf_input_port_rules:
+        s_rhcp: 'rfIn1'
+        s_lhcp: 'rfIn2'
+        x_rhcp: 'rfIn1'
+        x_lhcp: 'rfIn2'
+
+      rf_output_port_rules:
+        s_rhcp: 'rfOut1'
+        s_lhcp: 'rfOut1'
+        x_lhcp: 'rfOut1'
+        x_rhcp: 'rfOut2'
+
+  ctx:
+    enabled: True
+    host: 10.203.115.202
+
+  qradio:
+    enabled: True
+    rest: http://10.203.115.202:8080
+    specnet_data_ip: 10.203.125.136
+
+    model: qradio
+    control_api_id: lr_radio
+
+  qfep:
+    enabled: True
+    rest: http://10.203.115.202:30000
+
+
+  wb_specnet:
+    enabled: True
+    # rest: http://10.203.127.67:80
+    rest: http://10.203.127.168:80 # spare
+
+    autoconf:
+      enabled: True
+      qrx_host_rf0: 10.203.126.169
+      qrx_port_rf0: 50000
+
+  wb_specnet2:
+    enabled: False
+
+  qrx:
+    enabled: True
+    rest: http://10.203.115.205:8080
+    qdra_host_inst1: 10.203.126.203
+    qdra_port_inst1: 50022
+    qdra_host_inst2: 10.203.126.203
+    qdra_port_inst2: 50032
+    rate: HR
+
+    model: qrx
+    control_api_id: hr_radio
+
+  qrx2:
+    enabled: False
+
+  qmr:
+    enabled: False
+
+  qdra-inst1:
+    enabled: True
+    inst: 1
+    rest: http://10.203.115.203:8080
+    rate: HR
+
+    model: qdra
+    control_api_id: hr_fep
+
+    stream_servers:
+      tsx:
+        host: 10.203.126.79
+        port: 5555
+      kanyini:
+        host: 10.203.126.79
+        port: 7910
+      bct_planetiq:
+        host: 10.203.126.9
+        port: 7903
+      ghgsat:
+        host: 10.203.126.9
+        port: 9010
+      iceye:
+        host: 10.203.126.9
+        port: 9199
+      ororatech:
+        host: 10.203.126.79
+        port: 7914
+      clyde_vireon:
+        host: 10.121.126.79
+        port: 7919 
+
+  qdra-inst2:
+    enabled: False
+    inst: 2
+    rest: http://10.203.114.139:8081
+    rate: HR2
+
+    model: qdra
+    control_api_id: hr_fep
+
+    stream_servers:
+      ghgsat:
+        host: 10.203.126.9
+        port: 9010
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+  controller:
+    tags:
+      - controller
+
+  ksat_acu_orbital:
+    tags:
+      - ksat_acu_orbital
+
+  downlink_mtx:
+    tags:
+      - downlink_mtx
+
+    object_id: etl_downlink
+
+  nkom: {}

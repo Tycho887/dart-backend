@@ -1,0 +1,21 @@
+---
+config: JSAT
+customer: JSAT
+constellation: GCOM
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+      - XD
+      - LD
+
+    whitelist:
+      - 100.64.125.0/24
+      - 100.90.103.129
+      - 192.146.238.0/24
+      - 172.31.244.0/24
+
+    services:
+      - mc_http

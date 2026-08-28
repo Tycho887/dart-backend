@@ -1,0 +1,38 @@
+---
+config: SENTINEL_1X
+services:
+    qmr:
+      tags:
+        - XD
+      modulation_personality: TCM
+      
+    qdra-inst1:
+      stream_server: sentinel
+      tags:
+       - XD
+      
+      record:
+        streams: [1]
+
+    qdra-inst2:
+      stream_server: sentinel
+      tags:
+        - XD
+
+      record:
+        streams: [1]
+  
+    #meos_config:
+
+      #tags:
+       # - XD
+
+      #configuration: S1B_CH2
+    
+      #dests:
+        #pl1_hrdfep:
+         # method: ftp
+          #dest: /var/spool/meos/pds/
+          #host: 10.120.103.10
+          #user: mcapture
+          #password: 

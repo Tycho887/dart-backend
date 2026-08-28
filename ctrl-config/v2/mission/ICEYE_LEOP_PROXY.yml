@@ -1,0 +1,43 @@
+---
+customer: ICEYE
+constellation: ICEYE
+
+services:
+
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 10.100.4.1
+      - 100.64.52.0/24
+      - 192.146.238.0/24
+
+    services:
+      - ctx_tcp
+
+
+  ctx:    
+    functions:
+      - reset
+
+    tags:
+      - SD
+      - SU
+
+  qmr:  
+    tags:
+      - XD
+
+  qdra-inst1:
+    stream_server: iceye
+    tags:
+      - XD
+
+    record: True        
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/ICEYE
+
+   

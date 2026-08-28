@@ -1,0 +1,38 @@
+---
+config: LM400
+acu_config: LM400
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.72.0/24 # LM SD-WAN
+      
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http 
+
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      enabled: True
+      txEnable: False
+
+  qradio:
+    config: LM400_128k
+    tags:
+      - SD
+      - SU
+
+
+
+    

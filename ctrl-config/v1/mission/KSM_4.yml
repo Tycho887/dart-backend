@@ -1,0 +1,54 @@
+---
+type: mission
+config: KSM_4
+run_mode: production
+customer: KSM ## Needed for autosign matching
+constellation: KSM
+watch: False ## Sends event log for pass
+watchers:
+  - bjarne@ksat.no
+      
+## Special keys:
+## type: mission
+## config: global config name, otherwise file name is used
+## run_mode: used to discard certain functions when running, if none all is run
+
+services:
+
+## Special keys:
+## tags: list of tags, runs all if none
+## functions: list of functions to be run, runs all if none
+## modes: list of modes, runs all if none
+## config: override global config
+## object_id: looks for object
+#  proxy:
+    ## Tags are specific
+#    tags:
+#      - U
+#      - S
+      
+  qmr:
+    tags:
+      - X
+
+  qdra_inst1:
+    tags:
+      - X
+      
+    record:
+      streams:
+        - raw
+
+      transfer:
+        ftp:
+          host: 192.146.239.4
+          port: 22
+          user: lite
+          home: /customers/FTP/KLEOS
+    
+    transfer: True
+
+
+  
+
+

@@ -1,0 +1,40 @@
+---
+config: ION
+acu_config: ION_SCV014
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 10.1.1.0/24
+      - 192.146.238.242
+      - 172.31.244.44
+      - 172.31.240.8
+      - 10.0.4.8
+      - 100.64.141.0/24
+      
+
+    services:
+      - qradio_tcp
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      enabled: True
+      reference_attenuation_adjustment: 1
+
+  qradio:
+    config: ION_256kbps
+    tags:
+      - SD
+      - SU
+
+  

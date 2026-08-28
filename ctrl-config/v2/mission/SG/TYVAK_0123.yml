@@ -1,0 +1,39 @@
+---
+config: TYVAK_0123
+customer: TYVAK
+constellation: TYVAK
+
+services:
+  
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.168.37.0/24
+      - 10.103.222.0/24
+      - 192.146.238.172
+      - 192.146.238.166
+
+    services:
+      - qradio_tcp
+  
+  specnet:
+    tags:
+      - SD
+      - SU
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/TYVAK

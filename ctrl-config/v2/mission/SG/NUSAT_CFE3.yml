@@ -1,0 +1,46 @@
+---
+config: NUSAT
+acu_config: NUSAT_X
+
+services:
+
+  custom_backend:
+    tags:
+      - XD
+      - SU
+    
+    mtx_tags_downlink: #Nusat CFE3 is behind alias NUSAT-RX1 and NU2 on SG. Long story.
+      - [DL, NUSAT-RX1]
+
+    mtx_tags_uplink: [NU1, U]
+
+    system_specific: 
+      SG184:
+        mtx_tags_downlink:
+          - [DR, NUSAT-RX1]
+    
+  proxy:
+    tags:
+      - SU
+      - XD
+
+    whitelist:
+      - 192.146.238.0/24
+      - 172.31.246.10
+      - 172.31.244.44
+      - 10.103.254.0/24
+      - 10.101.19.32/27
+      - 10.103.214.0/24
+      - 10.104.210.0/24
+      - 10.103.221.0/24
+      - 10.203.233.0/28
+      - 10.121.204.0/24
+      - 10.117.203.0/24
+      - 10.131.204.0/27
+
+    services:
+      - spectrum_http
+      - mc_http
+      - monitor_tcp
+      - qradio_tcp
+

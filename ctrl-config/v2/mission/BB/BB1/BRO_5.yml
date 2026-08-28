@@ -1,0 +1,23 @@
+config: BRO_3
+
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 192.146.238.195
+      - 10.1.5.0/24
+      - 10.3.23.0/24
+
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+

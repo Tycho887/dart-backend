@@ -1,0 +1,42 @@
+---
+config: TERRASAR_X
+acu_config: TERRASAR_X
+
+services:
+    
+    qmr:
+      tags:
+        - XD
+    
+    wb_specnet:
+      tags:
+        - XD
+
+      autoconf:
+        inputCenterFrequency: 1250
+        rf0StreamOffset: -50
+        rf0StreamBW: 420
+        rf0OutGainMode: "Manual"
+        rf0OutManualGain: 0
+
+    qrx:
+      tags:
+        - XD
+
+    qdra-inst1:
+      tags:
+        - XD
+
+      record:
+        streams: [1]
+
+      defaults:
+        stream_servers:
+          airbus_terrasar:
+            host: 10.104.126.89
+            port: 7916
+
+      stream_server: airbus_terrasar
+
+
+ 

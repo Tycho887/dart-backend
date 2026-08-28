@@ -1,0 +1,143 @@
+tags:
+#  - acu
+  - scheduler
+#  - downlink_mtx
+
+#acu:
+#  vendor: orbital
+#  model: 3.0TSXS7-3.7m
+#  feed: FTSXS-XBX-PCP-01
+#  hpa: PA-01
+#  converter: MM-SST-01
+#  polarizations:
+#    SD:
+#      - dual
+#    XD:
+#      - dual
+#    SU:
+#      - dual
+
+defaults:
+
+  nkom:
+    destination:
+      host: "svl-trk-cmd.ksat.no"
+      path: "inbox/"
+    log_tracking_file: false
+    publish_tracking_file: true
+
+  ftp3:
+    host: 192.146.239.4
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  proxy:
+    access: 10.103.0.127
+    site: 10.103.254.127
+    site_sdwan: 100.90.103.127
+    nodes:
+      - http://10.103.0.127:5000 # alternatively 10.103.0.81
+
+#  downlink_mtx:
+#    host: 10.103.0.140
+#    port: 4000
+#    vendor: etl
+#    model: nigma
+#    mode: downlink
+
+#  uplink_mtx:
+#    host:
+#    port: 4000
+#    vendor: etl
+#    model: nigma
+#    mode: uplink
+
+
+  scheduler:
+    host: localhost
+    type: vm
+
+#  orbital:
+#    host: 10.103.43.10
+#    rest: http://10.103.0.80:3030
+
+#  specnet:
+#    rest: https://admin:admin@10.103.43.25:25443
+#    qradio_data_ip: 172.23.20.20
+#    input_power_mode: inputPower_LR
+#    rate: LR
+
+  ctx:
+    host: 10.103.26.13
+  
+  zodiac_cortex:
+    host: 10.103.26.13
+
+  zodiac_cortex_backup:
+    host: 10.103.26.14
+
+
+#  qradio:
+#    rest: http://10.103.0.50:8080
+#    specnet_data_ip: 172.23.20.12
+
+#  qfep:
+#    rest: http://10.103.0.50:30000
+
+  qmr:
+    rest: http://10.203.127.72:80
+    qdra_host_inst1: 10.203.126.169
+    qdra_port_inst1: 50022
+    qdra_host_inst2: 10.203.126.169
+    qdra_port_inst2: 50032
+    input_power_mode: inputPower_HR
+    rate: HR
+
+
+  qdra-inst1:
+    inst: 1
+    rest: http://10.103.0.169:8080
+    ch: CH1
+    rate: HR
+    stream_servers:
+      tsx:
+        host: 10.203.126.79
+        port: 5555
+      iceye:
+        host: 13.53.65.131
+        port: 9199
+
+
+  qdra-inst2:
+    inst: 2
+    rest: http://10.103.0.169:8081
+    ch: CH2
+    rate: HR
+    stream_servers:
+
+services:
+
+#  orbital:
+
+  nkom: {}
+#    tags:
+#      - acu
+
+  scheduler:
+    tags:
+      - scheduler
+
+#  downlink_mtx:
+#    tags:
+#      - downlink_mtx
+
+#    object_id: nigma
+
+#  uplink_mtx:
+#    tags:
+#      - uplink_mtx
+
+    #object_id: nigma

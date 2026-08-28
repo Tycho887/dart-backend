@@ -1,0 +1,37 @@
+config: AC_MOONLIGHTER
+acu_config: MOONLIGHTER 
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.195
+      - 192.146.238.242
+      - 192.146.238.237
+      - 130.221.19.196
+      - 10.20.3.0/24
+      - 100.64.103.0/24
+      - 100.64.118.0/24
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -2
+
+  qradio:
+    tags:
+      - SD
+      - SU
+    

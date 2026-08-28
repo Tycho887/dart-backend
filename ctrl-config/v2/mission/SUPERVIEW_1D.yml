@@ -1,0 +1,9 @@
+---
+acu_config: SUPERVIEW_1D
+
+services:
+
+  qmr:
+    config: SUPERVIEW
+    tags:
+      - XD

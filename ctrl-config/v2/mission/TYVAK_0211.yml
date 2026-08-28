@@ -1,0 +1,51 @@
+---
+config: TYVAK_0171
+customer: TYVAK
+constellation: TYVAK
+acu_config: TYVAK_0210
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.168.37.0/24
+      - 10.103.222.0/24
+      - 192.146.238.172
+      - 192.146.238.223
+
+    services:
+      - qradio_tcp
+      - qradio_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+    autoconf:
+      reference_attenuation_adjustment: 0
+      inputFrequency: 68.5
+      streamOffset: 1.5
+      streamBandwidth: 3
+      packetProtectionEnable: False
+      spectral_class_dl: s_rhcp
+      spectral_class_ul: s_rhcp
+      
+  qradio:
+    config: TYVAK_0210
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    transfer_staging:
+      backend: ftp3
+      home: /customers/FTP/TYVAK
+      qfte: True

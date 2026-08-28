@@ -1,0 +1,65 @@
+---
+config: ORORATECH_forest3
+acu_config: FOREST_3
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 100.64.71.0/24 
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+  
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1100
+      rf0StreamOffset: 30
+      rf0StreamBW: 200
+
+  qrx:
+    tags:
+      - XD
+
+    config: ORORATECH_forest3_40Msps
+
+  qmr:
+    tags:
+      - XD
+
+    config: ORORATECH_forest3_40Msps
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record:
+      streams: [1]
+
+    stream_server: ororatech
+
+
+      

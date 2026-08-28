@@ -1,0 +1,133 @@
+---
+config: ICEYE_X2
+acu_config: TESTSAT
+
+services:
+
+  custom_backend:
+    tags:
+      - SD
+
+    system_specific:
+
+      SG43:
+        mtx_tags_downlink:
+          - [DL, SPECTRUM]
+
+      SG220:
+        mtx_tags_downlink:
+          - [DL, SPECTRUM]
+
+      SG221:
+        mtx_tags_downlink:
+          - [DL, SPECTRUM]
+
+    NZ2:
+      mtx_tags_downlink:
+        - [DL, SPEC]
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.0/24
+      - 172.31.244.24
+      - 172.31.244.33
+      - 172.31.244.42
+      - 172.31.244.44
+      - 172.31.244.69
+
+    services:
+      - qradio_tcp
+      - ctx_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -2
+      spectral_class_dl: x_rhcp
+      spectral_class_ul: x_rhcp
+
+
+  qradio:
+    #defaults:
+    #  config: DOESNOTEXIST
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    transfer:
+      backend: ftpSvalSat
+      home: /home/lite/DATA/
+
+  ctx:
+    tags:
+      - SD
+      - SU
+
+    id_flavour: legacy
+
+    transfer:
+      backend: ftp3
+      home: /customers/cache/lite/
+
+
+  ctx_legacy:
+    tags:
+      - SD
+      - SU
+
+    id_flavour: legacy
+
+    transfer:
+      backend: ftp3
+      home: /home/lite
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True
+
+    stream: False
+
+    transfer_staging:
+      stream_raw: True
+      backend: ftp3
+      home:  /customers/cache/lite
+
+  qdra-inst2:
+    tags:
+      - XD
+
+  capricorn:
+
+    satellite: ICEYE X2
+
+    tags:
+      - capricorn
+
+  contec:
+
+    tags:
+      - contec
+
+    reserve: True
+    contec_satellite_id: 476

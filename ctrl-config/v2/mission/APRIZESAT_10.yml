@@ -1,0 +1,10 @@
+config: APRIZESAT
+acu_config: APRIZESAT
+
+services:
+  specnet:
+    tags:
+      - SD
+
+    autoconf:
+      reference_attenuation_adjustment: 0

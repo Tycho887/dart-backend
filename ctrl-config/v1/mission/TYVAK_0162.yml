@@ -1,0 +1,83 @@
+---
+type: mission
+config: TYVAK_0162
+no_antenna: False
+load_config: True
+run_mode: production
+customer: TYVAK
+constellation: TYVAK
+series: 160
+
+## Special keys:
+## type: mission
+## config: global config name, otherwise file name is used
+## run_mode: used to discard certain functions when running, if none all is run
+
+services:
+
+## Special keys:
+## tags: list of tags, runs all if none
+## functions: list of functions to be run, runs all if none
+## modes: list of modes, runs all if none
+## config: override global config
+## object_id: looks for object
+#  proxy:
+    ## Tags are specific
+#    tags:
+#      - U
+#      - S
+
+  proxy:
+    tags:
+      - U
+      - S
+      - X
+
+    whitelist:
+      - 192.168.37.0/24
+      - 10.103.222.0/24
+      - 192.146.238.172
+
+    services:
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - U
+      - S
+      - X
+
+  qradio:
+    tags:
+      - U
+      - S
+      - X
+
+    ## Restart rtlogic-swmodem after LOS, hot fix to avoid crashes
+    auto_restart: True
+    
+  qfep:
+    tags:
+      - U
+      - S
+      - X
+
+    record:
+
+      transfer:
+        ftp:
+          host: 192.146.239.4
+          port: 22
+          user: lite
+          home: /customers/FTP/TYVAK
+          
+        transfer: True
+
+        
+      
+
+
+
+  
+
+

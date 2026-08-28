@@ -1,214 +1,109 @@
-# KSAT TDM export service
+# KSAT TRACK and ANGLE export
 
-The KSAT TDM export service produces CCSDS 503.0-B-2 KVN delivery files for
-one KOGS contact and a bounded ADX time interval. It currently supports
-`TRACK`, `ANGLE`, and `SIGMET`; `METEO` remains unavailable until its normative
-KSAT definition and a weather source are available.
+DART can write KSAT-profile CCSDS 503.0-B-2 `TRACK` mode-4 and `ANGLE` AZEL
+files. Range modes 1 and 3 remain unavailable until an authoritative raw
+round-trip delay source is selected; carrier-phase mode 2 is not defined by
+the supplied KSAT profile. XEYN and XSYE angles remain unavailable until their
+site-specific controller mappings are confirmed.
 
-The service is an in-process Python orchestration API with a thin CLI, not a
-long-running daemon or HTTP endpoint.
+The implementation is intentionally narrow:
 
-The writer intentionally does not depend on `ccsdspy`. That package models
-CCSDS telemetry packets rather than CCSDS 503 Navigation Data Message KVN, so
-it cannot replace the KSAT product models, ordering, precision, or profile
-checks. Rendered output is instead checked by the independent
-`dart.io.ksat_validation` grammar before it is returned or written.
+- `dart.tdm.ranging` owns the typed request, validation, KVN rendering, standard
+  filename, and optional file write.
+- `dart.tdm.angle` provides the equivalent narrow path for one AZEL contact.
+- `dart.io.kogs` supplies the contact, antenna, spacecraft, ephemeris, and exact
+  named link frequencies from `ctrl-config/v2/spacecrafts`.
+- `dart.io.azure.fetch_contact_columns` performs the raw, one-contact query
+  bounded to the KOGS reservation interval. It applies no solver filters.
+- `dart.io.meos` is the fail-closed source for reviewed pedestal, TLT, and
+  Doppler-correction constants. Missing calibration blocks TRACK, but ANGLE
+  emits `UNKNOWN` calibration comments and structured warnings.
 
-This is a delivery pipeline, not an orbit-determination pipeline. It reads raw
-telemetry and authoritative contact metadata directly, then writes KSAT-profile
-TDM files. It does not construct `Sgp4Input` or `Rk89Input`, invoke either
-solver, use the MessagePack wire format, or pass through `dart.io.tdm`.
+The receive frequency is the selected downlink center frequency plus the
+explicitly configured ADX offset and sign. The transmit frequency is the
+selected uplink frequency, optionally adjusted by its own mapped offset.
+Neither mapping is inferred from column names. The integration-end column,
+station column, offset columns, units, and signs are configurable for differing
+antenna telemetry schemas.
 
-## Architecture and data flow
-
-```text
-scripts/write_tdm.py
-        │
-        ├── load_ksat_export_config() ── strict TOML validation
-        │
-        └── export_ksat_contact()
-                │
-                ├── KOGS contact ─────── verify contact, spacecraft,
-                │   antenna/spacecraft   system, and station identities
-                │          │
-                │          ├── antenna WGS-84 ── satkit ── ITRF/ECEF metres
-                │          ├── contact TLE/OMM ── COSPAR identity
-                │          └── WGS-84 ── reverse geocoder ── place name
-                │
-                ├── calibration provider ── reviewed config now; MEOS later
-                │
-                ├── bounded ADX query ── Polars DataFrame
-                │          │
-                │          └── product builders and declared unit conversion
-                │
-                └── typed KSAT documents ── KVN renderer ── *.tdm files
-```
-
-The service deliberately performs KOGS validation before contacting ADX. A
-contact can therefore never be exported with header metadata from a different
-spacecraft, antenna system, or station. The ADX query still independently
-requires exactly one contact, explicit UTC bounds, and one antenna identifier
-matching `PARTICIPANT_1`.
-
-The WGS-84 antenna coordinates come from KOGS. `satkit.itrfcoord` converts them
-directly to ITRF/ECEF coordinates, rendered to three decimal metres. No
-measurement epoch is needed because ITRF/ECEF is Earth-fixed. Reverse
-geocoding supplies only the human-readable locality, region, and country; it
-does not affect the coordinate values.
-
-## Module responsibilities
-
-| Component | Responsibility |
-| --- | --- |
-| `scripts/write_tdm.py` | Parses command-line arguments, calls the service, and reports generated, skipped, and warning results. It contains no KQL, TDM models, or filename logic. |
-| `dart.io.ksat_export` | Loads strict TOML, discovers configured products, normalizes CLI selections, and orchestrates metadata enrichment plus the bounded export. |
-| `dart.io.ksat_metadata` | Reads and validates KOGS metadata, derives ECEF coordinates with satkit, performs reverse geocoding, and constructs runtime site/spacecraft header values. |
-| `dart.io.kogs` | Owns KOGS HTTP requests and payload normalization shared with the solver loaders. |
-| `dart.io.ksat_adx` | Builds the validated ADX query, converts declared source units, constructs requested products, writes files, and returns structured result details. |
-| `dart.io.ksat_tdm` | Defines the typed KSAT profile, validates metadata and observations, renders ASCII KVN, and creates standard filenames. |
-
-The public orchestration interface is:
+## Python API
 
 ```python
-from dart.io.ksat_export import (
-    export_ksat_contact,
-    load_ksat_export_config,
-    parse_utc_datetime,
-)
+from dart.tdm.ranging import FrequencySource, TrackRequest, write_track_tdm
 
-config = load_ksat_export_config("/path/to/ksat-tdm.toml")
-result = export_ksat_contact(
-    config,
+request = TrackRequest(
     contact_id="CONTACT_UUID",
-    start_time=parse_utc_datetime("2026-08-25T10:00:00Z"),
-    stop_time=parse_utc_datetime("2026-08-25T10:15:00Z"),
-    output_dir="/path/to/delivery",
-    products=("angle",),  # omit to select every configured product
+    band="S",
+    integration_interval_s=1.0,
+    turnaround_numerator=240,
+    turnaround_denominator=221,
+    transmit=FrequencySource("s_band_uplink_p1_1"),
+    receive=FrequencySource(
+        "s_band_downlink_p1_1",
+        "lr1_receiver1_actualCarrierFrequencyOffset",
+    ),
 )
-
-for generated in result.generated.values():
-    print(generated.path)
-for product, reason in result.skipped.items():
-    print(f"{product} skipped: {reason}")
-for warning in result.warnings:
-    print(f"warning: {warning}")
+result = write_track_tdm(request, "delivery")
+print(result.path)
 ```
 
-Call `dart.io.ksat_tdm` directly when observations and authoritative header
-metadata are already available in typed form. Call `dart.io.ksat_adx` directly
-when a caller owns metadata enrichment itself. Use `dart.io.ksat_export` for
-the normal configuration-backed KOGS plus ADX workflow.
+ANGLE uses controller pointing readback without applying any model or
+conversion:
 
-## Configuration and metadata ownership
+```python
+from dart.tdm.angle import AngleRequest, write_angle_tdm
 
-Start with [`config/ksat-tdm.example.toml`](../config/ksat-tdm.example.toml).
-Unknown keys, missing required fields, incomplete mappings, invalid units, and
-unsupported product metadata fail during configuration loading.
+result = write_angle_tdm(
+    AngleRequest(
+        contact_id="CONTACT_UUID",
+        band="S",
+        tracking_mode="PROGRAM",
+    ),
+    "delivery",
+)
+for warning in result.warnings:
+    print(warning)
+```
 
-| TOML section | Purpose and authority |
-| --- | --- |
-| `[kogs]` | Required expected spacecraft, system, and station UUIDs, plus an optional KOGS timeout. These values constrain the selected contact; they are not header display names. |
-| `[site]` | Reviewed facts not exposed by KOGS: optional distinct antenna name, pedestal offset, and paired TLT band/date. This is the current calibration-provider input and will be replaced by MEOS. |
-| `[spacecraft]` | Optional reviewed name, COSPAR, and catalog cross-checks/fallbacks. The participant and filename normally use COSPAR derived from the contact TLE/OMM, then the KOGS catalog ID. `identifier` is deprecated. |
-| `[geocoder]` | Optional reverse-geocoder URL, user-agent, and timeout. Defaults to the OpenStreetMap Nominatim reverse endpoint. |
-| `[header]` | Optional delivery summary and additional validated ASCII comments. |
-| `[adx]` | Source columns and source units. Its `station_id` column must contain the operational antenna identifier returned by KOGS, such as `SG221`, not the internal system UUID. |
-| `[track]`, `[angle]`, `[sigmet]` | Product metadata and default product enablement. A product is selected by default when its section exists. |
+The default `antenna1_position_azimuth` and
+`antenna1_position_elevation` mappings match current DART telemetry but have
+not been confirmed as controller readback for every site. Every ANGLE result
+therefore reports that confirmation warning. Tracking mode is a required
+contact-wide input because no authoritative ADX mode mapping has been selected.
 
-Credentials never belong in TOML. The service reads `KOGS_API_KEY` and the
-existing ADX variables `AZURE_ADX_CLUSTER_ENDPOINT`, `AZURE_CLIENT_ID`,
-`AZURE_CLIENT_SECRET`, and `AZURE_TENANT_ID` from the environment or existing
-`.env` behavior. `HTTP_PROXY` remains optional.
+`KOGS_API_KEY` and the existing Azure ADX environment variables provide
+credentials. Populate `dart.io.meos.TRACK_CALIBRATIONS` only with reviewed
+station/band constants; an absent entry prevents TRACK export while ANGLE
+reports warnings and writes `UNKNOWN` calibration comments.
 
-The CLI's `--timeout-seconds` controls the ADX request. KOGS and geocoder
-timeouts are independently configured as `kogs.timeout_seconds` and
-`geocoder.timeout_seconds`.
-
-## Command-line operation
+## Command line
 
 ```bash
 uv run python scripts/write_tdm.py \
-  --config /path/to/ksat-tdm.toml \
+  track \
   --contact-id CONTACT_UUID \
-  --start 2026-08-25T10:00:00Z \
-  --stop 2026-08-25T10:15:00Z \
-  --output-dir /path/to/delivery
+  --band S \
+  --integration-interval 1 \
+  --turnaround-numerator 240 \
+  --turnaround-denominator 221 \
+  --uplink-link s_band_uplink_p1_1 \
+  --downlink-link s_band_downlink_p1_1 \
+  --output-dir delivery
 ```
 
-Both timestamps must be offset-aware and are normalized to UTC. Repeat
-`--product track|angle|sigmet` to request a subset. Without `--product`, all
-products having TOML sections are requested. Use `--overwrite` only to replace
-an existing standard filename.
+ANGLE export uses its own subcommand and does not accept TRACK parameters:
 
-Files are written directly below `--output-dir` as
-`<TYPE>_<GSID>_<SVID>_<CREATION_DATE>.tdm`. The ground-station identifier comes
-from the validated KOGS antenna, while the spacecraft identifier comes from
-the reviewed `[spacecraft]` configuration.
+```bash
+uv run python scripts/write_tdm.py \
+  angle \
+  --contact-id CONTACT_UUID \
+  --band S \
+  --tracking-mode PROGRAM \
+  --output-dir delivery
+```
 
-## Results and failure behavior
-
-`KsatExportResult` separates three outcomes:
-
-- `generated`: products successfully rendered, with filename, text, and output
-  path;
-- `skipped`: requested products that could not be constructed, keyed by
-  product with a reason;
-- `warnings`: non-product metadata degradation, such as an unavailable place
-  name or missing reviewed calibration facts.
-
-KOGS credentials, requests, identity mismatches, incomplete antenna
-coordinates, invalid configuration, ADX failures, and unsafe overwrite
-attempts are fatal. Reverse-geocoder failures are non-fatal: the header uses
-`UNKNOWN` and reports a warning. Missing pedestal offset or TLT calibration
-produces normative `UNKNOWN` comments and warnings for ANGLE. TRACK is skipped
-unless COSPAR, catalog ID, pedestal offset, same-band TLT calibration, and its
-mode-specific calibration terms are all available.
-
-Calibration currently comes from reviewed configuration. The
-`MeosCalibrationProvider` is the explicit future integration point for the
-antenna-local service and currently fails clearly rather than pretending MEOS
-has been queried. Every export result carries field-level provenance for KOGS,
-contact ephemeris, ADX, configuration, derivation, and geocoder values.
-
-The CLI exits `0` when at least one requested product was written, including
-partial success. It exits `1` for fatal configuration/runtime failures or when
-no requested product was generated. Invalid command-line usage retains
-argparse exit status `2`.
-
-## Relationship to the solver pipeline
-
-The KSAT delivery exporter and solver pipeline share backend clients and CCSDS
-terminology, but their contracts are intentionally separate:
-
-| KSAT delivery export | Solver pipeline |
-| --- | --- |
-| Reads one bounded ADX contact plus KOGS metadata. | Loaders construct versioned `Sgp4Input` or `Rk89Input`. |
-| Preserves raw measurements and declared correction terms. | Fits orbit/time/frequency parameters. |
-| Uses `dart.io.ksat_tdm` and KSAT participant conventions. | Uses MessagePack, Rust/Python solvers, and `dart.io.tdm`. |
-| Writes TRACK, ANGLE, or SIGMET delivery products. | Writes diagnostic solver input/result TDM records. |
-| Does not change or cross the Python/Rust schema boundary. | Depends on the mirrored Python/Rust schema contract. |
-
-Do not route KSAT delivery products through `dart.io.tdm`: that writer is for
-DART solver records, uses different participant semantics, and supports
-DART-specific `USER_DEFINED_*` fields.
-
-## Testing and extension points
-
-The export tests are split along the same boundaries as the implementation:
-
-- `tests/test_ksat_metadata.py`: KOGS/TLE/OMM identity checks, provider
-  behavior, geocoder parsing and failure behavior, and satkit ECEF values;
-- `tests/test_ksat_export.py`: TOML loading, product discovery, and orchestration;
-- `tests/test_ksat_adx.py`: bounded KQL, conversions, builders, skips, and writes;
-- `tests/test_ksat_tdm.py`: typed profile validation, filenames, and KVN output;
-- `dart.io.ksat_validation`: independent rendered-text block, header, and
-  observation grammar validation applied before a product is returned;
-- `tests/test_write_tdm.py`: CLI forwarding, reporting, and exit statuses;
-- `tests/test_ksat_examples.py`: offline validation of checked-in AWESAT-1 output.
-
-When adding a telemetry field, keep backend column/unit conversion in
-`ksat_adx` and serialization in `ksat_tdm`. When adding header metadata, define
-its authority and fallback in `ksat_metadata`; do not infer it from unrelated
-ADX fields. Adding a product requires a normative KSAT definition, a typed
-document/serializer, a confirmed data source, strict configuration, and tests
-at each boundary.
+Use the source-column, unit, and sign options when an antenna differs from the
+default receiver-1 offset mapping. The configured timestamp must represent the
+end of the integration interval. ANGLE additionally accepts
+`--timestamp-column`, `--angle-1-column`, and `--angle-2-column`; overriding
+them does not remove the requirement for site-owner confirmation.

@@ -1,0 +1,29 @@
+tags:
+  - controller
+
+defaults:
+  controller:
+    monitor_api: http://scraper.ksat.services:8080
+    disable_monitor_websocket_stream_check: true
+    auto_pull: 0
+    session: IRE1
+
+  qrx:
+    enabled: True
+    rest: http://qrx.ksat.services:8071
+    qdra_host_inst1: qdra.ksat.services
+    qdra_port_inst1: 50022
+
+  qdra-inst1:
+    enabled: True
+    inst: 1
+    rest: http://qdra.ksat.services:8080
+
+  aws_s3:
+    web_proxy: falcon.ksat.services:30001
+
+
+services:
+  controller:
+    tags:
+      - controller

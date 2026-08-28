@@ -1,0 +1,53 @@
+---
+parameters: {}
+post: []
+
+tasks:
+- name: electron
+  type: electron
+  parameters: {}
+  
+- name: realtime_processors
+  type: realtime_processors
+  parameters: {}  
+
+- name: ksat_antenna_configurator
+  type: ksat_antenna_configurator
+  parameters: {}
+
+- name: wb_spectralnet_pri_1
+  type: wb_spectralnet
+
+  parameters:      
+    config_mode: auto
+
+    auto_config:
+      rf0_enable: true
+      rf0_stream_bandwidth: 380000000
+      rf0_stream_sample_rate: 475000000
+      rf0_stream_offset: -50000000
+      
+
+- name: qrx_1_9
+  type: qrx
+  parameters:
+    config: TERRASAR_X
+    filerecorder:
+      enabled: true
+
+- name: qdra_1
+  type: qdra
+
+  parameters:
+    config: TERRASAR_X
+
+    stream:
+      enabled: true
+      host: 10.133.112.92
+      port: 4445
+
+    recording: 
+      streams: [1]
+
+#    qfte:
+#      home: /data/lite

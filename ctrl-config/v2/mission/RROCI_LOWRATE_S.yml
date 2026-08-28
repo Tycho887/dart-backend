@@ -1,0 +1,82 @@
+---
+config: EWS
+acu_config: ORCA_1
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+      - XD
+
+    whitelist:
+      - 100.64.44.0/24
+      - 192.146.238.0/24
+      - 10.0.2.0/24
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+      - XD
+
+    autoconf:
+      reference_attenuation_adjustment: -5
+
+      system_specific:
+        LB1:
+          inputFrequency: 2214.5
+      
+  qradio:
+    tags:
+      - SD
+      - SU
+      - XD
+
+    config: EWS
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    transfer:
+      backend: ftpSvalSat
+      home: /data/customers/astraspace
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0StreamBW: 3
+
+  qrx:
+    tags: 
+      - XD
+
+    config: EWS_1024 
+
+  qmr:
+    tags:
+      - XD
+
+    config: EWS_1024
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record:
+      streams: [1]
+
+    transfer:
+      backend: ftpSvalSat
+      home: /data/customers/astraspace

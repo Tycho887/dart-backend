@@ -1,0 +1,460 @@
+tags:
+  - electron
+  
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+acu: {}
+
+defaults:
+
+  nkom:
+    destination:
+      host: "svl-trk-cmd.ksat.no"
+      path: "inbox/"
+    log_tracking_file: false
+    publish_tracking_file: true
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+    ephemeris_cacher:
+      enabled: true
+
+    electron_configure:
+      enabled: true
+      default_method: native
+      native:
+        default_naming: spacecraft+antenna
+    
+  spaceport:
+    enabled: False
+
+  controller:
+    enabled: False
+
+  orbital:
+    enabled: False
+
+  proxy:
+    enabled: False
+
+  specnet:
+    enabled: False
+
+  ctx:
+    enabled: False
+
+  qradio:
+    enabled: False
+    
+  qfep:
+    enabled: False    
+
+  wb_specnet:
+    enabled: False
+    
+  wb_specnet2:
+    enabled: False    
+
+  qrx:
+    enabled: False
+
+  qrx1:
+    enabled: False    
+
+  qrx2:
+    enabled: False    
+    
+  qdra-inst1:
+    enabled: False
+ 
+  qdra-inst2:
+    enabled: False
+  
+  qmr:
+    enabled: False    
+    
+# This is used for Electron
+electron:
+
+  electron:
+    parameters:
+      monitor_api:
+        base_url: http://10.104.117.158:80/scraper
+        start_padding: 30
+        end_padding: 30
+
+  realtime_processors:
+    parameters:
+      tracking_analyzer:
+        backend: meos
+
+      hpa_analyzer:
+        enabled: false
+
+      doppler_analyzer: {}
+
+  proxy:
+    parameters:
+      base_url: http://10.104.117.157:80
+      services: []
+      whitelist: []      
+      open: -30
+      close: 30
+      kill: 5
+      open_control: -5
+
+  nb_spectralnet:
+    parameters:
+      base_url: http://10.104.116.20:80
+      instance: 1
+      peer: 10.104.125.5
+      init_teardown: 30
+
+      config_mode: manual
+      input_frequency_mode: manual
+      output_frequency_mode: auto
+      tx_link_1_id: ttc_tx_link_1_id
+      rx_link_1_id: ttc_rx_link_1_id
+      x_band_rx_down_conversion_frequency: 6950000000
+      x_band_tx_up_conversion_frequency: 6950000000
+
+      auto_config:
+        peer_host: 10.104.125.5
+        peer_port: 50000
+        reference_attenuation: 9
+        reference_attenuation_adjustment: 0
+        input_frequency_mode: manual
+        input_frequency: 67500000
+        system_bandwidth: 10000000
+        gain_mode: auto
+        rf_input_port: rfIn2
+        ad_bits: 8
+        input_stream_offset: 2500000
+        max_packet_size: 1500
+        stream_bandwidth: 4000000
+        packet_protection_enabled: true
+        rx_enabled: true
+        tx_enabled: true
+        attenuation: 9
+        input_stream_id: 0
+        invert_output_spectrum: false
+        rf_output_port: rfOut1
+        output_frequency: 68500000
+        rf_output_source: Packets
+        data_source: Network
+        programmed_buffer: 0
+        programmed_delay: 0
+        preserve_latency: false
+        output_frequency_offset: 1500000
+        use_local_reference: true
+        output_stream_id: 0
+        release_mode: Programmed Delay
+        multicast_enabled: false
+        override_output_frequency: true
+
+  qradio:
+    parameters:
+      base_url: http://10.104.116.10:8080
+      instance: 1
+      # config: 
+      peer: 10.104.125.43
+      prime_receiver: Receiver1
+
+      tx_link_1_id: ttc_tx_link_1_id
+      rx_link_1_id: ttc_rx_link_1_id
+
+      doppler_compensation:
+        mode: auto
+        enabled: false
+
+      filerecorder:
+        enabled: false
+
+      recording_db:
+        enabled: false
+        base_url: http://10.104.127.211:9000
+
+      platform:
+        platform: dockernode
+
+        dockernode:
+          base_url: http://10.104.116.10:1234
+
+          containers:
+            - name: qradio
+
+  wb_spectralnet_pri_1:
+    parameters:
+      base_url: http://10.104.116.22:80
+      instance: 1
+      # config: KX06
+
+      config_mode: manual # auto | manual. Manual means that a config file will be loaded, auto will use fields below to configure.
+      #input_frequency_mode: auto
+
+      rx_link_1_id: payload_rx_link_1_id
+    
+      x_band_rx_down_conversion_frequency: 6950000000
+      
+      auto_config:
+        input_frequency_mode: manual # auto | manual
+        input_center_frequency: 750000000
+        gain_mode: auto # auto | manual
+        gain: 0
+        invert_input_spectrum: false
+        rf_input_source: External RF Input  # External RF Input | Calibration Loopback
+
+        # RF0, defaults
+        rf0_remote_host: 10.104.123.50
+        rf0_enable: false
+        rf0_operational_mode: DIFI 1.1 # VITA 49.0 | DIFI 1.0 | DIFI 1.1
+        rf0_ad_bits: 8
+        rf0_in_gain_mode: manual
+        rf0_in_manual_gain: 0
+
+        # RF0, needs to be set in mission
+        rf0_stream_offset: -30000000
+        rf0_stream_bandwidth: 5000000
+        rf0_stream_sample_rate: 5000000
+
+        # RF1, defaults
+        rf1_enable: false
+        rf1_operational_mode: DIFI 1.1 # VITA 49.0 | DIFI 1.0 | DIFI 1.1
+        rf1_ad_bits: 8
+        # RF1, needs to be set in mission
+        rf1_stream_offset: -30000000
+        rf1_stream_bandwidth: 5000000
+        rf1_stream_sample_rate: 5000000
+
+
+  qrx_1:
+    parameters:      
+      base_url: http://10.104.116.13:8080
+      instance: 1
+
+#      rx_out_host_1: 10.104.126.11
+#      rx_out_host_2: 10.104.126.11
+
+      filerecorder:
+        enabled: False
+
+      platform:
+        platform: dockernode
+
+        dockernode:
+          base_url: http://10.104.116.13:1234
+
+          containers:
+            - name: qrx
+
+  wb_spectralnet_pri_2:
+    parameters:
+      # config:
+      base_url: http://10.104.116.23:80
+      instance: 2
+      
+      config_mode: manual # auto | manual. Manual means that a config file will be loaded, auto will use fields below to configure.
+      #input_frequency_mode: auto
+
+      rx_link_1_id: payload_rx_link_1_id
+    
+      x_band_rx_down_conversion_frequency: 6950000000
+      
+      auto_config:
+        input_frequency_mode: manual # auto | manual
+        input_center_frequency: 750000000
+        gain_mode: auto # auto | manual
+        gain: 0
+        invert_input_spectrum: false
+        rf_input_source: External RF Input  # External RF Input | Calibration Loopback
+
+        # RF0, defaults
+        rf0_remote_host: 10.104.123.51
+        rf0_enable: false
+        rf0_operational_mode: DIFI 1.1 # VITA 49.0 | DIFI 1.0 | DIFI 1.1
+        rf0_ad_bits: 8
+        rf0_in_gain_mode: manual
+        rf0_in_manual_gain: 0
+
+        # RF0, needs to be set in mission
+        rf0_stream_offset: -30000000
+        rf0_stream_bandwidth: 5000000
+        rf0_stream_sample_rate: 5000000
+
+        # RF1, defaults
+        rf1_enable: false
+        rf1_operational_mode: DIFI 1.1 # VITA 49.0 | DIFI 1.0 | DIFI 1.1
+        rf1_ad_bits: 8
+        # RF1, needs to be set in mission
+        rf1_stream_offset: -30000000
+        rf1_stream_bandwidth: 5000000
+        rf1_stream_sample_rate: 5000000     
+
+  qrx_2:
+    parameters:
+      base_url: http://10.104.116.14:8080
+      instance: 2
+      # config:
+
+#      rx_out_host_1: 10.104.126.11
+#      rx_out_host_2: 10.104.126.11
+
+      filerecorder:
+        enabled: False
+
+      platform:
+        platform: dockernode
+
+        dockernode:
+          base_url: http://10.104.116.14:1234
+
+          containers:
+            - name: qrx
+
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  nkom: {}
+
+
+
+#tags:
+#  - controller
+#
+#defaults:
+#
+#  controller:
+#    control_api: http://10.104.9.157:9999
+#    monitor_api: http://10.104.9.158:80 #needs to be changed
+#    auto_pull: 0
+#    session: TR9
+#
+#  ftp3:
+#    host: 192.146.239.4
+#    port: 22
+#
+#  ftpSvalSat:
+#    host: 172.23.99.11
+#    port: 2222
+#
+#  proxy:
+#    operational: True
+#    mode: accept-proxy
+#    access: 10.104.9.157
+#    site: 10.104.241.129
+#    side_sdwan: 100.90.104.129
+#
+#    nodes:
+#      - http://10.104.9.157:80
+#
+#  specnet:
+#    enabled: True
+#    rest: http://10.104.127.48:80
+#    qradio_data_ip: 10.104.125.46
+#
+#    autoconf:
+#      enabled: True
+#      reference_attenuation: 
+#      inputFrequency: 67.5
+#      system_bandwidth: '10.0'
+#      gainMode: 'Automatic'
+#      rfInputPort: 'rfIn1'
+#      AD_bits: 8
+#      qradio_data_ip: 10.104.125.9
+#      networkInputPort: 50000
+#      streamOffset: 2.5
+#      maxPacketSize: 1500
+#      streamBandwidth: 5
+#      packetProtectionEnable: True
+#      inputStreamID: 0
+#      rxEnable: True
+#      invertOutputSpectrum: False
+#      attenuation: 24
+#      rfOutputPort: 'rfOut1'
+#      outputFrequency: 68.5
+#      rfOutputSource: 'Packets'
+#      dataSource: 'Network'
+#      programmedBuffer: 0
+#      programmedDelay: 0
+#      preserveLatency: False
+#      networkOutputPort: 50000
+#      outputFrequencyOffset: 1.5
+#      useLocalReference: True
+#      outputStreamID: 0
+#      releaseMode: 'Programmed Delay'
+#      multicastEnable: False
+#      overrideOutputFrequencyEnable: True
+#      txEnable: True
+#
+#      rf_input_port_rules:
+#        s_rhcp: "rfIn1"
+#        s_lhcp: "rfIn1"
+#        x_lhcp: "rfIn1"
+#        x_rhcp: "rfIn1"
+#
+#      rf_output_port_rules:
+#        s_rhcp: "rfOut1"
+#        s_lhcp: "rfOut1"
+#        x_lhcp: "rfOut1"
+#        x_rhcp: "rfOut1"
+#
+#  ctx:
+#    enabled: True
+#    host: 10.104.9.138
+#
+#  qradio:
+#    enabled: True
+#    rest: http://10.104.9.138:8080
+#    specnet_data_ip: 10.104.125.46
+#
+#    model: qradio
+#    control_api_id: lr_radio
+#
+#  qfep:
+#    enabled: True
+#    rest: http://10.104.9.138:30000
+#
+#  wb_specnet:
+#    enabled: False
+#
+#  qrx:
+#    enabled: False
+#
+#  qdra-inst1:
+#    enabled: False
+#
+#  qdra-inst2:
+#    enabled: False
+#
+#
+#  qmr:
+#    enabled: False
+#
+#services:
+#  controller:
+#    tags:
+#      - controller
+#
+#  meos:
+#    tags:
+#      - meos
+#
+#    object_id: meos
+#
+#    dests:
+#      orbital:
+#        method: sftp
+#        host: 10.104.9.157
+#        user: orbital
+#        dest: /home/orbital/schedule
+#

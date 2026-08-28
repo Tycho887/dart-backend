@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+read -p "Select scheduler: "  scheduler
+read -p "Mission Configs[True]: " configs
+read -p "ACU Configs[False]: " acu_configs
+configs=${configs:-True}
+acu_configs=${acu_configs:-False}
+
+ansible-playbook -v -K -i hosts.yml ctrl.yml -e host=$scheduler -e configs=$configs -e acu_configs=$acu_configs

@@ -1,0 +1,39 @@
+---
+config: NG_T1TL_S_TEST
+acu_config: NGC
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 172.31.244.111 # hsc-nix
+    
+
+    services:
+      - qradio_tcp
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+    
+    autoconf:
+      enabled: True
+      reference_attenuation_adjustment: -5
+
+
+  qradio:
+    config: TL101
+    tags:
+      - SD
+      - SU
+
+
+
+
+

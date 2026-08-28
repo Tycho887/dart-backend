@@ -1,0 +1,47 @@
+---
+type: mission
+config: 
+no_antenna: False
+load_config: False
+run_mode: production
+autosign: True
+autosign_level: 0
+kmon_autosign: True
+kmon_level: 0
+customer: SATELLOGIC
+watch: False
+watchers:
+  - bjarne@ksat.no
+
+## Special keys:
+## type: mission
+## config: global config name, otherwise file name is used
+## run_mode: used to discard certain functions when running, if none all is run
+
+services:
+
+## Special keys:
+## tags: list of tags, runs all if none
+## functions: list of functions to be run, runs all if none
+## modes: list of modes, runs all if none
+## config: override global config
+## object_id: looks for object
+#  proxy:
+    ## Tags are specific
+#    tags:
+#      - U
+#      - S
+
+  specnet:
+    tags:
+      - U
+      - S
+
+    mtx_tags: NUSAT-RX1
+
+
+
+
+  
+
+

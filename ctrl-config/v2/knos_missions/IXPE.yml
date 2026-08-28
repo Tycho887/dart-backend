@@ -1,0 +1,16 @@
+---
+parameters: {}
+post: []
+
+tasks:
+- name: electron
+  type: electron
+  parameters: {}
+  
+- name: realtime_processors
+  type: realtime_processors
+  parameters: {}  
+
+- name: ksat_antenna_configurator
+  type: ksat_antenna_configurator
+  parameters: {}

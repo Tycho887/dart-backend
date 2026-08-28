@@ -1,0 +1,59 @@
+---
+config: STRIX_A
+acu_config: STRIX_1
+services:
+
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 10.146.10.0/24
+      - 10.146.20.0/24
+      - 100.64.88.64/26  # sdwan
+
+    services:
+      - ctx_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+
+  qradio:
+    tags:
+      - SD
+      - SU
+    
+    defaults:
+      config: STRIX_1
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+  ctx:
+    idtype: legacy
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    config: STRIX_1_modcod15
+    tags:
+      - XD
+
+  qdra-inst1:
+    stream_server: strix_a
+    tags:
+      - XD
+
+    record: true
+    transfer:
+      backend: ftpSvalSat
+      home: /data/customers/synspective

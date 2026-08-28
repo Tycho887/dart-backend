@@ -1,0 +1,18 @@
+config: AGRISAT_SA
+acu_config: AGRISAT
+
+services:  
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf: 
+      inputCenterFrequency: 1300
+      rf0StreamBW: 140
+
+  qrx:
+    tags:
+      - XD
+    defaults:
+      config: RECORDING_DIGIF

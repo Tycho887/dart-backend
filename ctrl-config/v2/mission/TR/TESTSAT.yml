@@ -1,0 +1,84 @@
+---
+config: ICEYE_X2
+
+services:
+
+  custom_backend:
+    tags:
+      - SD
+
+    system_specific:
+
+      TR15:
+        mtx_tags_downlink:
+          - [DL, SPEC]
+
+      TR16:
+        mtx_tags_downlink:
+          - [DL, SPEC]
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.0/24
+
+    services:
+      - qradio_tcp
+      - ctx_tcp
+      - spectrum_http
+      - mc_http
+
+  qradio:
+    #defaults:
+    #  config: DOESNOTEXIST
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    transfer:
+      backend: ftpSvalSat
+      home: /home/lite/DATA/
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True
+
+    stream: False
+
+    transfer_staging:
+      stream_raw: True
+      backend: ftp3
+      home:  /customers/cache/lite
+
+  qdra-inst2:
+    tags:
+      - XD
+
+  capricorn:
+
+    satellite: ICEYE X2
+
+    tags:
+      - capricorn
+
+  contec:
+
+    tags:
+      - contec
+
+    reserve: True
+    contec_satellite_id: 476

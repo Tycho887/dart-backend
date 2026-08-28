@@ -1,0 +1,43 @@
+config: ELO
+acu_config: ELO_CLYDE
+
+services:
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 192.146.238.0/24
+      - 10.202.1.0/24 # whodis?
+      - 172.16.192.0/18 # clyde vpn
+      - 188.39.27.154 # staff net
+      - 188.39.27.155 # ops net
+      - 100.64.48.0/24 # Clyde SDWAN
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -3
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    config: ELO_CLYDE
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    config: ELO_CLYDE_RsOn

@@ -1,0 +1,38 @@
+---
+config: SHAREDSAT_X
+acu_config: FEMTO_1
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.195
+      - 100.64.81.0/24
+      
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+      streamBandwidth: 0.5
+      streamOffset: 0.5
+      inputFrequency: 69.5
+
+  qradio:
+    defaults:
+      config: SHAREDSAT_S
+
+    tags:
+      - SD
+      - SU

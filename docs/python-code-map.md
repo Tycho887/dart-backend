@@ -17,9 +17,8 @@ recorded parquet ── dart.loaders.offline ─────────┤
 
 schema dataclasses/results ── dart.io.tdm ── diagnostic CCSDS TDM text
 
-KOGS contact/antenna ── dart.io.ksat_metadata ─┐
-                                               ├─ dart.io.ksat_export/ksat_adx ── KSAT delivery TDMs
-bounded ADX contact ───────────────────────────┘
+KOGS contact/antenna ─┐
+bounded ADX contact ──┴─ dart.tdm.ranging ── KSAT TRACK mode-4 TDM
 ```
 
 `dart.schema` is the boundary between data acquisition and numerical code. Loaders may use
@@ -67,10 +66,8 @@ position/velocity covariance and is not currently populated by the active solver
 | `dart/io/kogs.py` | Calls KOGS contact, spacecraft, station, antenna, and ephemeris endpoints and parses their JSON payloads into small normalization dataclasses. Requests use a 30-second timeout. |
 | `dart/io/utils.py` | Shared conversion helpers for loose backend values, ISO-to-Unix conversion, KOGS authorization formatting, and the file logger used by the ADX path. |
 | `dart/io/tdm.py` | Writes solver inputs and results as CCSDS 503.0-B-2 TDM KVN text. Standard observations use native TDM keywords; DART-only state and fit fields use `USER_DEFINED_*`. |
-| `dart/io/ksat_tdm.py` | Defines and validates strict KSAT TRACK, ANGLE, and SIGMET documents and renders their KVN text and standard filenames. METEO is intentionally deferred. |
-| `dart/io/ksat_adx.py` | Queries bounded ADX telemetry using explicit column/unit mappings, builds the available KSAT product bundle, and reports structured skip reasons for unavailable products. |
-| `dart/io/ksat_metadata.py` | Validates one contact's KOGS identities, derives ITRF/ECEF coordinates from KOGS WGS-84 values with satkit, reverse-geocodes the display location, and builds runtime KSAT header metadata. |
-| `dart/io/ksat_export.py` | Strictly loads KSAT TOML configuration and orchestrates KOGS enrichment plus a one-contact ADX export without duplicating query, conversion, rendering, or file-writing logic. |
+| `dart/io/meos.py` | Provides fail-closed reviewed pedestal, TLT, and Doppler-correction constants until a live MEOS client is available. |
+| `dart/tdm/ranging.py` | Validates, renders, and writes the compact KSAT TRACK mode-4 product while delegating all backend access to `dart.io`. |
 
 The ADX and KOGS modules return backend-oriented structures. They do not create
 solver inputs on their own; that responsibility belongs to the loaders. The
@@ -105,9 +102,9 @@ per input.
 | `scripts/tune_sgp4.py` | Sweeps robust-loss, noise-scale, elevation, bound, and tolerance settings over recorded data. |
 | `scripts/bench_noise.py` | Measures mean-anomaly recovery under synthetic tight/wide Gaussian-mixture noise. |
 | `scripts/bench_modes.py` | Compares the three Rust fit parameterizations on synthetic truth and recorded inputs. |
-| `scripts/combine_passes.py` | Compares joint multi-pass fits, per-pass inverse-variance combination, and timestamp-offset choices against GPS truth. |
+| `scripts/combine_passes.py` | Compares joint multi-pass fits, per-pass inverse-variance combination, and timestamp-offset choices by directly propagating each corrected TLE to GPS position epochs. |
 | `scripts/forest-experiment.py` | End-to-end recorded-data evaluation against GPS-derived truth; selects either the Rust mean-element solver or per-pass Python time solver. |
-| `scripts/write_tdm.py` | Thin CLI for a bounded, configuration-backed KOGS plus ADX KSAT TRACK/ANGLE/SIGMET export. |
+| `scripts/write_tdm.py` | Thin subcommand CLI for bounded KOGS plus ADX KSAT TRACK mode-4 and ANGLE AZEL exports. |
 
 These files are experiments, not stable library APIs. Several import helpers from their sibling
 scripts and expect optional `doppler_parquet/` or `gps-examples/` data directories.
@@ -133,12 +130,8 @@ solver behavior.
 | `tests/test_azure.py` | ADX environment, client, routing, timeout, and live query coverage. |
 | `tests/test_kogs.py` | KOGS request behavior, including the request timeout. |
 | `tests/test_tdm.py` | Golden TDM serialization and epoch formatting. |
-| `tests/test_ksat_tdm.py` | Golden and validation coverage for the strict KSAT serializer. |
-| `tests/test_ksat_adx.py` | ADX query, unit mapping, product assembly, partial-output, and file-writing coverage for KSAT exports. |
-| `tests/test_ksat_export.py` | Strict KSAT TOML loading, datetime parsing, configured-product discovery, and orchestration coverage. |
-| `tests/test_ksat_metadata.py` | KOGS identity validation, reverse-geocoder fallback, and satkit-derived ECEF coverage. |
+| `tests/test_ksat_track.py` | Mode-4 metadata, frequency composition, rendering, file-writing, and fail-closed behavior. |
 | `tests/test_write_tdm.py` | KSAT command-line argument forwarding, reporting, and exit-status coverage. |
-| `tests/test_ksat_examples.py` | Offline structural and time-window validation of the checked-in AWESAT-1 CLI output files. |
 | `tests/test_solver_e2e.py` | Offline loader → Rust → result → TDM pipeline checks. |
 | `tests/test_time_solver.py` | Synthetic recovery, validation, shape, backend compatibility, and pass-splitting checks for the Python solver. |
 | `tests/test_time_solver_live.py` | Credential-gated live ADX + KOGS → time-solver pipeline checks. |
@@ -153,9 +146,8 @@ both Python and Rust suites.
   for incompatible changes, and regenerate contract fixtures.
 - Change backend query or payload parsing in `dart/io/`; keep the schema-facing conversion in
   `dart/loaders/`.
-- Change KSAT metadata authority/fallbacks in `dart/io/ksat_metadata.py`, source
-  column/unit conversion in `dart/io/ksat_adx.py`, and profile serialization in
-  `dart/io/ksat_tdm.py`; keep this path independent of the solver schema.
+- Change KSAT source access in `dart/io/`, and keep profile serialization in
+  `dart/tdm/ranging.py` independent of the solver schema.
 - Change the authoritative mean-element fit in `crates/dart_solver/src/sgp4.rs`, then keep the
   diagnostic `scripts/doppler_model.py` mirror aligned.
 - Change the timestamp-shift fit directly in `dart/time_solver.py`; it is independent of the

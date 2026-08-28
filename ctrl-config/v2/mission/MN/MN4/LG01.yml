@@ -1,0 +1,20 @@
+---
+config: LG01
+
+services:
+
+  specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputFrequency: 1428
+      inputFrequencyOffset: 2
+      streamOffset: 2
+      txEnable: False
+      spectral_class_dl: x_lhcp
+
+
+ 
+
+

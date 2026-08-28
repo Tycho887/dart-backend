@@ -1,0 +1,36 @@
+config: POSAT_2_HIGHRATE
+acu_config: POSAT_2
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 100.64.128.0/24 # lusospace sdwan
+      - 172.31.244.114 # guro ip
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -1
+      spectral_class_dl: s_rhcp
+      spectral_class_ul: s_rhcp
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    config: POSAT_2_512kbps
+      

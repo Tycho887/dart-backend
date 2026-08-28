@@ -1,0 +1,35 @@
+---
+config: VIGORIDE_5
+acu_config: VIGORIDE_5
+
+services:
+
+  proxy:
+    tags:
+      - XD
+      - SU
+
+    whitelist:
+      - 192.146.238.0/24
+      - 100.64.37.0/24
+
+    services:
+      - spectrum_http
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - XD
+      - SU
+
+    autoconf:
+      enabled: True
+      reference_attenuation_adjustment: -4
+      inputFrequency: 1247.5
+
+      spectral_class_dl: x_rhcp
+
+  qradio:
+    tags:
+      - XD
+      - SU

@@ -1,0 +1,52 @@
+---
+kind: mission
+config: RL_F13
+customer: Rocketlab LT
+constellation: Photon
+
+services:
+
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 10.103.236.0/24
+      - 10.120.250.0/24
+      - 10.121.250.0/24
+      - 10.131.250.0/24
+      - 10.119.250.0/24
+      - 10.124.250.0/24
+      - 10.131.250.0/24
+      - 10.134.250.0/24
+      
+    services:
+      - qradio_tcp
+      - qradio_http
+  
+  specnet:
+        
+    tags:
+      - SD
+      - SU
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+
+  photon:
+    tags:
+      - SD
+      - SU
+
+    transfer:
+      recording_path: /home/rtlogic/electron/recordings
+      backend: ftpSvalSat
+      home: /data/customers/rocketlab
+
+    functions:
+      - qradio_signal_recorder
+      - qradio_signal_recorder_transfer

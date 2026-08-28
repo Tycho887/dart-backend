@@ -1,0 +1,183 @@
+---
+config: NUSAT
+acu_config: NUSAT_X
+
+services:
+
+  custom_backend:
+    tags:
+      - SD
+      - SU
+
+    dynamic_input:
+
+      downlink:
+
+        svalsat_1:
+          SATELLOGIC_SG_CFE1:
+            - [DL, NUSAT-RX2] 
+            - [DL, NUSAT-AR80]
+          SATELLOGIC_SG_CFE2:
+            - [DL, NUSAT-RX3]
+          SATELLOGIC_SG_CFE3:
+            - [DL, NUSAT-RX1]
+          SATELLOGIC_SG_CFE4:
+            - [DL, NUSAT-RX4]
+
+        svalsat_2:
+          SATELLOGIC_SG_CFE1:
+            - [DR, NUSAT-RX2]
+          SATELLOGIC_SG_CFE2:
+            - [DR, NUSAT-RX3]
+          SATELLOGIC_SG_CFE3:
+            - [DR, NUSAT-RX1]
+          SATELLOGIC_SG_CFE4:
+            - [DR, NUSAT-RX4]
+
+        troll_1:
+          SATELLOGIC_TR_CFE1:
+            - [DL, NU1D]
+          SATELLOGIC_TR_CFE2:
+            - [DL, NU2D]
+          SATELLOGIC_TR_CFE3:
+            - [DL, NU3D]
+          SATELLOGIC_TR_CFE4:
+            - [DL, NU4D]
+
+        hartebeesthoek_1:
+          SATELLOGIC_HA_CFE1:
+            - [DL, NU1D]
+          SATELLOGIC_HA_CFE2:
+            - [DL, NU2D]
+
+        hartebeesthoek_2:
+          SATELLOGIC_HA_CFE1:
+            - [DR, NU1D]
+          SATELLOGIC_HA_CFE2:
+            - [DR, NU2D]
+        
+        punta_arenas_1:
+          SATELLOGIC_PA_CFE1:
+            - [DL, NU1D]
+          SATELLOGIC_PA_CFE2:
+            - [DL, NU2D]
+
+        punta_arenas_2:
+          SATELLOGIC_PA_CFE1:
+            - [DR, NU1D]
+          SATELLOGIC_PA_CFE2:
+            - [DR, NU2D]
+
+        new_zealand_1:
+          SATELLOGIC_NZ_CFE1:
+            - [DL, NU1D]
+          SATELLOGIC_NZ_CFE2:
+            - [DL, NU2D]
+
+        new_zealand_2:
+          SATELLOGIC_NZ_CFE1:
+            - [DR, NU1D]
+          SATELLOGIC_NZ_CFE2:
+            - [DR, NU2D]
+
+      uplink:
+        svalsat_1:
+          SATELLOGIC_SG_CFE1: [NU2, U]
+          SATELLOGIC_SG_CFE2: [NU3, U]
+          SATELLOGIC_SG_CFE3: [NU1, U]
+          SATELLOGIC_SG_CFE4: [NU4, U]
+
+        troll_1:
+          SATELLOGIC_TR_CFE1: [NU1U, U]
+          SATELLOGIC_TR_CFE2: [NU2U, U]
+          SATELLOGIC_TR_CFE3: [NU3U, U]
+          SATELLOGIC_TR_CFE4: [NU4U, U]
+
+        hartebeesthoek_1:
+          SATELLOGIC_HA_CFE1: [NU1U, U]
+          SATELLOGIC_HA_CFE2: [NU2U, U]
+        
+        punta_arenas_1:
+          SATELLOGIC_PA_CFE1: [NU1U, U]
+          SATELLOGIC_PA_CFE2: [NU2U, U]
+
+        new_zealand_1:
+          SATELLOGIC_NZ_CFE1: [NU1U, U]
+          SATELLOGIC_NZ_CFE2: [NU2U, U]
+
+    system_specific:
+
+
+  proxy:
+    tags:
+      - SU
+      - XD
+
+    whitelist:
+      - 192.146.238.0/24
+      - 172.31.246.10
+      - 172.31.244.44
+      - 10.103.254.0/24
+      - 10.101.19.32/27
+      - 10.103.214.0/24
+      - 10.104.210.0/24
+      - 10.103.221.0/24
+      - 10.203.233.0/28
+      - 10.121.204.0/24
+      - 10.117.203.0/24
+      - 10.131.204.0/27
+
+    services:
+      - spectrum_http
+      - mc_http
+      - monitor_tcp
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SU
+      - XD
+
+    autoconf:
+      inputFrequency: 1083
+      inputFrequencyOffset: 2
+      streamOffset: 2
+      streamBandwidth: 0.889
+      txEnable: False
+      reference_attenuation_adjustment: 2
+      outputFrequency: 73 #Tx freq 2065 MHz
+      spectral_class_dl: x_rhcp
+
+  qradio:
+    config: NUSAT_IDLE
+    tags:
+      - SU
+      - XD
+
+  qmr:
+    config: NUSAT_1180
+    tags:
+      - XD
+  
+  wb_specnet:
+    tags:
+      - XD
+    
+    config: NUSAT_1180
+  
+    autoconf:
+      inputCenterFrequency: 1200
+      rf0StreamOffset: -20
+      rf0StreamBW: 165
+
+  qrx:
+    tags: 
+      - XD
+    
+    config: NUSAT_136_53msps_20rolloff
+    
+
+  qdra-inst1:
+    stream_server: nusat_50
+    tags:
+      - XD

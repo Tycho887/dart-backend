@@ -1,0 +1,63 @@
+links:
+  s_band_downlink_p1_1:
+    direction: down
+    frequency: 2269750000
+    polarization: RHCP
+  s_band_downlink_p2_1:
+    direction: down
+    frequency: 2276000000
+    polarization: RHCP
+  s_band_downlink_p3_1:
+    direction: down
+    frequency: 2263500000
+    polarization: RHCP
+  s_band_downlink_p4_1:
+    direction: down
+    frequency: 2272500000
+    polarization: RHCP
+  s_band_downlink_p5_1:
+    direction: down
+    frequency: 2263500000
+    polarization: LHCP
+  s_band_uplink_p1_1:
+    direction: up
+    frequency: 2085500000
+    polarization: RHCP
+  s_band_uplink_p2_1:
+    direction: up
+    frequency: 2086900000
+    polarization: RHCP
+  s_band_uplink_p3_1:
+    direction: up
+    frequency: 2088300000
+    polarization: RHCP
+  s_band_uplink_p4_1:
+    direction: up
+    frequency: 2092588050
+    polarization: RHCP
+  s_band_uplink_p5_1:
+    direction: up
+    frequency: 2086900000
+    polarization: LHCP
+  x_band_downlink_p1_1:
+    direction: down
+    frequency: 8150000000
+    polarization: RHCP
+  x_band_downlink_p2_1:
+    direction: down
+    frequency: 8000000000
+    polarization: RHCP
+  x_band_downlink_p3_1:
+    direction: down
+    frequency: 8300000000
+    polarization: RHCP
+
+  # birk tester litt
+  s_band_uplink_p93_1:
+    direction: up
+    frequency: 2093000000
+    polarization: RHCP
+  s_band_downlink_p93_1:
+    direction: down
+    frequency: 2093000000
+    polarization: RHCP  

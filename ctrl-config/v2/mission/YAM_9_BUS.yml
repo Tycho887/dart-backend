@@ -1,0 +1,102 @@
+---
+config: LOFT_LONGBOW
+acu_config: YAM_8_BUS
+
+services:
+  ksat_acu_orbital:
+    tags:
+      - ksat_acu_orbital
+
+    link_config:
+      uplink_config: s_band_uplink_p2_1 # For setting UL Polarization
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 100.64.22.0/24
+      - 100.64.24.0/24
+      - 172.31.245.74/23 #Emil for LEOP
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+      - monitor_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+    
+    link_config:
+      uplink_config: s_band_uplink_p2_1
+      downlink_config: s_band_downlink_p2_1
+
+    autoconf:
+      reference_attenuation_adjustment: -6
+
+      spectral_class_dl: s_lhcp
+      spectral_class_ul: s_lhcp
+
+      system_specific:
+        MN4:
+          outputFrequency: 2065.85 # +1.5 = 2067.35
+          inputFrequency: 2242.85 # +2.5 = 2045.35
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+    config: LOFT_LONGBOW_BUS
+
+    link_config:
+      # For dynamic doppler comp frequency
+      uplink_config: s_band_uplink_p2_1
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    tlm_record: False
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1200
+      rf0StreamOffset: -33
+      rf0StreamBW: 300
+      inputSpectralInversion: True
+
+  qmr:
+    tags:
+      - XD
+
+  qrx:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: loft-orbital-production-gsc-ksat-delivery
+      inst_path: True
+      concurrency: 3
+      s3_endpoint_url: https://storage.googleapis.com
+      profile: loft
+      prefix: DATA
+
+  
+

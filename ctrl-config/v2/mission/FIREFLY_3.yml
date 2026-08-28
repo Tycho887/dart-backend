@@ -1,0 +1,67 @@
+---
+config: FIREFLY_3
+acu_config: FIREFLY_3
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.111.0/24
+      - 192.146.238.242
+      - 172.31.244.0/24
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+    
+    link_config:  # Use this if not converted to 70 MHz
+      mode: spacecraft  # Uses frequencies used in v2/spacecrafts for the particular spacecraft
+      uplink_config: s_band_uplink_p1_1  # Default uplink config. Can be overridden in mission
+      downlink_config: s_band_downlink_p1_1
+    
+    autoconf: 
+      enabled: True
+      reference_attenuation_adjustment: 2
+      system_bandwidth: '22.0'
+      streamBandwidth: 7.5
+        
+  qradio:
+    tags:
+      - SD
+      - SU
+
+#  wb_specnet:
+#    tags:
+#      - XD
+#
+#    autoconf:
+#      inputCenterFrequency: 1250
+#      rf0StreamOffset: 20
+#      rf0StreamBW: 320
+#
+#  qrx: 
+#    tags: 
+#      - XD
+#
+#  qdra-inst1:
+#    tags:
+#      - XD
+#
+#    record: True
+#
+#    aws_s3_transfer:
+#      backend: aws_s3
+#      bucket_name: s-space-pldp-ksat-s3-01
+#      profile: pixxelspace_datahub
+#      prefix: DATA
+
+

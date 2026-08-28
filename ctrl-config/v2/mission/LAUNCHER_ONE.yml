@@ -1,0 +1,33 @@
+---
+acu_config: LAUNCHER_ONE
+check_tle: False
+
+tags:
+  - disable_acu
+
+services:
+  oem_table_track:
+    tags:
+      - SD
+
+    interpolation_step: 1
+    preAzEl_supersample: True
+    postAzEl_supersample: False
+  
+  proxy:
+    tags:
+      - SU
+
+    whitelist:
+      - 192.146.238.237
+
+    services:
+      - qradio_tcp
+
+  custom_backend:
+    tags:
+      - SD
+
+    mtx_tags_downlink:
+      - [DL, VODL]
+    

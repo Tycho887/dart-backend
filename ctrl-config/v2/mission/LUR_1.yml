@@ -1,0 +1,36 @@
+config: LUR_1
+acu_config: LUR_1
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+    
+
+    whitelist:
+      - 172.31.244.111 # hsc-nix
+      - 100.64.79.0/26
+
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -4
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+
+

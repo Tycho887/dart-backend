@@ -3,7 +3,7 @@ context model (ported from depr/load.py)."""
 import os
 import re
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import polars as pl
 from azure.kusto.data import ClientRequestProperties
 from azure.kusto.data import KustoConnectionStringBuilder
@@ -51,6 +51,57 @@ def _query_properties(timeout_seconds: float) -> ClientRequestProperties:
         timedelta(seconds=timeout_seconds),
     )
     return properties
+
+_KUSTO_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_CONTACT_IDENTIFIER = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _kusto_datetime(value: datetime) -> str:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("ADX bounds must be timezone-aware")
+    return (
+        value.astimezone(timezone.utc)
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+
+
+def fetch_contact_columns(
+    contact_id: str,
+    start_time: datetime,
+    stop_time: datetime,
+    columns: tuple[str, ...],
+    *,
+    order_by: str,
+    contact_column: str = "contact_id",
+    timeout_seconds: float = ADX_QUERY_TIMEOUT_SECONDS,
+) -> pl.DataFrame:
+    """Fetch selected raw telemetry for one contact and bounded UTC interval."""
+    if not _CONTACT_IDENTIFIER.fullmatch(contact_id):
+        raise ValueError(f"invalid contact identifier {contact_id!r}")
+    selected = tuple(dict.fromkeys(columns))
+    if not selected or any(not _KUSTO_IDENTIFIER.fullmatch(name) for name in selected):
+        raise ValueError("ADX columns must be non-empty Kusto identifiers")
+    if order_by not in selected or contact_column not in selected:
+        raise ValueError("order_by and contact_column must be selected ADX columns")
+    if stop_time <= start_time:
+        raise ValueError("ADX stop_time must be later than start_time")
+    start = _kusto_datetime(start_time)
+    stop = _kusto_datetime(stop_time)
+    query = (
+        "contacts\n"
+        f"| where {contact_column} == '{contact_id}'\n"
+        f"| where {order_by} between (datetime({start}) .. datetime({stop}))\n"
+        f"| project {', '.join(selected)}\n"
+        f"| order by {order_by} asc"
+    )
+    with get_client() as client:
+        response = client.execute_query(
+            "telemetry", query, _query_properties(timeout_seconds)
+        )
+        raw = dataframe_from_result_table(response.primary_results[0])
+    frame = pl.from_pandas(raw)
+    return frame.sort(order_by) if order_by in frame.columns else frame
 
 
 def fetch_tracking_data(
@@ -138,6 +189,51 @@ def fetch_tracking_data(
     logger.info(f"Returning {len(df_final)} validated samples from database.")
 
     return df_final
+
+
+def fetch_contact_tracking_data(
+    contact_id: str,
+    *,
+    require_lock: bool = False,
+    min_elevation_deg: float = 1.0,
+    min_doppler_hz: float = 1.0,
+    max_doppler_hz: float = 1e5,
+    timeout_seconds: float = ADX_QUERY_TIMEOUT_SECONDS,
+) -> pl.DataFrame:
+    """Fetch one contact for the asynchronous service.
+
+    Unlike the legacy ``TrackingContext`` adapter, this query has no hidden
+    Eb/N0 filter and interprets Doppler limits as absolute magnitudes. The
+    caller validates ``contact_id`` as a UUID before reaching this boundary.
+    """
+    if min_doppler_hz < 0 or max_doppler_hz <= 0 or min_doppler_hz > max_doppler_hz:
+        raise ValueError("invalid absolute Doppler bounds")
+    prefix = "lr1_receiver1"
+    filters = [
+        f"contact_id == '{contact_id}'",
+        f"antenna1_position_elevation >= {float(min_elevation_deg)}",
+        (
+            f"abs({prefix}_actualCarrierFrequencyOffset) between "
+            f"({float(min_doppler_hz)} .. {float(max_doppler_hz)})"
+        ),
+    ]
+    if require_lock:
+        filters.append(f"{prefix}_carrierLockState == 'Locked'")
+    query = (
+        "contacts\n"
+        f"| where {' and '.join(filters)}\n"
+        "| project timestamp, contact_id, antenna_name, spacecraft_id, system_id, "
+        "antenna1_tracking_epochOffset, antenna1_position_azimuth, antenna1_position_elevation, "
+        f"{prefix}_carrierLockState, {prefix}_ebN0, "
+        f"{prefix}_actualCarrierFrequencyOffset\n"
+        "| order by timestamp asc"
+    )
+    with get_client() as client:
+        response = client.execute_query(
+            "telemetry", query, _query_properties(timeout_seconds)
+        )
+        raw_df_pd = dataframe_from_result_table(response.primary_results[0])
+    return pl.from_pandas(raw_df_pd)
 
 
 @dataclass

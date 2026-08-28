@@ -1,0 +1,43 @@
+---
+config: HAVEN_DEMO
+acu_config: HAVEN_CONTINGENCY
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.126.0/24
+      - 172.31.244.44 #mep-nix
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http
+
+
+  specnet:
+    tags:
+      - SD
+      - SU
+    
+    autoconf: 
+      enabled: True
+      reference_attenuation_adjustment: -7
+        
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    config: default
+    record: False
+    tags:
+      - SD
+      - SU
+      
+    

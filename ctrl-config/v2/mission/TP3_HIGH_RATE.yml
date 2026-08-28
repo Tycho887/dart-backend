@@ -1,0 +1,34 @@
+---
+config: TRUSTPOINT_S
+customer: TRUSTPOINT
+acu_config: TRUSTPOINT3
+
+services:
+  
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.117.0/24
+      - 100.64.76.0/24
+      
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http
+  
+  specnet:
+    tags:
+      - SD
+      - SU
+    autoconf:
+      reference_attenuation_adjustment: -1
+
+  qradio:
+    config: TRUSTPOINT_NOM
+    tags:
+      - SD
+      - SU

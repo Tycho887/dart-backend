@@ -1,0 +1,30 @@
+---
+config: TRUSTPOINT2
+acu_config: TRUSTPOINT2
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+
+    services:
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+      system_bandwidth: '22.0'
+      streamBandwidth: 5
+
+  qradio:
+    tags:
+      - SD
+      - SU
+

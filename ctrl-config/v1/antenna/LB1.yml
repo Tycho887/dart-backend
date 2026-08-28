@@ -1,0 +1,139 @@
+---
+## Special keys
+type: antenna
+object_id: orbital_30TSXS2_37m
+#lat: 78.22745
+#lon: 15.38444
+#altitude: 498.07
+
+mtx:
+  
+  dl:
+    instance_id: dl
+    present: False
+    file: SG_litemtx1.yml
+
+    tags:
+      - X
+      - S
+
+    input:
+      bands:
+        - multi
+
+      polarizations:
+        - dual
+
+      tag: none
+
+    output:
+      bands:
+        - S
+        - X
+        
+      polarizations:
+        - dual
+
+      tag: lite
+      
+    defaults:
+      
+      polarization:
+        - dual
+
+      channels: 1
+    
+  up:
+    instance_id: up
+    present: False
+    file: SG_litemtx1.yml
+
+    tags:
+      - U
+
+bands:
+  - S
+  - X
+
+links:
+  - down
+  - up
+
+polarization:
+  - RHCP
+  - LHCP
+
+### Defaults
+
+defaults:
+
+  acu:
+    rest: http://10.119.101.10
+  
+  proxy:
+    nodes:
+      - http://10.119.102.101:5000
+
+  acu_proxy:
+    # This is used for Virgin when controlling the LB ACU, special case!
+    nodes:
+      - http://10.119.102.99:5000
+
+    hosts:
+      - 10.119.102.99
+      
+  specnet:
+    rest: http://10.119.102.25:80
+    qradio_data_ip: 10.119.198.80
+
+  qradio:
+    rest: http://10.119.102.80:8080
+    ctrl-agent: http://10.119.102.80:5000
+    specnet_data_ip: 10.119.198.10
+      
+  qfep:
+    rest: http://10.119.102.80:30000
+    ctrl-agent: http://10.119.102.80:5000
+
+  ctx:
+    host: 10.119.102.80
+
+  qmr:
+    rest: http://10.119.102.50:80
+    eth2: 
+    eth3: 
+    qdra_host_inst1: 10.119.198.40
+    qdra_port_inst1: 50022
+    qdra_host_inst2: 10.119.198.40
+    qdra_port_inst2: 50032
+
+  qdra_inst1:
+    rest: http://10.119.102.40:8080
+    ctrl-agent: http://10.119.102.40:5000
+
+  qdra_inst2:
+    rest: http://10.119.102.40:8081
+    ctrl-agent: http://10.119.102.40:5000
+
+### Model specific
+orbital_30TSXS2_37m:
+  
+  statusall: http://10.119.102.30:3001
+  feed: FTSXS-XBX-PCP-01
+  hpa: PA-01
+  converter: MM-SST-01
+  fibre: FIP-11N1
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  

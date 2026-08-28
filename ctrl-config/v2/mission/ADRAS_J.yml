@@ -1,0 +1,43 @@
+config: ADRAS_J
+acu_config: ADRAS_J
+
+services:
+
+  proxy:
+    tags:
+      - SD
+      - XD
+
+    whitelist:
+
+    services:
+      - qradio_tcp
+      - qradio_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      txEnable: False
+
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qrx:
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+    
+    autoconf:
+      inputCenterFrequency: 1500
+      rf0StreamOffset: 20
+      rf0StreamBW: 16
+

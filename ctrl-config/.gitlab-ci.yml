@@ -1,0 +1,83 @@
+---
+image: python:3.6
+
+stages:
+  - test
+  - deploy-configs
+  - deploy
+
+test:
+  stage: test
+  script:
+    - pip install ruamel.yaml
+    - pip install pytest
+    - pytest test
+
+test:validation:
+  image: python:3.12-slim
+  stage: test
+  script:
+    - pip install pyyaml jsonschema
+    - python3 check_spacecraft_links.py
+
+  allow_failure: false
+
+trigger-deployment:
+  # This has its own stage to make the "run all manual jobs"-button
+  # appear in gitlab
+  stage: deploy-configs
+  only:
+    - master
+  parallel:
+    matrix:
+      - INVENTORY_GROUP: ["electron", "scheduler"]
+  variables:
+    PROJECT_PATH: $CI_PROJECT_PATH
+    PROJECT_URL: $CI_PROJECT_URL
+    CONFIG_TYPE: controller
+    INVENTORY_PROJECT: "lite/configs/autodeploy"
+    INVENTORY_FILE: inventory.yml
+  trigger:
+    project: "lite/configs/autodeploy"
+    strategy: depend
+
+mission-page-rebuild:
+  stage: deploy
+  only:
+    - master
+  allow_failure: true
+  trigger: 
+    project: lite/lite-missions
+
+pages:
+  image: python:3.6
+  stage: deploy
+  only:
+    - master
+
+  script:
+    - pip install sphinx sphinx-rtd-theme pyyaml jinja2
+    - cd docs
+    - cd scripts
+    - python3 proxy.py
+    - cd ..
+    - make html
+    - mkdir ../public
+    - cp -r build/html/* ../public
+    - cd ..
+
+  artifacts:
+    paths:
+      - public
+
+deploy-system-pages:
+  stage: deploy
+  allow_failure: true
+  only:
+    - master
+  variables:
+    CONFIG_REPO: "$CI_PROJECT_PATH"
+    CONFIG_DIRECTORY: "v2/system"
+  trigger:
+    project: "lite/antenna-system-links"
+

@@ -1,0 +1,42 @@
+config: IMPULSE_3
+acu_config: IMPULSE_3
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.151.0/24 #Impulse Space SDWAN
+      - 172.31.244.44 #mep-nix
+  
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SU
+      - SD
+
+    autoconf:
+      reference_attenuation_adjustment: -4
+      inputFrequency: 1544.5 #DL freq is 8497 MHz
+      spectral_class_dl: x_rhcp
+
+  qradio:
+    tags:
+      - SU
+      - SD
+
+  qfep:
+    config: default
+    record: False
+    tags:
+      - SD
+      - SU
+

@@ -1,0 +1,22 @@
+---
+config: GUARDIAN
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 172.31.233.17
+      - 172.31.233.88
+      - 192.146.238.242
+
+    services:
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SD
+      

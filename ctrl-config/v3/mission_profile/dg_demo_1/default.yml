@@ -1,0 +1,24 @@
+---
+config: WV2_NB
+acu_config: WV2
+
+
+tasks:
+
+  spectralnet:
+    tags:
+      - ttc
+
+    variables:
+      config: TG1
+
+  qradio:
+    tags:
+      - ttc
+
+  dg_qfep:
+    tags:
+      - ttc
+
+    variables:
+      config: WV03-Operational

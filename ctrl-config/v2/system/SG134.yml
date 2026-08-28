@@ -1,0 +1,106 @@
+---
+tags:
+  - electron
+  - spaceport
+  - controller
+  - ksat_acu_orbital
+
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+  - name: nkom_tracking_file
+    type: nkom_tracking_file
+
+acu:
+  vendor: orbital
+  model: 3.0TSAX1-2.8m
+  feed: FTSX-0B-RB-00-01
+  hpa: HPAIC-S-200-01
+  converter: 
+  
+defaults:
+
+  nkom:
+    destination:
+      host: "svl-trk-cmd.ksat.no"
+      path: "inbox/"
+    log_tracking_file: false
+    publish_tracking_file: true
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://10.203.117.157:80
+    control_api_enabled: true
+    monitor_api_enabled: true
+    ephemeris_cacher_enabled: true
+
+  controller:
+    # control_api: http://10.203.117.157:9999
+    # monitor_api: http://10.203.117.157:80
+    auto_pull: 1
+    session: SG134
+
+  aws_s3:
+    web_proxy: 10.203.126.79:8888
+
+  ftp3:
+    host: 192.146.239.4
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  ksat_acu_orbital:
+    base_url: http://10.203.117.157:80/ksat_acu_orbital
+
+    reference_hpa_input_attenuation: 10
+    reference_hpa_output_control: Feed
+    reference_hpa_status: Enable
+
+  specnet:
+    enabled: False
+
+  ctx:
+    enabled: False
+   
+  qradio:
+    enabled: False
+
+  qfep:
+    enabled: False
+    
+  qmr:
+    enabled: False
+
+  qdra-inst1:
+    enabled: False
+
+  qdra-inst2:
+    enabled: False
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+  controller:
+    tags:
+      - controller
+
+  ksat_acu_orbital:
+    tags:
+      - ksat_acu_orbital
+
+  nkom: {}

@@ -1,0 +1,71 @@
+---
+type: mission
+config: GLOBAL_2
+no_antenna: False
+load_config: True
+run_mode: production
+autosign: True
+autosign_level: 0
+kmon_autosign: True
+kmon_level: 0
+customer: BLACKSKY_GLOBAL ## Needed for autosign matching
+constellation: BLACKSKY_GLOBAL
+series: 1
+watch: True ## Sends event log for pass
+watchers:
+  - bjarne@ksat.no
+
+
+## Special keys:
+## type: mission
+## config: global config name, otherwise file name is used
+## run_mode: used to discard certain functions when running, if none all is run
+
+services:
+
+## Special keys:
+## tags: list of tags, runs all if none
+## functions: list of functions to be run, runs all if none
+## modes: list of modes, runs all if none
+## config: override global config
+## object_id: looks for object
+#  proxy:
+    ## Tags are specific
+#    tags:
+#      - U
+#      - S
+
+  proxy:
+    tags:
+      - U
+      - S
+
+    whitelist:
+      - 10.0.6.10
+      - 10.0.6.36
+      - 192.146.238.172
+
+    services:
+      - qradio_tcp
+      - qradio_http
+      - qmr_http
+
+  specnet:
+    tags:
+      - U
+      - S
+
+  qradio:
+    tags:
+      - U
+      - S
+      
+  qmr:
+    tags:
+      - X
+
+
+
+  
+
+

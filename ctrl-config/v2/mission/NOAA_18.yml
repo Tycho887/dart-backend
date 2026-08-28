@@ -1,0 +1,32 @@
+---
+config: NOAA_18
+
+services:
+
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 192.146.238.0/24
+      - 100.64.47.0/24
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - qradio_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      enabled: True
+      reference_attenuation_adjustment: -2
+
+  qradio:
+    tags:
+      - SD
+      - SU

@@ -1,0 +1,21 @@
+---
+config: KSM_3
+customer: KLEOS
+
+services:
+
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+
+    record: True
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/KLEOS

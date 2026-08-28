@@ -1,0 +1,110 @@
+tags:
+  - acu
+  - electron
+  - spaceport
+  - controller
+  - meos
+  - tracking_test
+
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+  - name: nkom_tracking_file
+    type: nkom_tracking_file
+
+acu:
+  vendor: orbital
+  model: 3.0TSXS2-3.7m
+  feed: FTSXS-XBX-PCP-01
+  hpa: PA-01
+  converter: PA-01
+  polarizations:
+    SD:
+      - dual
+    XD:
+      - dual
+    SU:
+      - dual
+
+defaults:
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://10.199.112.125:80
+    control_api_enabled: true
+    monitor_api_enabled: true
+    ephemeris_cacher_enabled: false
+
+  controller:
+    # control_api: http://10.199.112.125:9999
+#    monitor_api: http://10.199.112.126:80
+    disable_monitor_websocket_stream_check: True
+    auto_pull: 0
+    session: IG2
+  orbital:
+    host: 10.199.112.101
+    rest: http://10.199.112.125:30000
+    vendor: orbital
+    model: orbital
+    feed: FTSXS-XBX-PCP-01
+    hpa: PA-01
+    converter: PA-01
+    control_api_id: acu
+    use_monitor: false    
+    polarizations:
+      SD:
+        - dual
+      XD:
+        - dual
+      SU:
+        - dual
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+  orbital:
+    tags:
+      - acu
+
+    functions:
+      - metrics
+      - tracking_watchdog
+    
+    object_id: orbital
+
+  controller:
+    tags:
+      - controller
+
+  meos:
+    tags:
+      - meos
+
+    object_id: meos
+
+    dests:
+      orbital:
+        method: sftp
+        host: 10.199.112.125
+        user: orbital
+        dest: /home/orbital/schedule
+
+  tracking_test:
+    tags:
+      - tracking_test
+
+    functions:
+      - program_track

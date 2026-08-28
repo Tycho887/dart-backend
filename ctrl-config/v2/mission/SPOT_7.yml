@@ -1,0 +1,10 @@
+---
+config: SPOT_7
+
+services:
+    
+    qmr:
+      tags:
+        - XD
+
+   

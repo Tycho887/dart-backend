@@ -1,0 +1,72 @@
+---
+config: ICEYE_X6
+customer: ICEYE
+constellation: ICEYE
+acu_config: ICEYE_X2
+
+services:
+
+  proxy:
+    tags:
+      - XD
+      - SD
+
+    whitelist:
+      - 10.100.4.1
+      - 192.146.238.242
+      
+    services:
+      - ctx_tcp
+      - qradio_http
+      - qmr_http
+      - spectrum_http
+  
+  specnet:
+    tags:
+      - SD
+      - SU
+
+  qradio:
+    tags:
+      - SD
+      - SU
+      
+  qfep:
+    tags:
+      - SD
+      - SU
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/ICEYE
+      
+  ctx:    
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    stream_server: iceye
+    tags:
+      - XD
+
+    record: False        
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/ICEYE
+
+  qdra-inst2:
+    stream_server: iceye
+    tags:
+      - XD
+
+  contec:
+    tags:
+      - contec
+      
+    reserve: True
+    contec_satellite_id: 511

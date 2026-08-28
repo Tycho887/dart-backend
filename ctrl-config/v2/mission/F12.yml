@@ -1,0 +1,44 @@
+---
+kind: minimal
+config: RL_F12
+customer: Rocketlab LT
+constellation: Electron
+
+tags:
+  - disable_acu
+
+services:
+
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 10.103.236.0/24
+      - 10.120.250.0/24
+      - 10.121.250.0/24
+      
+    services:
+      - qradio_tcp
+      - qradio_http
+  
+  specnet:
+    tags:
+      - SD
+      - SU
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  photon:
+    tags:
+      - SD
+      - SU
+
+    transfer:
+      recording_path: /data/RLRecs/recordings
+      backend: ftpSvalSat
+      home: /data/customers/rocketlab

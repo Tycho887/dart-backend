@@ -1,0 +1,54 @@
+---
+config: SEDNA_PAYLOAD
+acu_config: SEDNA_1_PAYLOAD_21995
+
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 10.0.10.0/24
+      - 10.131.203.10
+      - 192.146.238.0/24
+      - 172.31.244.0/24
+      - 100.64.120.0/26 # SD-WAN
+      
+    services:
+      - mc_http
+      - qradio_tcp
+
+
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf: 
+      txEnable: True 
+      inputFrequency: 68
+      streamOffset: 1.5
+      streamBandwidth: 4
+    link_configs:
+      uplink_config: s_band_uplink_p1_1
+      downlink_config: s_band_downlink_p1_1
+      
+  qradio:
+    config: SEDNA_128kbps # Running same qRadio config as TT&C mission profile from request by customer
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    config: SEDNA
+    tags:
+      - SD
+      - SU
+
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/SPACEQUEST
+

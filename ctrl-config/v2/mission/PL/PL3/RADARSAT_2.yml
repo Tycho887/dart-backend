@@ -1,0 +1,59 @@
+---
+config: RADARSAT_2
+
+services:
+    custom_backend:
+      tags:
+        - XD
+
+      system_specific:
+        PL3:
+
+          mtx_tags_downlink:
+            - [DL,QMR]
+            - [DR,QMR]
+
+    wb_specnet:
+      tags:
+        - XD
+
+      autoconf:
+        inputCenterFrequency: 1250
+        rf0StreamOffset: 30
+        rf0StreamBW: 150
+        rfInGainMode: "Manual"
+        rf0InManualGain: 0
+
+    qrx:
+      defaults:
+        enabled: False
+      config: RADARSAT_2
+      tags:
+        - XD
+
+    qmr:
+      tags:
+        - XD
+      
+      defaults:
+        enabled: True
+        config: RADARSAT_2
+
+    
+    qdra-inst1:
+      stream_server: radarsat2
+      tags:
+        - XD
+      
+      
+      record: 
+        streams: [1]
+    
+    qdra-inst2:
+      stream_server: radarsat2
+      tags:
+        - XD
+        
+      record:
+        streams: [1]
+      

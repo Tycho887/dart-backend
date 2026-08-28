@@ -1,0 +1,225 @@
+---
+tags:
+  - electron
+  - spaceport
+  - scheduler
+  - controller
+
+acu:
+  vendor: external
+  model: 
+  feed: 
+  hpa: 
+  converter: 
+  polarizations:
+    SD:
+      - dual 
+    XD:
+      - dual
+    SU:
+      - dual
+            
+defaults:
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://10.127.102.101:80
+    control_api_enabled: true
+    monitor_api_enabled: true
+
+  controller:
+
+    # control_api: http://10.127.102.101:9999
+    auto_pull: 0
+    session: JJ1
+
+    dispatchers:
+      main: http://10.127.120.90:6000
+
+    site_id: 34212990
+
+    antenna_id: 34213106
+
+    mode: DEVELOP
+
+    schedule_ahead: 30
+
+  contec:
+    rest: https://api.contec.kr/
+    auth: 4b225ff7-29fc-4ac3-8d65-5def5665374e
+    contec_site_id: 1
+    
+  ftpSite:
+    host: 
+
+  aws_s3: 
+    web_proxy: 10.127.198.79:8888
+
+  ftp3:
+    host: 192.146.239.4
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  downlink_mtx:
+    host:
+    port: 4000
+    vendor: etl
+    model: nigma
+    mode: downlink
+
+  uplink_mtx:
+    host:
+    port: 4000
+    vendor: etl
+    model: nigma
+    mode: uplink
+
+  scheduler:
+    host: localhost
+    type: vm
+
+  orbital:
+    host:
+    rest:
+
+  proxy:
+    operational: True
+    mode: accept-proxy
+    access: 10.127.102.101
+    site: 10.127.241.101
+    site_sdwan: not_available
+
+    nodes:
+      - http://10.127.102.101:80
+
+  specnet:
+    rest: http://10.127.102.18:80
+    qradio_data_ip: 10.127.197.15
+    input_power_mode: inputPower_LR
+
+    autoconf:
+      enabled: True
+      reference_attenuation: 21
+      inputFrequency: 67.5
+      system_bandwidth: '10.0'
+      gainMode: 'Automatic'
+      rfInputPort: 'rfIn1'
+      AD_bits: 8
+      qradio_data_ip: 10.127.197.15
+      networkInputPort: 50000
+      streamOffset: 2.5
+      maxPacketSize: 1500
+      streamBandwidth: 5
+      packetProtectionEnable: True
+      inputStreamID: 0
+      rxEnable: True
+      invertOutputSpectrum: False
+      rfOutputPort: 'rfOut1'
+      outputFrequency: 68.5
+      rfOutputSource: 'Packets'
+      dataSource: 'Network'
+      programmedBuffer: 0
+      programmedDelay: 0
+      preserveLatency: False
+      networkOutputPort: 50000
+      outputFrequencyOffset: 1.5
+      useLocalReference: True
+      outputStreamID: 0
+      releaseMode: 'Programmed Delay'
+      multicastEnable: False
+      overrideOutputFrequencyEnable: True
+      txEnable: True
+
+      rf_input_port_rules:
+        s_rhcp: "rfIn1"
+        s_lhcp: "rfIn1"
+        x_lhcp: "rfIn1"
+        x_rhcp: "rfIn1"
+
+      rf_output_port_rules:
+        s_rhcp: "rfOut1"
+        s_lhcp: "rfOut1"
+        x_lhcp: "rfOut1"
+        x_rhcp: "rfOut1"
+
+  ctx:
+    host: 10.127.102.15
+
+  qradio:
+    rest: http://10.127.102.15:8080
+    specnet_data_ip: 10.127.197.18
+
+  qfep:
+    rest: http://10.127.102.15:30000
+
+  wb_specnet:
+    enabled: False
+
+  wb_specnet2:
+    enabled: False
+  
+  qrx:
+    enabled: False
+
+  qrx2:
+    enabled: False
+
+  qmr:
+    rest: http://10.127.102.19:80
+    qdra_host_inst1: 10.127.198.16
+    qdra_port_inst1: 50022
+    qdra_host_inst2: 10.127.198.16
+    qdra_port_inst2: 50032
+    input_power_mode: inputPower_HR
+
+    personalities:
+      DVB-S2: AA-11644-001+DVB-S2+Rx2
+      TCM: AA-11644-001+TCM+Rx2+QLegs
+      default_personality: AA-11644-001+DVB-S2+Rx2
+
+  qdra-inst1:
+    inst: 1
+    rest: http://10.127.102.16:8080
+    stream_servers:
+      iceye:
+        host: 10.127.198.79
+        port: 9199
+      blacksky:
+        host: 10.0.22.10
+        port: 56030
+
+
+  qdra-inst2:
+    inst: 2
+    rest: http://10.127.102.16:8081
+    stream_servers:
+      iceye:
+        host: 13.53.65.131
+        port: 9199
+
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+  scheduler:
+    tags:
+      - scheduler
+
+    functions:
+      - finally
+
+  controller:
+    tags:
+      - controller

@@ -1,0 +1,108 @@
+---
+config: ICEYE_X2
+customer: Birk
+constellation: birk
+
+#link_config:
+#  uplink_config: s_band_uplink_p2_1
+
+services: 
+  # proxy:
+  #   tags:
+  #     - SD 
+
+  #   services:
+  #     - mc_http
+  #     - spectrum_http
+
+  #   whitelist:
+  #     - 192.146.238.242
+      
+  # specnet:
+  #   tags:
+  #     - SD
+
+  #   autoconf:
+  #     reference_attenuation_adjustment: 0
+  #     outputFrequency: Null
+  #     system_specific:
+  #       BIRK1:
+  #         outputFrequency: 333
+
+  # qradio:
+  #   tags:
+  #     - SD
+
+    #      #
+    #      #setDopplerCompFrequencyFromSpacecraftConfig: True
+
+    #      #link_config:
+    #      #uplink_config: s_band_uplink_p3_1
+
+    #qfep:
+    #  tags:
+    #    - SD
+    #    - SU
+
+    #  transfer:
+    #    backend: ftp3
+    #    home: /customers/cache/lite/
+
+    #qmr:
+    #  tags:
+    #    - XD
+
+    #  config: noise_100Mbps
+
+    #  stream_server: birk_tester
+
+    #qdra-inst1:
+    #  tags:
+    #    - XD
+
+    #  record: True
+
+    #  stream_server: birk_tester
+
+    #  transfer:
+    #    backend: ftp3
+    #    home: /customers/cache/lite/
+    #  
+    #qrx:
+    #  tags:
+    #    - XD
+
+    #  config: noise_100Mbps
+
+    #  stream_server: birk_tester
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1100
+      rf0Enable: False
+      rf0StreamOffset: 25
+      rf0StreamBW: 200
+      rf0OperationalMode: "DIFI 1.0"
+      rf0VitaTimestamp: "GPS"
+      rf0ContextInformationClass: "1234"
+      rf0Oui: "DEADED"
+
+    # record: True
+
+    #    aws_s3_transfer:
+    #      bucket_name: nada-ksat-internship
+    #      client_arn: arn:aws:iam::267644242343:role/KSAT_Upload
+    #      profile: kasomhelst
+    #      backend: birkhackerlitt
+    #      external_id: KSAT
+    #      mfa_secret_key: IACY4SYT4N243CQ5OQY4WBKLY3YP3Y6ALRUW5ARCWZTLP7W34XBQA73P4KEN23FF
+    #      mfa_arn: arn:aws:iam::412574793948:mfa/hehei
+    #      prefix: KSAT_Data_Upload
+    #
+
+
+
+

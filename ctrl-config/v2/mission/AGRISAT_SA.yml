@@ -1,0 +1,33 @@
+config: AGRISAT_SA
+acu_config: AGRISAT
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.195
+      - 192.146.238.237
+      - 100.64.34.0/24
+  
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -2
+
+  qradio:
+    tags:
+      - SD
+      - SU

@@ -1,0 +1,57 @@
+---
+kind: mission
+config: RAPIDEO
+acu_config: RAPIDEO
+customer: HARRIS
+constellation: HARRIS
+
+services:
+
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      - 172.18.10.32/29
+      - 172.18.10.40/29
+      - 172.18.10.24/29
+      - 172.18.10.0/29
+      - 172.18.10.8/29
+      - 172.18.10.19
+      - 192.146.238.172
+      - 192.146.238.242
+
+    services:
+      - qradio_tcp
+      - qradio_http
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -6
+      txEnable: False
+      inputFrequency: 68.5
+      streamOffset: 1.5
+      streamBandwidth: 3
+      spectral_class_dl: s_lhcp
+      spectral_class_ul: s_rhcp 
+
+
+  qradio:
+    config: RAPIDEO_with_qfep
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    config: RAPIDEO_NEW
+    record: False
+    tags:
+      - SD
+      - SU

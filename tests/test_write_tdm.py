@@ -1,141 +1,92 @@
-"""CLI tests for the thin KSAT TDM export script."""
-
-import datetime
 from pathlib import Path
-from types import SimpleNamespace
 
-import pytest
-
-from dart.io.ksat_adx import GeneratedTdm, KsatExportResult
+from dart.tdm.angle import AngleResult
+from dart.tdm.ranging import TrackResult
 from scripts import write_tdm
 
-
-UTC = datetime.timezone.utc
-BASE_ARGS = [
-    "--config",
-    "config.toml",
+ARGS = [
+    "track",
     "--contact-id",
     "contact-1",
-    "--start",
-    "2026-08-25T12:00:00+02:00",
-    "--stop",
-    "2026-08-25T13:00:00+02:00",
+    "--band",
+    "S",
+    "--integration-interval",
+    "1",
+    "--turnaround-numerator",
+    "240",
+    "--turnaround-denominator",
+    "221",
+    "--uplink-link",
+    "s_band_uplink_p1_1",
+    "--downlink-link",
+    "s_band_downlink_p1_1",
+    "--output-dir",
+    "delivery",
+]
+
+ANGLE_ARGS = [
+    "angle",
+    "--contact-id",
+    "contact-1",
+    "--band",
+    "S",
+    "--tracking-mode",
+    "PROGRAM",
     "--output-dir",
     "delivery",
 ]
 
 
-def test_cli_forwards_defaults_and_reports_generated_and_skipped(monkeypatch, capsys):
-    config = SimpleNamespace()
+def test_cli_builds_track_request_and_reports_output(monkeypatch, capsys):
     calls = []
-    monkeypatch.setattr(write_tdm, "load_ksat_export_config", lambda path: config)
 
-    def fake_export(received_config, **kwargs):
-        calls.append((received_config, kwargs))
-        generated = GeneratedTdm(
-            product="ANGLE",
-            filename="ANGLE_D32_2026-001A_2026-08-25T10-00-00.tdm",
-            text="tdm",
-            path=Path("delivery/ANGLE_D32_2026-001A_2026-08-25T10-00-00.tdm"),
-        )
-        return KsatExportResult(
-            generated={"ANGLE": generated},
-            skipped={"TRACK": "no complete observations"},
-            warnings=("pedestal offset is UNKNOWN",),
-        )
+    def write(request, output_dir, **kwargs):
+        calls.append((request, output_dir, kwargs))
+        return TrackResult("TRACK_file.tdm", "text", Path("delivery/TRACK_file.tdm"))
 
-    monkeypatch.setattr(write_tdm, "export_ksat_contact", fake_export)
+    monkeypatch.setattr(write_tdm, "write_track_tdm", write)
 
-    assert write_tdm.main(BASE_ARGS) == 0
-    captured = capsys.readouterr()
-    assert "generated ANGLE: delivery/ANGLE" in captured.out
-    assert "warning: skipped TRACK: no complete observations" in captured.err
-    assert "warning: pedestal offset is UNKNOWN" in captured.err
-    received_config, kwargs = calls[0]
-    assert received_config is config
-    assert kwargs["contact_id"] == "contact-1"
-    assert kwargs["start_time"] == datetime.datetime(2026, 8, 25, 10, tzinfo=UTC)
-    assert kwargs["stop_time"] == datetime.datetime(2026, 8, 25, 11, tzinfo=UTC)
-    assert kwargs["output_dir"] == Path("delivery")
-    assert kwargs["products"] is None
+    assert write_tdm.main(ARGS) == 0
+    request, output_dir, kwargs = calls[0]
+    assert request.contact_id == "contact-1"
+    assert request.receive.offset_column == "lr1_receiver1_actualCarrierFrequencyOffset"
+    assert output_dir == Path("delivery")
     assert kwargs["overwrite"] is False
-    assert kwargs["timeout_seconds"] == write_tdm.DEFAULT_TIMEOUT_SECONDS
+    assert "generated TRACK: delivery/TRACK_file.tdm" in capsys.readouterr().out
 
 
-def test_cli_forwards_repeated_products_timeout_and_overwrite(monkeypatch):
+def test_cli_reports_export_failure(monkeypatch, capsys):
+    def fail(*args, **kwargs):
+        raise LookupError("no reviewed MEOS TRACK calibration")
+
+    monkeypatch.setattr(write_tdm, "write_track_tdm", fail)
+
+    assert write_tdm.main(ARGS) == 1
+    assert "no reviewed MEOS TRACK calibration" in capsys.readouterr().err
+
+
+def test_cli_builds_angle_request_and_reports_warnings(monkeypatch, capsys):
     calls = []
-    monkeypatch.setattr(
-        write_tdm, "load_ksat_export_config", lambda path: SimpleNamespace()
-    )
-    monkeypatch.setattr(
-        write_tdm,
-        "export_ksat_contact",
-        lambda config, **kwargs: calls.append(kwargs)
-        or KsatExportResult(
-            generated={
-                "TRACK": GeneratedTdm("TRACK", "track.tdm", "tdm", Path("track.tdm"))
-            }
-        ),
-    )
 
-    status = write_tdm.main(
-        BASE_ARGS
-        + [
-            "--product",
-            "track",
-            "--product",
-            "sigmet",
-            "--timeout-seconds",
-            "7.5",
-            "--overwrite",
-        ]
-    )
+    def write(request, output_dir, **kwargs):
+        calls.append((request, output_dir, kwargs))
+        return AngleResult(
+            "ANGLE_file.tdm",
+            "text",
+            Path("delivery/ANGLE_file.tdm"),
+            ("confirm readback mapping",),
+        )
 
-    assert status == 0
-    assert calls[0]["products"] == ["track", "sigmet"]
-    assert calls[0]["timeout_seconds"] == 7.5
-    assert calls[0]["overwrite"] is True
+    monkeypatch.setattr(write_tdm, "write_angle_tdm", write)
 
-
-def test_cli_returns_one_when_no_product_is_generated(monkeypatch, capsys):
-    monkeypatch.setattr(
-        write_tdm, "load_ksat_export_config", lambda path: SimpleNamespace()
-    )
-    monkeypatch.setattr(
-        write_tdm,
-        "export_ksat_contact",
-        lambda *args, **kwargs: KsatExportResult(skipped={"TRACK": "no data"}),
-    )
-
-    assert write_tdm.main(BASE_ARGS) == 1
-    assert "warning: skipped TRACK: no data" in capsys.readouterr().err
-
-
-def test_cli_reports_configuration_or_runtime_error(monkeypatch, capsys):
-    def fail(_path):
-        raise ValueError("bad configuration")
-
-    monkeypatch.setattr(write_tdm, "load_ksat_export_config", fail)
-
-    assert write_tdm.main(BASE_ARGS) == 1
-    assert capsys.readouterr().err == "error: bad configuration\n"
-
-
-@pytest.mark.parametrize(
-    "extra",
-    [
-        ["--product", "meteo"],
-        ["--timeout-seconds", "0"],
-        ["--start", "2026-08-25T12:00:00"],
-    ],
-)
-def test_cli_keeps_argparse_exit_two_for_invalid_usage(extra):
-    args = list(BASE_ARGS)
-    if extra[0] in args:
-        index = args.index(extra[0])
-        args[index : index + 2] = extra
-    else:
-        args.extend(extra)
-    with pytest.raises(SystemExit) as exc:
-        write_tdm.main(args)
-    assert exc.value.code == 2
+    assert write_tdm.main(ANGLE_ARGS) == 0
+    request, output_dir, kwargs = calls[0]
+    assert request.contact_id == "contact-1"
+    assert request.tracking_mode == "PROGRAM"
+    assert request.columns.angle_1 == "antenna1_position_azimuth"
+    assert request.columns.angle_2 == "antenna1_position_elevation"
+    assert output_dir == Path("delivery")
+    assert kwargs["overwrite"] is False
+    captured = capsys.readouterr()
+    assert "generated ANGLE: delivery/ANGLE_file.tdm" in captured.out
+    assert "warning: confirm readback mapping" in captured.err

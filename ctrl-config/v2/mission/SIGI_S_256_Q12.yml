@@ -1,0 +1,38 @@
+---
+config: SIGI_S_256_Q12
+acu_config: SIGI
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.124.0/26 
+
+    services:
+      - qradio_tcp
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -5
+      system_bandwidth: '22.0'
+      streamBandwidth: 5
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    config: SIGI
+    tags:
+      - SD
+      - SU

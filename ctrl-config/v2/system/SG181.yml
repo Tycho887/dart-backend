@@ -1,0 +1,301 @@
+---
+tags:
+  - controller
+  - electron
+  - spaceport
+  - meos
+  - tracking_test
+  - acu
+
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+  - name: nkom_tracking_file
+    type: nkom_tracking_file
+
+acu:
+  vendor: orbital
+  model: 3.0TSXS7-3.7m
+  feed: FTSXS-XBX-PCP-01
+  hpa: PA-01
+  converter: MM-SST-01
+  polarizations:
+    SD:
+      - dual
+    XD:
+      - dual
+    SU:
+      - dual
+
+defaults:
+
+  nkom:
+    destination:
+      host: "svl-trk-cmd.ksat.no"
+      path: "inbox/"
+    log_tracking_file: false
+    publish_tracking_file: true
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://10.203.117.189:80
+    control_api_enabled: true
+    monitor_api_enabled: true
+    ephemeris_cacher_enabled: false
+
+  controller:
+    #control_api: http://10.103.0.103:8004
+    disable_monitor_websocket_stream_check: True
+    auto_pull: 0
+    session: SG181
+
+  aws_s3:
+    web_proxy: 10.203.126.79:8888  
+
+  ftp3:
+    host: 192.146.239.4
+    port: 22
+
+  ftpSvalSat:
+    host: 172.23.99.11
+    port: 2222
+
+  proxy:
+    operational: True
+    mode: accept-proxy
+    access: 10.203.117.189
+    site: 10.103.254.114
+    site_sdwan: 100.90.103.114
+
+    nodes:
+      #- http://10.103.0.81:5000
+      - http://10.203.117.189:80
+
+  downlink_mtx:
+    block: svalsat_1
+    host: 10.103.0.140
+    port: 4000
+    vendor: etl
+    model: nigma
+    mode: downlink
+    size: 32
+
+    def_routes:
+      - [DL, SDL]
+
+    null: NULL
+
+  uplink_mtx:
+    block: svalsat_1
+    alias: 5
+    antenna_alias: 5
+    host: 10.103.0.40
+    port: 4000
+    vendor: etl
+    model: victor
+    mode: uplink
+    size: 16
+    def_routes: [SU, U]
+
+  scheduler:
+    host: localhost
+    type: vm
+
+  orbital:
+    host: 10.203.117.165
+    #rest: http://10.103.0.85:3181
+    rest: http://10.203.117.189:30000
+    vendor: orbital
+    model: 3.0TSXS7-3.7m
+    feed: FTSXS-XBX-PCP-01
+    hpa: PA-01
+    converter: MM-SST-01
+    polarizations:
+      SD:
+        - dual
+      XD:
+        - dual
+      SU:
+        - dual
+        - dual
+
+  specnet:
+    rest: http://10.203.127.105:80
+    qradio_data_ip: 10.203.125.195
+    input_power_mode: inputPower_LR
+    rate: LR
+
+    autoconf:
+      enabled: True
+      reference_attenuation: 20
+      inputFrequency: 67.5
+      system_bandwidth: '10.0'
+      gainMode: 'Automatic'
+      rfInputPort: 'rfIn1'
+      AD_bits: 8
+      qradio_data_ip: 10.203.125.195
+      networkInputPort: 50000
+      streamOffset: 2.5
+      maxPacketSize: 1500
+      streamBandwidth: 5
+      packetProtectionEnable: True
+      inputStreamID: 0
+      rxEnable: True
+      invertOutputSpectrum: False
+      attenuation: 24
+      rfOutputPort: 'rfOut1'
+      outputFrequency: 68.5
+      rfOutputSource: 'Packets'
+      dataSource: 'Network'
+      programmedBuffer: 0
+      programmedDelay: 0
+      preserveLatency: False
+      networkOutputPort: 50000
+      outputFrequencyOffset: 1.5
+      useLocalReference: True
+      outputStreamID: 0
+      releaseMode: 'Programmed Delay'
+      multicastEnable: False
+      overrideOutputFrequencyEnable: True
+      txEnable: True
+
+      rf_input_port_rules:
+        s_rhcp: "rfIn1"
+        s_lhcp: "rfIn1"
+        x_lhcp: "rfIn1"
+        x_rhcp: "rfIn1"
+
+      rf_output_port_rules:
+        s_rhcp: "rfOut1"
+        s_lhcp: "rfOut1"
+        x_lhcp: "rfOut1"
+        x_rhcp: "rfOut1"
+
+  ctx:
+    host: 10.203.117.170
+
+  qradio:
+    rest: http://10.203.117.170:8080
+    specnet_data_ip: 10.203.125.196
+    model: qradio
+    control_api_id: lr_radio
+
+  qfep:
+    rest: http://10.203.117.170:30000
+
+  qmr:
+    rest: http://10.203.127.104:80
+    qdra_host_inst1: 10.203.126.181
+    qdra_port_inst1: 50022
+    qdra_host_inst2: 10.203.126.181
+    qdra_port_inst2: 50032
+    input_power_mode: inputPower_HR
+    rate: HR
+
+    model: qmr
+    control_api_id: hr_radio
+
+  wb_specnet:
+    enabled: False
+
+  wb_specnet2:
+    enabled: False
+  
+  qrx:
+    enabled: False
+
+  qrx2:
+    enabled: False
+
+  qdra-inst1:
+    inst: 1
+    rest: http://10.203.117.171:8080
+    ch: CH1
+    rate: HR
+    stream_servers:
+      tsx:
+        host: 10.203.126.79
+        port: 5555
+      iceye:
+        host: 13.53.65.131
+        port: 9199
+      ororatech:
+        host: 10.203.126.79
+        port: 7914
+      clyde_vireon:
+        host: 10.121.126.79
+        port: 7919 
+
+
+  qdra-inst2:
+    enabled: False
+    inst: 2
+    rest: http://10.203.117.172:8080
+    ch: CH2
+    rate: HR
+    stream_servers:
+      iceye:
+        host: 10.102.237.20
+        port: 9199
+
+
+services:
+
+  electron:
+    tags:
+      - electron
+
+  spaceport:
+    tags:
+      - spaceport
+
+  orbital:
+    tags:
+      - acu
+
+    object_id: orbital
+
+  controller:
+    tags:
+      - controller
+
+  downlink_mtx:
+    tags:
+      - downlink_mtx
+
+    object_id: etl_downlink
+
+  uplink_mtx:
+    tags:
+      - uplink_mtx
+
+    object_id: etl_uplink
+
+  meos:
+    tags:
+      - meos
+
+    object_id: meos
+
+    dests:
+      orbital:
+        method: sftp
+        host: 10.203.117.189
+        user: orbital
+        dest: /home/orbital/schedule
+
+  tracking_test:
+    tags:
+      - tracking_test
+
+    functions:
+      - program_track
+      - hpa_level
+
+  nkom: {}

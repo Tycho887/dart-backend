@@ -1,0 +1,46 @@
+---
+kind: minimal
+config: RL_LC1_DL256
+acu_config: LC1
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.20.0/24
+      - 192.146.238.195
+      - 172.31.245.123 #awe-nix
+      - 172.31.245.74 #Emil
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+
+    defaults:
+      config: RL_F13 
+
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 1
+  
+  qradio:
+    config: RL_LC1_DL256_V2
+    tags:
+      - SD
+      - SU
+
+    record: True
+      #transfer:
+      #    recording_path: /home/rtlogic/electron/recordings 
+      #    backend: ftpSvalSat 
+      #    #home: /data/customers/rocketlab

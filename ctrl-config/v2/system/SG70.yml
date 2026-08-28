@@ -1,0 +1,121 @@
+tags:
+  - electron  # Enables system with Electon
+  - spaceport # Enabled system with Spaceport
+  - controller
+  - meos
+  - acu
+  - tracking_test
+
+post:
+  - name: tracking_azimuth
+    type: tracking_azimuth
+
+  - name: tracking_elevation
+    type: tracking_elevation
+
+  - name: nkom_tracking_file
+    type: nkom_tracking_file
+
+acu:
+  vendor: orbital
+  model: 2.4TSX1-2.4m
+  feed: FTSX-XB-RR-01
+  hpa: US-PA-01
+  converter: US-PA-01
+  polarizations:
+    SD:
+      - dual
+    XD:
+      - dual
+    SU:
+      - dual
+
+defaults:
+
+  nkom:
+    destination:
+      host: "svl-trk-cmd.ksat.no"
+      path: "inbox/"
+    log_tracking_file: false
+    publish_tracking_file: true
+
+  electron:
+    ephemeris_cacher_enabled: true
+
+  spaceport:
+    base_url: http://10.203.119.61:80  # Set to spaceport host / same ip as defaults->controller->control_api
+    control_api_enabled: true # Set to true if new control api should be configured, false if legacy. Should be true if legacy container removed for Lite SX 1.0.0
+    monitor_api_enabled: true # Set to true if spaceport integrated Monitor API should be used.
+    ephemeris_cacher_enabled: true  # Hack if Orbital driver does not have network access to Electron port 6000 in order to fetch TLEs. This is a workaround, and a note in the rollout status should be written and action taken(ticket to IT Network to fix)
+
+  controller:
+    # control_api: http://10.103.70.16:9999 #OLD IPs!
+    # monitor_api: http://10.103.70.26:80 #Needs to be changed
+    disable_monitor_websocket_stream_check: True  # This can be set to true for systems where we migrate Monitor API to Spaceport. Just disables a check if there is data flowing from Monitor API WebSockets when expected. 
+    auto_pull: 0
+    session: SG70
+
+  orbital:
+    host: 10.203.119.37
+    rest: http://10.203.119.61:30000
+    vendor: orbital
+    model: orbital
+    feed: FTSX-XB-RR-01
+    hpa: US-PA-01
+    converter: US-PA-01
+    control_api_id: acu
+    use_monitor: false     
+    polarizations:
+      SD:
+        - dual
+      XD:
+        - dual
+      SU:
+        - dual
+
+services:
+
+  electron:  # This is needed as it emulates a service similar to Mission Config
+    tags:
+      - electron
+
+  spaceport: # This is needed as it emulates a service similar to Mission Config
+    tags:
+      - spaceport
+
+  orbital:
+    tags:
+      - acu
+
+    functions:
+      - metrics
+      - tracking_watchdog
+    
+    object_id: orbital
+
+  controller:
+    tags:
+      - controller
+
+  meos:
+
+    tags:
+      - meos
+
+    object_id: meos
+
+    dests:
+      orbital:
+        method: sftp
+        host: 10.203.119.61 #10.103.70.16 was old Spaceport ip from before change of antenna net
+        user: orbital
+        dest: /home/orbital/schedule
+
+  tracking_test:
+    tags:
+      - tracking_test
+
+    functions:
+      - program_track
+
+  nkom: {}

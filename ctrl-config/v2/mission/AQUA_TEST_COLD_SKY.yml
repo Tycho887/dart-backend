@@ -1,0 +1,102 @@
+---
+config: AQUA
+acu_config: AQUA_COLD_SKY
+
+services:
+  proxy:
+    tags:
+      - XD
+      - SD
+      - SU
+
+    whitelist:
+      - 172.31.244.0/24
+      - 172.31.245.0/24
+      - 172.31.246.0/24
+      
+    services:
+      - mc_http
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf: 
+      txEnable: False
+      refeence_attenuation_adjustment: -4
+
+  qradio:
+    config: ICEYE_X2
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    tags:
+      - XD
+
+  qrx:
+    tags:
+      - XD
+
+  wb_specnet:
+    tags: 
+      - XD
+    
+    autoconf:
+      inputCenterFrequency: 1200
+      rf0StreamOffset: 10
+      rf0StreamBW: 20
+
+  wb_specnet2:
+    tags: 
+      - XD
+    
+    autoconf:
+      inputCenterFrequency: 1200
+      rf0StreamOffset: 10
+      rf0StreamBW: 20
+
+  
+#   ksat_antenna_configurator:
+#     parameters:
+#       backend: ksat_acu_orbital      
+#       base_url: http://ksat_acu_orbital:5000
+# #
+#       #ksat_acu_orbital_config:
+#       #  host: 10.140.112.5
+#       #  port: 7007
+# #
+#       #config_mode: auto
+#       commands:
+#         #s_tx_polarity:
+#         #  mode: auto
+
+#         hpa_output_control:
+#           output: test # feed | test
+
+#         hpa_status:
+#           mode: on # on | auto | off
+
+#         hpa_input_attenuation:
+#           config_mode: manual
+#           attenuation: 10  # 0 < 31.75
+
+#         fiber_a_tx_attenuation:
+#           config_mode: manual
+#           attenuation: 15
+
+#         fiber_b_tx_attenuation:
+#           config_mode: manual
+#           attenuation: 15
+
+#         ltu_s_state:
+#           state: True
+
+#         ltu_s_input_frequency:
+#           frequency: 2072.5
+
+#         ltu_s_output_frequency:
+#           frequency: 2250

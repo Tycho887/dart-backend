@@ -1,0 +1,56 @@
+---
+config: TERRASAR_X
+acu_config: TERRASAR_X
+
+services:
+    custom_backend:
+      tags:
+        - XD
+
+      system_specific:
+        PL2:
+
+          mtx_tags_downlink:
+            - [DL,QMR]
+        
+        PL3:
+
+          mtx_tags_downlink:
+            - [DL,QMR]
+            - [DR,QMR]
+        
+        PL4:
+
+          mtx_tags_downlink:
+            - [DL,QMR]
+            - [DR,QMR]
+    
+    qmr:
+      tags:
+        - XD
+        
+    wb_specnet:
+      tags:
+        - XD
+
+      autoconf:
+        inputCenterFrequency: 1250
+        rf0StreamOffset: -50
+        rf0StreamBW: 420
+        rf0OutGainMode: "Manual"
+        rf0OutManualGain: 0
+
+    qrx:
+      tags:
+        - XD
+
+    qdra-inst1:
+      stream_server: tsx
+      tags:
+        - XD
+      
+      record:
+        streams: [1]
+
+
+ 

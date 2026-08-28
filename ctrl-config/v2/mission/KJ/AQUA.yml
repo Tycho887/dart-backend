@@ -1,0 +1,24 @@
+
+config: AQUA
+
+services:
+  meos_acu:
+    tags:
+      - meos_acu
+
+    config:
+      - name: lband_ttc_ch1
+        polarity: RHCP
+        band: L
+        direction: UP
+
+      - name: xband_payload_ch1
+        polarity: RHCP
+        band: X
+        frequency: 8160000000
+        direction: DOWN
+
+  qmr:
+    config: AQUA_720
+    tags:
+      - XD

@@ -1,0 +1,37 @@
+---
+config: LANDSAT_9
+
+services:
+  proxy:
+    tags:
+      - SD
+      - SU
+
+    whitelist:
+      
+      
+      - 192.146.238.0/24
+      - 172.31.244.111 #hsc-nix 
+      
+    services:
+      - qmr_http
+      - mc_http
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SD
+
+  qradio:
+    tags:
+      - SD
+    
+    autoconf: 
+      reference_attenuation_adjustment: 0
+    link_configs:
+      uplink_config: s_band_uplink_p1_1
+      downlink_config: s_band_downlink_p1_1
+      
+
+
+

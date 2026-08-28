@@ -1,0 +1,93 @@
+acu_config: CAPELLA_9
+config: CAPELLA_2
+services:
+  custom_backend:
+    system_specific:
+      AT1:
+        mtx_tags_downlink:
+        - - DR
+          - 1SDL
+      AT2:
+        mtx_tags_downlink:
+        - - DR
+          - 2SDL
+      HA3:
+        mtx_tags_downlink:
+        - - DR
+          - 3SDL
+      SG183:
+        mtx_tags_downlink:
+        - - DL
+          - SG183SDL
+      SG184:
+        mtx_tags_downlink:
+        - - DR
+          - SG184SDL
+      SG185:
+        mtx_tags_downlink:
+        - - DR
+          - SG185SDL
+    tags:
+    - SD
+    - XD
+  proxy:
+    services:
+    - qradio_tcp
+    - spectrum_http
+    - mc_http
+    tags:
+    - SU
+    - SD
+    whitelist:
+    - 10.103.252.0/24
+    - 10.104.212.0/24
+    - 10.117.202.0/24
+    - 10.131.202.0/24
+    - 10.121.202.0/24
+    - 10.124.202.0/24
+    - 10.203.1.11
+    - 192.146.238.242
+    - 192.146.238.195
+  qdra-inst1:
+    stream_server: capella
+    tags:
+    - XD
+  qdra-inst2:
+    stream_server: capella
+    tags:
+    - XD
+  qfep:
+    tags:
+    - SD
+    - SU
+  qmr:
+    tags:
+    - XD
+  qradio:
+    tags:
+    - SD
+    - SU
+  qrx:
+    tags:
+    - XD
+  specnet:
+    autoconf:
+      gainMode: Automatic
+      inputFrequency: 1076
+      packetProtectionEnable: False
+      reference_attenuation_adjustment: 2
+      spectral_class_dl: x_rhcp
+      streamBandwidth: 2
+      streamOffset: 1
+    tags:
+    - SD
+    - SU
+  wb_specnet:
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0OutGainMode: Manual
+      rf0OutManualGain: 0
+      rf0StreamBW: 250
+      rf0StreamOffset: 12.5
+    tags:
+    - XD

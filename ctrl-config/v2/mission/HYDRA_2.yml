@@ -1,0 +1,73 @@
+---
+config: SHAREDSAT_2141
+acu_config: HYDRA_2
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.195
+      - 100.64.81.0/24 #endurosat
+      - 100.64.163.0/24 #aistech
+      - 172.31.244.44 #mep-nix
+      
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+      streamBandwidth: 0.5
+      streamOffset: 0.5
+      inputFrequency: 69.5
+
+  qradio:
+    defaults:
+      config: SHAREDSAT_S
+
+    tags:
+      - SD
+      - SU
+
+  qmr:
+    config: HYDRA_2
+    tags:
+      - XD  
+
+  wb_specnet:
+    tags:
+      - XD
+    autoconf:
+      inputCenterFrequency: 1350
+      inputSpectralInversion: True
+      rf0StreamOffset: -51.65 #Change sign when inverting spectrum. XDL=8351.65MHz
+      rf0StreamBW: 38
+ 
+  qrx: 
+    tags:
+      - XD
+
+
+  qdra-inst1:
+    tags:
+      - XD
+    record: True
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: ksat-xband-files
+      prefix: MPEG-TS/DATA
+      profile: endurosat_new 
+
+
+    

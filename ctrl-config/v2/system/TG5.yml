@@ -1,0 +1,126 @@
+
+tags:
+  - tracking_watchdog
+  - hpa_watchdog
+  - scheduler_healthcheck
+  - downlink_mtx
+  - uplink_mtx
+
+acu:
+  vendor: orbital
+  model: 3.7
+  feed:
+  hpa:
+  converter:
+  polarizations:
+    S:
+      - dual
+    X:
+      - dual
+      
+defaults:
+
+  downlink_mtx:
+    host: 10.103.0.140
+    port: 4000
+    vendor: etl
+    model: nigma
+    mode: downlink
+
+  uplink_mtx:
+    host: 10.103.0.140
+    port: 4000
+    vendor: etl
+    model: nigma
+    mode: uplink
+
+
+  scheduler:
+    host: localhost
+    type: vm
+
+  orbital:
+    host: localhost
+    rest: http://localhost:3005
+  
+  specnet:
+    rest: http://10.102.0.28:80
+
+    autoconf:
+      enabled: False
+      reference_attenuation: -- # insert
+      inputFrequency: 67.5
+      system_bandwidth: '10.0'
+      gainMode: 'Automatic'
+      rfInputPort: 'rfIn1'
+      AD_bits: 8
+      qradio_data_ip: -- # insert
+      networkInputPort: 50000
+      streamOffset: 2.5
+      maxPacketSize: 1500
+      streamBandwidth: 5
+      packetProtectionEnable: True
+      inputStreamID: 0
+      rxEnable: True
+      invertOutputSpectrum: False
+      attenuation: 24
+      rfOutputPort: 'rfOut1'
+      outputFrequency: 68.5
+      rfOutputSource: 'Packets'
+      dataSource: 'Network'
+      programmedBuffer: 0
+      programmedDelay: 0
+      preserveLatency: False
+      networkOutputPort: 50000
+      outputFrequencyOffset: 1.5
+      useLocalReference: True
+      outputStreamID: 0
+      releaseMode: 'Programmed Delay'
+      multicastEnable: False
+      overrideOutputFrequencyEnable: True
+      txEnable: True
+
+      rf_input_port_rules:
+        s_rhcp: "rfIn1"
+        s_lhcp: "rfIn1"
+        x_lhcp: "rfIn1"
+        x_rhcp: "rfIn1"
+
+      rf_output_port_rules:
+        s_rhcp: "rfOut1"
+        s_lhcp: "rfOut1"
+        x_lhcp: "rfOut1"
+        x_rhcp: "rfOut1"
+  
+  qradio:
+    rest: http://10.102.0.50:8080
+
+  qfep:
+    rest: http://10.102.0.50:30000
+
+services:
+
+  orbital:
+    tags:
+      - tracking_watchdog
+      - hpa_watchdog
+      
+    functions:
+      - tracking_watchdog
+    
+
+  scheduler:
+    tags:
+      - scheduler_healthcheck
+
+  downlink_mtx:
+    tags:
+      - downlink_mtx
+
+    object_id: nigma
+
+  uplink_mtx:
+    tags:
+      - uplink_mtx
+
+    object_id: nigma

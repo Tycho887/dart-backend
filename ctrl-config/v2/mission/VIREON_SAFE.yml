@@ -1,0 +1,61 @@
+---
+config: CLYDE_VIREON
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+      - XD
+
+    whitelist:
+      - 192.146.238.242
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+      - monitor_tcp
+
+  specnet:
+    tags:
+      - SU
+      - XD
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+      spectral_class_dl: s_rhcp
+
+  qradio:
+    tags:
+      - SU
+      - XD
+
+    config: CLYDE_VIREON_SAFE
+          
+  qmr:
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+ 
+    autoconf:
+      inputCenterFrequency: 1350
+      rf0StreamOffset: 5
+      rf0StreamBW: 100
+      rf0InGainMode: "Manual"
+      rf0InManualGain: 0
+ 
+  qrx:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: False
+
+    stream_server: clyde_vireon

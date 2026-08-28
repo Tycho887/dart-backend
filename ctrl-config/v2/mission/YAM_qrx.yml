@@ -1,0 +1,27 @@
+---
+config: YAM_3
+
+services:
+  
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1150
+      rf0StreamOffset: 25
+      rf0StreamBW: 250
+      rf0OutGainMode: Manual
+      rf0OutManualGain: 0
+
+  qrx:
+    tags:
+      - XD
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    tags:
+      - XD

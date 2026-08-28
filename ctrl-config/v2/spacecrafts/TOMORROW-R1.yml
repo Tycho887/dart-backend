@@ -1,0 +1,11 @@
+# NB! These frequencies are not verifed, use with care!
+links:
+  ka_band_downlink_p1_1:
+    direction: down
+    frequency: 26800000000
+    polarization: RHCP
+  
+  ka_band_downlink_p2_1:
+    direction: down
+    frequency: 25725000000
+    polarization: RHCP

@@ -1,0 +1,66 @@
+---
+config: IHISAT_2
+acu_config: IHISAT_2 
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.157.1/24
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -8
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0StreamOffset: 0
+      rf0StreamBW: 67
+
+
+
+  qrx:
+    tags:
+      - XD
+
+
+  
+  qdra-inst1:
+    config: NANO_PROTOMETHEE
+    tags:
+      - XD
+
+    record: 
+      streams: [1]
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: jupitor-pp-service
+      profile: jupitor

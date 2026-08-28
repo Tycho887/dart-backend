@@ -1,0 +1,38 @@
+---
+config: CLICK_A_mode2
+acu_config: CLICK_A
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.29.0/26
+
+    services:
+      - spectrum_http
+      - mc_http
+      - qradio_tcp
+
+  specnet:
+    config: CLICK_A
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: 0
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    config: CLICK_A
+    tags:
+      - SD
+      - SU

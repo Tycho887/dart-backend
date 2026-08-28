@@ -1,0 +1,31 @@
+---
+acu_config: TESTSAT_TABLETRACK
+check_tle: False
+
+services:
+  oem_table_track:
+    tags:
+      - oem_table_track
+    
+    interpolation_step: 1
+    preAzEl_supersample: True
+    postAzEl_supersample: False
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist: 
+      - 172.31.245.170
+    
+    services:
+      - mc_http
+
+  qmr:
+    tags:
+      - XD
+
+    config: AQUA
+
+

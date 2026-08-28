@@ -1,0 +1,41 @@
+---
+config: ICEYE_X4
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.0/24
+
+    services:
+      - qradio_tcp
+      - ctx_tcp
+      - spectrum_http
+      - mc_http
+      - qradio_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -2
+
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    tags:
+      - SD
+      - SU
+
+  ctx:
+    tags:
+      - SD
+      - SU

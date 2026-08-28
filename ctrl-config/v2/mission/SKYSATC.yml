@@ -1,0 +1,35 @@
+---
+kind: minimal
+  
+services:
+  
+  contec:
+    tags:
+      - SD
+      - SU
+      - XD
+      
+    reserve: True
+
+summary: 
+anomaly_mail_template: ''
+contacts:
+  ksat:
+    - name: 
+      role: Project Manager
+      email: 
+    - name: Lite system Engineer
+      role: System Engineer
+  customer:
+    - name: 
+      role: Project Manager
+      email: 
+      phone: 
+    - name: 
+      role: Technical Contact
+      email: 
+      phone:
+    - name: 
+      role: Operations Centre
+      email: 
+      phone: 

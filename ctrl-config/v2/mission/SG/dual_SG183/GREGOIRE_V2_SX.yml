@@ -1,0 +1,78 @@
+---
+config: GREGOIRE
+acu_config: GREGOIRE
+customer: AEROSPACELAB_SA
+constellation: AEROSPACELAB_SA
+
+services:
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.53.0/24
+      - 10.1.100.0/24
+      - 192.146.238.172
+      - 192.146.238.220
+      - 192.146.238.223
+
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - mc_http
+      - monitor_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+  qradio:
+    config: GREGOIRE_V2
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    config: GREGOIRE_V2
+    tags:
+      - SD
+      - SU
+
+  qrx:
+    config: GREGOIRE
+    tags:
+      - XD
+  
+  qmr:
+    config: GREGOIRE
+    tags:
+      - XD
+  
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1350
+      rf0StreamBW: 120
+      rf0StreamOffset: 20
+
+  qdra-inst1:
+    config: GREGOIRE
+    tags:
+      - XD
+
+    record:
+      streams: [1]
+
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: ksat
+      profile: AEROSPACELAB
+      prefix: DATA
+      stream_raw: True
+      s3_endpoint_url: https://s3.aerospacelab.com/ksat
+
+

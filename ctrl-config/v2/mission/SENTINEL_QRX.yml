@@ -1,0 +1,72 @@
+---
+
+config: SENTINEL_1X
+
+services:
+    custom_backend:
+      tags:
+        - XD
+
+      system_specific:
+        AT2:
+
+          mtx_tags_downlink:
+            - [DR,2XDR]
+            - [DR,2XDL]
+
+        SG183:
+
+          mtx_tags_downlink:
+            - [DR,SG183XDR]
+            - [DR,SG183XDL]
+        
+        SG184:
+
+          mtx_tags_downlink:
+            - [DR,SG184XDR]
+            - [DR,SG184XDL]
+        
+        SG185:
+          
+          mtx_tags_downlink:
+            - [DR,SG185XDR]
+            - [DR,SG185XDL]
+
+    qmr:
+      tags:
+        - XD
+        
+      modulation_personality: TCM
+
+    wb_specnet:
+      tags:
+        - XD
+
+      autoconf:
+        inputCenterFrequency: 1250
+        rf0StreamOffset: 60
+        rf0StreamBW: 150
+        rfInGainMode: "Manual"
+        rf0InManualGain: 0
+
+    qrx:
+      config: Sentinel_1X_EO
+      tags:
+        - XD
+
+    qdra-inst1:
+      stream_server: sentinel
+      tags:
+        - XD
+      
+      record: 
+        streams: [1]
+
+    qdra-inst2:
+      stream_server: sentinel
+      tags:
+        - XD
+
+      record: True    
+                 
+    

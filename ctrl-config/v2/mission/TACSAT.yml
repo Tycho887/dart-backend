@@ -1,0 +1,39 @@
+---
+customer: LOCKHEED_MARTIN
+config: TACSAT
+
+
+services:
+
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.72.21/29 # LM SD-WAN
+
+
+    services:
+      - qradio_tcp
+      - mc_http
+
+  specnet:
+    tags:
+      - SU
+      - SD
+
+    autoconf:
+      reference_attenuation_adjustment: -5
+      streamBandwidth: 4
+
+
+
+
+  qradio:
+    tags:
+      - SU
+      - SD
+
+

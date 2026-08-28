@@ -1,0 +1,42 @@
+---
+config: SPARCS
+acu_config: SPARCS
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 192.146.238.220 # esp
+      - 192.146.238.242 # ben
+      - 172.31.244.25   # saa
+      - 100.64.60.0/24 # ASU sdwan range
+   
+    services:
+      - qradio_tcp
+      - spectrum_http
+      - monitor_tcp
+      - mc_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf: 
+      reference_attenuation_adjustment: -2
+
+  qradio:
+    config: SPARCS_HIGHRATE
+    tags:
+      - SD
+      - SU
+
+  qfep:
+    config: default
+    tags:
+      - SD
+      - SU

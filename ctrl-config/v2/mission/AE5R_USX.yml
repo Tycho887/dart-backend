@@ -1,0 +1,58 @@
+---
+config: ARKEDGE_5R
+acu_config: ARKEDGE_5R
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+      - XD
+
+    whitelist:
+      - 100.64.146.0/24 # SD-WAN
+
+    services:
+      - qradio_tcp
+      - qradio_http
+      - mc_http
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      enabled: True
+      
+  qradio:
+    tags:
+      - SD
+      - SU
+
+  qrx:
+    tags:
+      - XD
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1350
+      rf0StreamOffset: 40
+      rf0StreamBW: 40
+
+  qdra-inst1:
+    tags:
+      - XD
+    
+    record: True
+    
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: ae-aegs-production-ksat-contact-data
+      profile: arkedge
+      prefix: DATA

@@ -1,0 +1,50 @@
+---
+config: ICEYE_X4
+acu_config: ICEYE_S7
+
+services:
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0StreamOffset: 12.5
+      rf0StreamBW: 320
+
+  qrx:
+    tags:
+      - XD
+
+    config: ICEYE_DVBS2_250Msps_tcp
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    config: ICEYE_HR_SEGMENTED_tcp
+
+    record: True
+
+  falcon:
+    tags:
+      - XD
+
+    recorders:
+      - hypermatter_api: http://10.203.118.203:6000
+        component_config:
+          component: QDRA
+          file_options_config:
+            file_name:
+              - ext: DAT
+                enumerate: true # added at the end of the file name before the file extension
+                sub_dir: "/qdra-inst1/"
+                delimiter: "_"
+
+    delivery_config:
+      protocol: AWS_USER
+      credentials_uuid: e966193f-41e8-4151-84ad-bd27a37cba91
+      bucket: iceye-ksat-falcon-raw-downlinks-production
+      bucket_region: eu-central-1
+      target_dir: "DATA/{contact_id}/payload"
+  

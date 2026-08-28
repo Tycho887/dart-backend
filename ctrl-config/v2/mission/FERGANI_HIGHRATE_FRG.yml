@@ -1,0 +1,33 @@
+---
+config: FERGANI_HIRATE_FRG
+acu_config: FRG_FERGANI
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 100.64.145.0/24
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http
+
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -5
+      streamBandwidth: 2.5
+
+  qradio:
+    tags:
+      - SD
+      - SU

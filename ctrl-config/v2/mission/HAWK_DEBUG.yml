@@ -1,0 +1,20 @@
+---
+config: HAWK_B
+customer: HAWK
+constellation: HAWK
+
+services:
+  
+  custom_backend:
+    tags:
+      - XD
+      
+    mtx_tags:
+      - [DR, SG183XDR]
+
+
+  qmr:
+    tags:
+      - XD
+
+    

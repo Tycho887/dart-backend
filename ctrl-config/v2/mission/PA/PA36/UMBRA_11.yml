@@ -1,0 +1,89 @@
+---
+config: UMBRASAR_2001
+acu_config: UMBRA_09
+customer: Umbra
+
+services:
+
+  proxy:
+    tags:
+      - XD
+      - SD
+      - SU
+
+    whitelist:
+      - 10.250.247.0/24
+      - 10.250.249.0/24
+      - 192.146.238.237
+      - 100.64.66.0/24
+
+    services:
+      - qradio_tcp
+
+  specnet:
+    tags:
+      - SD
+      - SU
+
+    autoconf:
+      reference_attenuation_adjustment: -5
+      spectral_class_dl: s_lhcp
+
+  wb_specnet:
+    config: UMBRA_03_no_viterbi
+    tags:
+      - XD
+
+    autoconf: 
+      inputCenterFrequency: 1200
+      rf0StreamBW: 196
+      rf0StreamOffset: 0
+
+  qradio:
+    config: UMBRA_05
+    tags:
+      - SD
+      - SU
+      
+  qfep:
+    config: default
+    record: False
+    tags:
+      - SD
+      - SU      
+
+  qrx2:
+    # For LHCP on dual pole
+    config: UMBRA_03_no_viterbi
+    tags:
+      - XD
+
+    defaults: 
+      qdra_host_inst1: 10.117.126.236
+      qdra_port_inst1: 50022
+      qdra_port_inst2: 50032
+
+  qmr:
+    config: UMBRA_03_no_viterbi
+    tags:
+      - XD
+
+    defaults:
+      qdra_port_inst2: 50022
+      qdra_port_inst1: 50032
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    record: True
+    
+    aws_s3_transfer:
+      backend: aws_s3
+      bucket_name: prod-prod-delivery-ksat-s3
+      profile: umbra_prod_accelerate
+      prefix: DATA
+      accelerate: True
+      concurrency: 2
+      stream_raw: True
+

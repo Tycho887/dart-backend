@@ -1,0 +1,67 @@
+---
+config: MANTIS
+acu_config: MENUT
+
+services:
+
+  proxy:
+    tags:
+      - SU
+      - SD
+
+    whitelist:
+      - 10.20.3.0/24
+      - 10.2.30.0/24
+      - 10.2.20.0/24
+      - 10.2.10.0/24
+      - 10.203.225.0/24
+      - 192.146.238.172
+      - 192.146.238.195
+      - 172.31.244.44
+
+    services:
+      - qradio_tcp
+      - mc_http
+
+
+  specnet:
+    tags:
+      - SD
+      - SU
+    
+    autoconf: 
+      enabled: True
+      reference_attenuation_adjustment: -7
+        
+  qradio:
+    config: MENUT
+    tags:
+      - SD
+      - SU
+
+  wb_specnet:
+    tags:
+      - XD
+
+  qrx: 
+    tags: 
+      - XD
+
+  qmr:
+    tags:
+      - XD
+
+  qdra-inst1:
+    config: MENUT_frame
+    tags:
+      - XD
+
+    record:
+      streams: [1]
+    
+    transfer:
+      backend: ftp3
+      home: /customers/FTP/OPENCOSMOS
+
+
+    

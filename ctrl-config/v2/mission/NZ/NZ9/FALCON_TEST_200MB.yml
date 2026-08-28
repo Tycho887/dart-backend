@@ -1,0 +1,61 @@
+---
+services:
+  qrx:
+    tags:
+      - XD
+
+    config: noise_750Mbps
+
+  qrx2:
+    tags:
+      - XD
+
+    config: noise_750Mbps
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    config: FALCON_TEST_200MB
+
+    record: True
+
+  qdra-inst2:
+    tags:
+      - XD
+
+    config: FALCON_TEST_200MB
+
+    record: True
+
+  falcon:
+    tags:
+      - XD
+
+    recorders:
+      - hypermatter_api: http://10.121.112.203:6000
+        component_config:
+          component: QDRA
+          file_options_config:
+            file_name:
+              - ext: DAT
+                enumerate: true # added at the end of the file name before the file extension
+                sub_dir: "/qdra-inst1/"
+                delimiter: "_"
+
+      - hypermatter_api: http://10.121.112.204:6000
+        component_config:
+          component: QDRA
+          file_options_config:
+            file_name:
+              - ext: DAT
+                enumerate: true # added at the end of the file name before the file extension
+                sub_dir: "/qdra-inst2/"
+                delimiter: "_"
+
+    delivery_config:
+      protocol: AWS_USER
+      credentials_uuid: 1604bc42-ebe1-4e28-aa33-a37ed86cb0cf
+      bucket: falcon-direct-test-4j9xwqv-us-west-2
+      bucket_region: us-west-2
+      target_dir: "DATA/{contact_id}/payload"

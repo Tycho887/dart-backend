@@ -1,0 +1,65 @@
+config: MUSAT
+acu_config: MUSAT_2
+
+services:
+
+  custom_backend:
+    tags:
+      - XD
+
+    mtx_tags_downlink:
+      - [DL, MUR1]
+
+    system_specific:
+      NZ3:
+        mtx_tags_downlink:
+          - [DR, MUR1]
+
+  proxy:
+    tags:
+      - XD
+
+    whitelist:
+      - 172.31.244.0/24
+      - 100.64.121.0/24
+      - 172.31.244.44
+      - 100.64.121.128/28
+      - 100.64.121.248/29
+      - 12.40.220.140
+      - 52.183.85.92
+      - 52.183.13.48
+      - 10.10.0.101
+      - 10.10.0.109
+      - 100.64.115.0/26
+
+    services:
+      - mc_http
+      - spectrum_http
+
+  specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputFrequency: 1432.5
+      streamOffset: 2.5
+      txEnable: False
+      spectral_class_dl: x_rhcp
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1250
+      rf0StreamOffset: 5
+      rf0StreamBW: 92
+
+  qrx:
+    tags:
+      - XD
+
+  qdra-inst1:
+    stream_server: musat_cfe1
+    tags:
+      - XD

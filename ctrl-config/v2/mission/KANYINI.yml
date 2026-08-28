@@ -1,0 +1,55 @@
+---
+config: INOVOR_MYRIOTA
+acu_config: KANYINI
+
+services:
+  proxy:
+    tags:
+      - XD
+      - SD
+
+    whitelist:
+      - 192.146.238.242
+      - 100.64.114.0/24
+
+    services:
+      - qradio_tcp
+      - mc_http
+      - spectrum_http
+
+  specnet:
+    tags:
+      - SU
+
+    autoconf:
+      enabled: True
+      reference_attenuation_adjustment: 0
+
+  qradio:
+    tags:
+      - SU
+
+  qfep:
+    tags:
+      - SU
+
+  wb_specnet:
+    tags:
+      - XD
+
+    autoconf:
+      inputCenterFrequency: 1400
+      rf0StreamOffset: 29.5
+      rf0StreamBW: 50
+
+  qrx:
+    tags:
+      - XD
+
+    config: INOVOR_MYRIOTA_SASAT
+
+  qdra-inst1:
+    tags:
+      - XD
+
+    stream_server: kanyini
