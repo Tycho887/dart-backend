@@ -42,12 +42,12 @@ def parquet_frame() -> pl.DataFrame:
       6. c2 / sys-2, Locked, good doppler + elevation          -> kept
     """
     ts = [
-        datetime.datetime(2026, 5, 3, 10, 0, 0, tzinfo=datetime.timezone.utc),
-        datetime.datetime(2026, 5, 3, 10, 0, 5, tzinfo=datetime.timezone.utc),
-        datetime.datetime(2026, 5, 3, 10, 0, 10, tzinfo=datetime.timezone.utc),
-        datetime.datetime(2026, 5, 3, 11, 0, 0, tzinfo=datetime.timezone.utc),
-        datetime.datetime(2026, 5, 3, 11, 0, 5, tzinfo=datetime.timezone.utc),
-        datetime.datetime(2026, 5, 3, 11, 0, 10, tzinfo=datetime.timezone.utc),
+        datetime.datetime(2026, 5, 3, 10, 0, 0, tzinfo=datetime.UTC),
+        datetime.datetime(2026, 5, 3, 10, 0, 5, tzinfo=datetime.UTC),
+        datetime.datetime(2026, 5, 3, 10, 0, 10, tzinfo=datetime.UTC),
+        datetime.datetime(2026, 5, 3, 11, 0, 0, tzinfo=datetime.UTC),
+        datetime.datetime(2026, 5, 3, 11, 0, 5, tzinfo=datetime.UTC),
+        datetime.datetime(2026, 5, 3, 11, 0, 10, tzinfo=datetime.UTC),
     ]
     return pl.DataFrame(
         {

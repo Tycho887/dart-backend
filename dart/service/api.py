@@ -8,7 +8,10 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, Request, Response
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+from dart import __version__
 
 from .config import ServiceSettings
 from .database import Database, IdempotencyConflict, JobNotFound, JobOwnershipConflict
@@ -19,6 +22,8 @@ from .models import (
     SolveJobAccepted,
     SolveJobRequest,
     Strategy,
+    TdmJobRequest,
+    TdmValidationResponse,
     TimeShiftSolver,
     ValidationResponse,
 )
@@ -28,6 +33,12 @@ from .problems import (
     validation_problem_handler,
 )
 from .profiles import capabilities_document, profile_documents, resolve_profile
+from .tdm_profiles import load_tdm_profile_documents, validate_tdm_profile
+
+
+def get_db(request: Request) -> Any:
+    """Return the lifespan-owned database without a local forward reference."""
+    return request.app.state.database
 
 
 class Actor:
@@ -74,6 +85,19 @@ def _validate_semantics(request: SolveJobRequest) -> tuple[dict, dict]:
         ) from exc
 
 
+def _validate_tdm_semantics(request: TdmJobRequest, db: Any) -> dict:
+    try:
+        document = db.get_tdm_profile(request.profile.name, request.profile.version)
+        return validate_tdm_profile(request, document).model_dump(mode="json")
+    except (KeyError, ValueError) as exc:
+        raise ServiceProblem(
+            422,
+            "tdm_profile_not_found",
+            "TDM profile unavailable",
+            str(exc),
+        ) from exc
+
+
 def create_app(
     *,
     settings: ServiceSettings | None = None,
@@ -99,16 +123,25 @@ def create_app(
 
     app = FastAPI(
         title="DART Asynchronous Processing API",
-        version="1.0.0",
+        version=__version__,
         lifespan=lifespan,
         openapi_url="/v1/openapi.json",
         docs_url="/v1/docs",
     )
     app.add_exception_handler(ServiceProblem, service_problem_handler)
     app.add_exception_handler(RequestValidationError, validation_problem_handler)
-
-    def get_db(request: Request):
-        return request.app.state.database
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=[
+            "Content-Type",
+            "Idempotency-Key",
+            "X-DART-Actor-ID",
+            "X-DART-Actor-Type",
+        ],
+    )
 
     @app.get("/health/live", operation_id="healthLive", tags=["operations"])
     def health_live() -> dict:
@@ -146,6 +179,17 @@ def create_app(
             return db.list_profiles()
         except AttributeError:
             return profile_documents()
+
+    @app.get(
+        "/v1/tdm-profiles",
+        operation_id="listTdmProfiles",
+        tags=["discovery"],
+    )
+    def list_tdm_profiles(db: Annotated[Any, Depends(get_db)]) -> list[dict]:
+        try:
+            return db.list_tdm_profiles()
+        except AttributeError:
+            return load_tdm_profile_documents(settings.tdm_profile_dir)
 
     @app.post(
         "/v1/solve-jobs/validate",
@@ -193,6 +237,7 @@ def create_app(
                 actor_type=actor.type.value,
                 idempotency_key=idempotency_key,
                 max_attempts=settings.max_attempts,
+                operation="solve",
             )
         except IdempotencyConflict as exc:
             raise ServiceProblem(
@@ -202,6 +247,57 @@ def create_app(
                 "This actor already used the key with a different request.",
             ) from exc
         JOBS_SUBMITTED.labels(solver_kind=request.solver.kind).inc()
+        return SolveJobAccepted(job_id=job_id, idempotent_replay=replay)
+
+    @app.post(
+        "/v1/tdm-jobs/validate",
+        response_model=TdmValidationResponse,
+        operation_id="validateTdmJob",
+        tags=["jobs"],
+    )
+    def validate_tdm_job(
+        request: TdmJobRequest,
+        actor: Annotated[Actor, Depends(trusted_actor)],
+        db: Annotated[Any, Depends(get_db)],
+    ) -> TdmValidationResponse:
+        del actor
+        return TdmValidationResponse(
+            resolved_profile=_validate_tdm_semantics(request, db)
+        )
+
+    @app.post(
+        "/v1/tdm-jobs",
+        status_code=202,
+        response_model=SolveJobAccepted,
+        operation_id="submitTdmJob",
+        tags=["jobs"],
+    )
+    def submit_tdm_job(
+        request: TdmJobRequest,
+        actor: Annotated[Actor, Depends(trusted_actor)],
+        idempotency_key: Annotated[
+            str, Header(alias="Idempotency-Key", min_length=1, max_length=200)
+        ],
+        db: Annotated[Any, Depends(get_db)],
+    ) -> SolveJobAccepted:
+        _validate_tdm_semantics(request, db)
+        try:
+            job_id, replay = db.submit_job(
+                request_json=request.model_dump(mode="json"),
+                actor_id=actor.id,
+                actor_type=actor.type.value,
+                idempotency_key=idempotency_key,
+                max_attempts=settings.max_attempts,
+                operation="tdm_export",
+            )
+        except IdempotencyConflict as exc:
+            raise ServiceProblem(
+                409,
+                "idempotency_key_reused",
+                "Idempotency key reused",
+                "This actor already used the key with a different request.",
+            ) from exc
+        JOBS_SUBMITTED.labels(solver_kind=f"tdm_{request.product}").inc()
         return SolveJobAccepted(job_id=job_id, idempotent_replay=replay)
 
     @app.post(

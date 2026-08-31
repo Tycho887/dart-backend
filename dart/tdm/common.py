@@ -20,6 +20,10 @@ COSPAR = re.compile(r"^\d{4}-\d{3}[A-Z]{1,3}$")
 
 @dataclass(frozen=True, slots=True)
 class ContactMetadata:
+    spacecraft_id: str
+    system_id: str
+    station_id: str
+    ephemeris_id: str
     antenna: str
     location: str
     latitude: float
@@ -55,9 +59,10 @@ def load_contact_metadata(
     band: str,
     timeout_seconds: float,
     product: str,
+    kogs_api_key: str | None = None,
 ) -> ContactMetadata:
     """Load and cross-check the KOGS identity for one delivery product."""
-    key = os.getenv("KOGS_API_KEY", "")
+    key = kogs_api_key or os.getenv("KOGS_API_KEY", "")
     require(bool(key), f"KOGS_API_KEY is required for {product} export")
     auth = create_api_auth(key)
     raw = kogs.get_contact(auth, contact_id, timeout_seconds=timeout_seconds)
@@ -137,6 +142,10 @@ def load_contact_metadata(
         altitude=antenna.altitude,
     ).vector
     return ContactMetadata(
+        spacecraft_id=contact.spacecraft_id,
+        system_id=contact.system_id,
+        station_id=contact.station_id,
+        ephemeris_id=contact.ephemeris_id,
         antenna=antenna.antenna_name,
         location=antenna.station_name or "UNKNOWN",
         latitude=antenna.latitude,

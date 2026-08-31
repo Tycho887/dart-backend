@@ -20,7 +20,14 @@ from dart.io.kogs import (
     parse_response,
 )
 from dart.loaders.common import observations_from_frame, tle_epoch_unix
-from dart.schema import FitParameter, Sgp4FitOptions, Sgp4Input, SolverOptions, Station, Tle
+from dart.schema import (
+    FitParameter,
+    Sgp4FitOptions,
+    Sgp4Input,
+    SolverOptions,
+    Station,
+    Tle,
+)
 
 
 def tle_from_inline(inline_tle: str | None) -> Tle:

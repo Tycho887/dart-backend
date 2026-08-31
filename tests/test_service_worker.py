@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from test_service_api import request_body
+from test_service_api import TDM_PROFILE, request_body, tdm_request_body
 
+from dart.io.ksat_tdm import TrackResult
 from dart.schema import Observation, Sgp4Input, SolverResult, Station, Tle
 from dart.service.config import ServiceSettings
 from dart.service.database import ClaimedJob
 from dart.service.resolver import PreparedSolve, ResolvedMetadata
-from dart.service.worker import Worker
+from dart.service.worker import Worker, result_summary
 
 
 class FakeResolver:
@@ -64,9 +65,10 @@ class FakeResolver:
 
 
 class FakeWorkerDatabase:
-    def __init__(self, body):
-        self.job = ClaimedJob(uuid4(), body, 1, 3)
+    def __init__(self, body, operation="solve"):
+        self.job = ClaimedJob(uuid4(), body, 1, 3, operation)
         self.artifacts = []
+        self.artifact_records = []
         self.finished = None
         self.stages = []
 
@@ -91,6 +93,11 @@ class FakeWorkerDatabase:
 
     def store_artifact(self, **kwargs):
         self.artifacts.append((kwargs["kind"], kwargs["content_type"], kwargs["data"]))
+        self.artifact_records.append(kwargs)
+
+    def get_tdm_profile(self, name, version):
+        assert (name, version) == ("sg221-track", 1)
+        return TDM_PROFILE
 
     def finish_success(self, **kwargs):
         self.finished = ("succeeded", kwargs["summary"])
@@ -140,3 +147,57 @@ def test_worker_persists_snapshots_and_compact_result(monkeypatch):
     }
     assert db.finished[0] == "succeeded"
     assert db.finished[1]["parameters"][0]["standard_uncertainty"] == 0.02
+
+
+def test_worker_generates_durable_tdm_artifact(monkeypatch):
+    db = FakeWorkerDatabase(tdm_request_body(), operation="tdm_export")
+    monkeypatch.setattr(
+        "dart.service.tdm_executor.write_track_tdm",
+        lambda request, **kwargs: TrackResult(
+            "TRACK_SG221_2024-149A_2026-08-28T12-34-56.tdm",
+            "CCSDS_TDM_VERS = 2.0\nDATA_STOP\n",
+        ),
+    )
+    settings = ServiceSettings(
+        database_url="postgresql://unused/results",
+        worker_id="worker-1",
+        heartbeat_seconds=60,
+        lease_seconds=300,
+        kogs_api_key="secret",
+    )
+
+    assert Worker(db, settings, resolver=FakeResolver()).run_once() is True
+
+    artifact = db.artifact_records[0]
+    assert artifact["kind"] == "tdm"
+    assert artifact["content_type"] == "text/plain; charset=us-ascii"
+    assert artifact["filename"].startswith("TRACK_SG221_")
+    assert artifact["metadata"] == {"product": "track"}
+    assert db.finished == (
+        "succeeded",
+        {
+            "product": "track",
+            "filename": artifact["filename"],
+            "byte_count": len(artifact["data"]),
+        },
+    )
+
+
+def test_result_summary_assigns_rust_parameter_units():
+    summary, _ = result_summary(
+        SolverResult(
+            parameter_names=(
+                "delta_mean_anomaly_rad",
+                "delta_mean_motion_rad_s",
+                "doppler_bias_hz:pass-1",
+            ),
+            parameters=(1.0, 2.0, 3.0),
+            parameter_covariance=(1.0,) * 9,
+            covariance_rank=3,
+        )
+    )
+    assert [item["unit"] for item in summary["parameters"]] == [
+        "rad",
+        "rad/s",
+        "Hz",
+    ]

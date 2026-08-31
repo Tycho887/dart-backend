@@ -106,7 +106,7 @@ class _PassData:
     """Internal geometry/observation bundle in satkit-native units (m, s)."""
 
     times: list  # satkit times at the observation epochs
-    tle: "sk.TLE"
+    tle: sk.TLE
     obs_doppler_hz: np.ndarray
     obs_pointing_gcrf: np.ndarray | None  # (n, 3) unit vectors, only if penalized
     stn_p_gcrf: np.ndarray  # (n, 3) per-observation station states
@@ -463,11 +463,12 @@ def solve(inp: Sgp4Input, config: TimeSolverConfig | None = None) -> SolverResul
     # covariance from the Jacobian at the solution: (J^T J)^-1 * mse
     jac = opt.jac
     hessian = jac.T @ jac
+    covariance_rank = int(np.linalg.matrix_rank(hessian))
     mse = ssr / max(1, n_obs - n_params)
-    try:
+    if covariance_rank == n_params:
         cov = np.linalg.inv(hessian) * mse
-    except np.linalg.LinAlgError:
-        cov = np.eye(n_params) * 1e6
+    else:
+        cov = np.linalg.pinv(hessian) * mse
 
     x_full = np.zeros(3)
     x_full[:n_params] = opt.x
@@ -488,6 +489,6 @@ def solve(inp: Sgp4Input, config: TimeSolverConfig | None = None) -> SolverResul
         parameter_names=PARAMETER_NAMES[:n_params],
         parameters=tuple(float(v) for v in x_full[:n_params]),
         parameter_covariance=tuple(float(v) for v in cov.flatten()),
-        covariance_rank=n_params,
+        covariance_rank=covariance_rank,
         fitted_tle=None,
     )

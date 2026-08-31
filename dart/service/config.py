@@ -18,6 +18,7 @@ class ServiceSettings:
     heartbeat_seconds: int = 30
     poll_seconds: float = 5.0
     max_attempts: int = 3
+    tdm_profile_dir: Path = Path("config/tdm-profiles")
 
     @classmethod
     def from_env(cls) -> ServiceSettings:
@@ -36,6 +37,9 @@ class ServiceSettings:
             heartbeat_seconds=int(os.getenv("DART_HEARTBEAT_SECONDS", "30")),
             poll_seconds=float(os.getenv("DART_POLL_SECONDS", "5")),
             max_attempts=int(os.getenv("DART_MAX_ATTEMPTS", "3")),
+            tdm_profile_dir=Path(
+                os.getenv("DART_TDM_PROFILE_DIR", "config/tdm-profiles")
+            ),
         )
 
     def validate(self) -> None:

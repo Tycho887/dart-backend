@@ -99,6 +99,15 @@ def resolve_profile(request: SolveJobRequest) -> tuple[dict, dict]:
 def capabilities_document() -> dict:
     return {
         "api_version": "v1",
+        "operations": [
+            {"name": "solve", "available": True},
+            {
+                "name": "tdm_export",
+                "available": True,
+                "products": ["track", "angle"],
+                "one_product_per_job": True,
+            },
+        ],
         "strategies": [
             {"name": "single_contact", "available": True, "contact_count": 1},
             {

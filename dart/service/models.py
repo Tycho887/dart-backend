@@ -40,6 +40,11 @@ class OptimizerProfileRef(StrictModel):
     version: int = Field(ge=1)
 
 
+class TdmProfileRef(StrictModel):
+    name: str = Field(min_length=1, max_length=100)
+    version: int = Field(ge=1)
+
+
 class CommonOptimizerOverrides(StrictModel):
     loss: RobustLoss | None = None
     loss_scale: float | None = Field(default=None, ge=0.01, le=100.0)
@@ -143,6 +148,13 @@ class SolveJobRequest(StrictModel):
         return self
 
 
+class TdmJobRequest(StrictModel):
+    contact_id: UUID
+    product: Literal["track", "angle"]
+    profile: TdmProfileRef
+    client_context: ClientContext = Field(default_factory=ClientContext)
+
+
 class SolveJobAccepted(StrictModel):
     job_id: UUID
     status: Literal["queued"] = "queued"
@@ -154,6 +166,11 @@ class ValidationResponse(StrictModel):
     resolved_profile: dict
     effective_settings: dict
     frequency_source: Literal["request", "control_config_deferred"]
+
+
+class TdmValidationResponse(StrictModel):
+    valid: Literal[True] = True
+    resolved_profile: dict
 
 
 class CancelResponse(StrictModel):

@@ -16,6 +16,28 @@ HEADERS = {
     "Idempotency-Key": "submission-1",
 }
 
+TDM_PROFILE = {
+    "name": "sg221-track",
+    "version": 1,
+    "product": "track",
+    "station": "SG221",
+    "band": "S",
+    "integration_interval_s": 1.0,
+    "turnaround_numerator": 240,
+    "turnaround_denominator": 221,
+    "integration_end_column": "timestamp",
+    "transmit": {"link_name": "s_band_uplink_p1_1"},
+    "receive": {
+        "link_name": "s_band_downlink_p1_1",
+        "offset_column": "receiver_offset",
+    },
+    "calibration": {
+        "pedestal_offset_m": 4.0,
+        "tlt_calibration_date": "2026-08-01",
+        "correction_doppler_hz": -0.125,
+    },
+}
+
 
 def request_body(*, kind="sgp4_mean_elements", strategy="single_contact"):
     if kind == "sgp4_mean_elements":
@@ -55,6 +77,15 @@ def request_body(*, kind="sgp4_mean_elements", strategy="single_contact"):
     }
 
 
+def tdm_request_body():
+    return {
+        "contact_id": CONTACT_ID,
+        "product": "track",
+        "profile": {"name": "sg221-track", "version": 1},
+        "client_context": {"label": "TDM export", "tags": ["ksat"]},
+    }
+
+
 class FakeDatabase:
     def __init__(self):
         self.jobs = {}
@@ -68,17 +99,39 @@ class FakeDatabase:
     def list_profiles(self):
         return profile_documents()
 
+    def list_tdm_profiles(self):
+        return [TDM_PROFILE]
+
+    def get_tdm_profile(self, name, version):
+        if (name, version) != ("sg221-track", 1):
+            raise KeyError((name, version))
+        return TDM_PROFILE
+
     def submit_job(
-        self, *, request_json, actor_id, actor_type, idempotency_key, max_attempts
+        self,
+        *,
+        request_json,
+        actor_id,
+        actor_type,
+        idempotency_key,
+        max_attempts,
+        operation="solve",
     ):
         key = (actor_id, idempotency_key)
         existing = self.jobs.get(key)
         if existing:
-            if existing[1] != request_json:
+            if existing[1] != request_json or existing[-1] != operation:
                 raise IdempotencyConflict(idempotency_key)
             return existing[0], True
         job_id = uuid4()
-        self.jobs[key] = (job_id, request_json, actor_type, max_attempts, "queued")
+        self.jobs[key] = (
+            job_id,
+            request_json,
+            actor_type,
+            max_attempts,
+            "queued",
+            operation,
+        )
         return job_id, False
 
     def cancel_job(self, job_id, actor_id):
@@ -180,6 +233,52 @@ def test_openapi_has_dispatch_surface_without_result_reads():
         schema = http.get("/v1/openapi.json").json()
     paths = schema["paths"]
     assert "/v1/solve-jobs" in paths
+    assert "/v1/tdm-jobs" in paths
     assert "/v1/jobs/{job_id}/cancel" in paths
     assert "/v1/jobs/{job_id}" not in paths
     assert "/v1/jobs/{job_id}/result" not in paths
+
+
+def test_tdm_validation_submission_and_discovery():
+    validation_headers = {
+        key: value for key, value in HEADERS.items() if key != "Idempotency-Key"
+    }
+    with client() as http:
+        profiles = http.get("/v1/tdm-profiles").json()
+        validation = http.post(
+            "/v1/tdm-jobs/validate",
+            json=tdm_request_body(),
+            headers=validation_headers,
+        )
+        submission = http.post(
+            "/v1/tdm-jobs", json=tdm_request_body(), headers=HEADERS
+        )
+    assert profiles == [TDM_PROFILE]
+    assert validation.status_code == 200
+    assert validation.json()["resolved_profile"]["product"] == "track"
+    assert submission.status_code == 202
+
+
+def test_tdm_profile_product_mismatch_is_rejected():
+    body = tdm_request_body()
+    body["product"] = "angle"
+    with client() as http:
+        response = http.post("/v1/tdm-jobs", json=body, headers=HEADERS)
+    assert response.status_code == 422
+    assert response.json()["code"] == "tdm_profile_not_found"
+
+
+def test_browser_preflight_allows_grafana_headers():
+    with client() as http:
+        response = http.options(
+            "/v1/solve-jobs",
+            headers={
+                "Origin": "https://grafana.example",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": (
+                    "content-type,idempotency-key,x-dart-actor-id,x-dart-actor-type"
+                ),
+            },
+        )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"

@@ -3,15 +3,18 @@ context model (ported from depr/load.py)."""
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
 import polars as pl
-from azure.kusto.data import ClientRequestProperties
-from azure.kusto.data import KustoConnectionStringBuilder
-from azure.kusto.data import KustoClient
+from azure.kusto.data import (
+    ClientRequestProperties,
+    KustoClient,
+    KustoConnectionStringBuilder,
+)
 from azure.kusto.data.helpers import dataframe_from_result_table
 from dotenv import load_dotenv
 
-from dart.io.utils import setup_logger, _safe_str, _safe_bool, _join_list
+from dart.io.utils import _join_list, _safe_bool, _safe_str, setup_logger
 
 logger = setup_logger()
 load_dotenv()
@@ -60,7 +63,7 @@ def _kusto_datetime(value: datetime) -> str:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("ADX bounds must be timezone-aware")
     return (
-        value.astimezone(timezone.utc)
+        value.astimezone(UTC)
         .isoformat(timespec="microseconds")
         .replace("+00:00", "Z")
     )

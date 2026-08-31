@@ -19,8 +19,8 @@ import typing
 import msgpack
 
 from dart.schema import (
-    Rk89Input,
     SCHEMA_VERSION,
+    Rk89Input,
     Sgp4Input,
     SolverResult,
 )

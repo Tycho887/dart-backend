@@ -19,7 +19,7 @@ import pytest
 from azure.kusto.data import ClientRequestProperties, KustoClient
 from dotenv import dotenv_values, load_dotenv
 
-import dart.io.azure as azure
+from dart.io import azure
 from dart.io.azure import TrackingContext
 from dart.io.kogs import get_contact, parse_reservation
 from dart.io.utils import create_api_auth
@@ -234,8 +234,8 @@ def test_fetch_contact_columns_is_raw_bounded_and_projected(monkeypatch):
 
     frame = azure.fetch_contact_columns(
         "contact-1",
-        datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
-        datetime.datetime(2026, 1, 1, 1, tzinfo=datetime.timezone.utc),
+        datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+        datetime.datetime(2026, 1, 1, 1, tzinfo=datetime.UTC),
         ("timestamp", "contact_id", "antenna_name"),
         order_by="timestamp",
     )

@@ -147,7 +147,7 @@ def _drop_short_passes(df: pl.DataFrame, min_pass_measurements: int) -> pl.DataF
         return df
     counts = df.group_by("contact_id").len()
     keep = counts.filter(pl.col("len") >= min_pass_measurements)["contact_id"]
-    return df.filter(pl.col("contact_id").is_in(keep))
+    return df.filter(pl.col("contact_id").is_in(keep.implode()))
 
 
 def build_sgp4_input_from_parquet(

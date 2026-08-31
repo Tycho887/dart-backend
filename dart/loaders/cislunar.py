@@ -37,7 +37,7 @@ def _oem_epoch_to_unix(iso: str) -> float | None:
     except ValueError:
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=datetime.timezone.utc)
+        dt = dt.replace(tzinfo=datetime.UTC)
     return dt.timestamp()
 
 

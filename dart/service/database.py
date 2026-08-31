@@ -16,6 +16,7 @@ from psycopg_pool import ConnectionPool
 
 from .config import ServiceSettings
 from .profiles import profile_documents
+from .tdm_profiles import load_tdm_profile_documents
 
 
 class IdempotencyConflict(Exception):
@@ -36,6 +37,7 @@ class ClaimedJob:
     request_json: dict
     attempt_count: int
     max_attempts: int
+    operation: str = "solve"
 
 
 def canonical_json(value: Any) -> bytes:
@@ -126,6 +128,22 @@ class Database:
                         Jsonb(profile),
                     ),
                 )
+            for profile in load_tdm_profile_documents(
+                self.settings.tdm_profile_dir
+            ):
+                conn.execute(
+                    sql.SQL(
+                        "INSERT INTO {} (name, version, product, definition) "
+                        "VALUES (%s, %s, %s, %s) "
+                        "ON CONFLICT (name, version) DO NOTHING"
+                    ).format(self._table("tdm_profiles")),
+                    (
+                        profile["name"],
+                        profile["version"],
+                        profile["product"],
+                        Jsonb(profile),
+                    ),
+                )
 
     def healthcheck(self) -> None:
         with self.pool.connection() as conn:
@@ -151,6 +169,27 @@ class Database:
             ).fetchall()
         return [row["definition"] for row in rows]
 
+    def list_tdm_profiles(self) -> list[dict]:
+        with self.pool.connection() as conn:
+            rows = conn.execute(
+                sql.SQL("SELECT definition FROM {} ORDER BY name, version").format(
+                    self._table("tdm_profiles")
+                )
+            ).fetchall()
+        return [row["definition"] for row in rows]
+
+    def get_tdm_profile(self, name: str, version: int) -> dict:
+        with self.pool.connection() as conn:
+            row = conn.execute(
+                sql.SQL(
+                    "SELECT definition FROM {} WHERE name = %s AND version = %s"
+                ).format(self._table("tdm_profiles")),
+                (name, version),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"unknown TDM profile {name!r} version {version}")
+        return row["definition"]
+
     def submit_job(
         self,
         *,
@@ -159,21 +198,25 @@ class Database:
         actor_type: str,
         idempotency_key: str,
         max_attempts: int,
+        operation: str = "solve",
     ) -> tuple[UUID, bool]:
-        request_hash = sha256_json(request_json)
+        request_hash = sha256_json(
+            {"operation": operation, "request": request_json}
+        )
         job_id = uuid4()
         context = request_json.get("client_context", {})
         with self.pool.connection() as conn, conn.transaction():
             inserted = conn.execute(
                 sql.SQL(
                     "INSERT INTO {} "
-                    "(id, status, stage, request_json, request_hash, actor_id, actor_type, "
+                    "(id, operation, status, stage, request_json, request_hash, actor_id, actor_type, "
                     " idempotency_key, label, tags, max_attempts) "
-                    "VALUES (%s, 'queued', 'queued', %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "VALUES (%s, %s, 'queued', 'queued', %s, %s, %s, %s, %s, %s, %s, %s) "
                     "ON CONFLICT (actor_id, idempotency_key) DO NOTHING RETURNING id"
                 ).format(self._table("jobs")),
                 (
                     job_id,
+                    operation,
                     Jsonb(request_json),
                     request_hash,
                     actor_id,
@@ -319,7 +362,7 @@ class Database:
                     "lease_expires_at = now() + (%s * interval '1 second'), heartbeat_at = now(), "
                     "started_at = COALESCE(started_at, now()), updated_at = now() "
                     "FROM candidate WHERE j.id = candidate.id "
-                    "RETURNING j.id, j.request_json, j.attempt_count, j.max_attempts"
+                    "RETURNING j.id, j.request_json, j.attempt_count, j.max_attempts, j.operation"
                 ).format(self._table("jobs"), self._table("jobs")),
                 (worker_id, lease_seconds),
             ).fetchone()
@@ -453,17 +496,20 @@ class Database:
         kind: str,
         content_type: str,
         data: bytes | dict,
+        filename: str | None = None,
+        metadata: dict | None = None,
     ) -> None:
         raw = data if isinstance(data, bytes) else canonical_json(data)
         digest = hashlib.sha256(raw).hexdigest()
         with self.pool.connection() as conn, conn.transaction():
             conn.execute(
                 sql.SQL(
-                    "INSERT INTO {} (id, job_id, run_id, kind, content_type, sha256, payload, json_payload) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+                    "INSERT INTO {} (id, job_id, run_id, kind, content_type, sha256, payload, json_payload, filename, metadata) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                     "ON CONFLICT (job_id, kind, version, content_type) DO UPDATE SET "
                     "run_id=EXCLUDED.run_id, sha256=EXCLUDED.sha256, payload=EXCLUDED.payload, "
-                    "json_payload=EXCLUDED.json_payload, created_at=now()"
+                    "json_payload=EXCLUDED.json_payload, filename=EXCLUDED.filename, "
+                    "metadata=EXCLUDED.metadata, created_at=now()"
                 ).format(self._table("job_artifacts")),
                 (
                     uuid4(),
@@ -474,6 +520,8 @@ class Database:
                     digest,
                     data if isinstance(data, bytes) else None,
                     None if isinstance(data, bytes) else Jsonb(data),
+                    filename,
+                    Jsonb(metadata or {}),
                 ),
             )
 

@@ -17,6 +17,7 @@ the assertions are strict on plumbing, filtering, and the result contract.
 
 import polars as pl
 import pytest
+from test_azure import LIVE_TEST_TIMEOUT_SECONDS, _reservation_window
 
 from dart.io.azure import TrackingContext
 from dart.io.kogs import get_TLE, parse_ephemeris
@@ -28,16 +29,7 @@ from dart.loaders.leo import (
 from dart.schema import SCHEMA_VERSION, Sgp4Input
 from dart.time_solver import solve, split_passes
 
-from test_azure import (  # noqa: F401  (shared fixtures)
-    LIVE_TEST_TIMEOUT_SECONDS,
-    _reservation_window,
-    azure_with_env,
-    kogs_auth,
-    live_reservation,
-    secrets_env,
-    test_contact_id,
-)
-
+pytest_plugins = ("test_azure",)
 pytestmark = pytest.mark.timeout(LIVE_TEST_TIMEOUT_SECONDS)
 
 #: passes with fewer post-filter rows than this cannot constrain a 2-parameter

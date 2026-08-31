@@ -18,11 +18,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from dart.loaders.offline import build_sgp4_input_from_parquet, _parquet_files
-from dart.schema import FitParameter
-from dart.solver import solve
-
 from doppler_model import in_track_km
+
+from dart.loaders.offline import _parquet_files, build_sgp4_input_from_parquet
+from dart.solver import solve
 
 SOURCE = sys.argv[1] if len(sys.argv) > 1 else "doppler_parquet"
 RADIUS_KM = 7_000.0

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import polars as pl
 
-from dart.io import azure, kogs, meos
+from dart.io import azure, kogs, ksat_adx, meos
 from dart.tdm.common import (
     BANDS,
     COLUMN,
@@ -66,6 +66,8 @@ class TrackRequest:
     transmit: FrequencySource
     receive: FrequencySource
     columns: TrackColumns = field(default_factory=TrackColumns)
+    expected_station: str | None = None
+    calibration: meos.TrackCalibration | None = None
     mode: int = 4
 
     def __post_init__(self) -> None:
@@ -86,12 +88,17 @@ class TrackRequest:
             raise ValueError("integration interval must be between 0.01 and 60 seconds")
         if self.receive.offset_column is None:
             raise ValueError("mode 4 requires a receive-frequency offset column")
+        if self.expected_station is not None and not IDENTIFIER.fullmatch(
+            self.expected_station
+        ):
+            raise ValueError("expected station contains unsupported characters")
 
 @dataclass(frozen=True, slots=True)
 class TrackResult:
     filename: str
     text: str
     path: Path | None = None
+    metadata: ContactMetadata | None = None
 
 @dataclass(frozen=True, slots=True)
 class _Metadata:
@@ -103,11 +110,18 @@ class _Metadata:
 def _utc(value: object) -> dt.datetime:
     return utc(value, "TRACK")
 
-def _metadata(request: TrackRequest, timeout: float) -> _Metadata:
-    contact = load_contact_metadata(request.contact_id, request.band, timeout, "TRACK")
+def _metadata(
+    request: TrackRequest, timeout: float, kogs_api_key: str | None
+) -> _Metadata:
+    contact = load_contact_metadata(
+        request.contact_id, request.band, timeout, "TRACK", kogs_api_key
+    )
+    if request.expected_station and contact.antenna != request.expected_station:
+        raise ValueError("KOGS antenna does not match the TDM profile station")
     return _Metadata(
         contact,
-        meos.get_track_calibration(contact.antenna, request.band, contact.start),
+        request.calibration
+        or meos.get_track_calibration(contact.antenna, request.band, contact.start),
         kogs.get_link_frequency(contact.spacecraft, request.transmit.link_name, "up"),
         kogs.get_link_frequency(contact.spacecraft, request.receive.link_name, "down"),
     )
@@ -125,9 +139,8 @@ def _frequency(center: float, value: object, source: FrequencySource) -> Decimal
     return result
 
 def _observations(frame: pl.DataFrame, request: TrackRequest, metadata: _Metadata) -> list[tuple[dt.datetime, Decimal, Decimal]]:
-    rows = [row for row in frame.to_dicts() if row.get(request.receive.offset_column) is not None]
     observations: dict[dt.datetime, tuple[Decimal, Decimal]] = {}
-    for row in rows:
+    for row in frame.to_dicts():
         if row.get(request.columns.contact_id) != request.contact_id:
             raise ValueError("ADX row contact does not match the request")
         if row.get(request.columns.station) != metadata.contact.antenna:
@@ -201,9 +214,10 @@ def write_track_tdm(
     overwrite: bool = False,
     creation_date: dt.datetime | None = None,
     timeout_seconds: float = azure.ADX_QUERY_TIMEOUT_SECONDS,
+    kogs_api_key: str | None = None,
 ) -> TrackResult:
     """Fetch, validate, render, and optionally write one KSAT TRACK file."""
-    metadata = _metadata(request, timeout_seconds)
+    metadata = _metadata(request, timeout_seconds, kogs_api_key)
     sources = (request.transmit, request.receive)
     columns = tuple(
         dict.fromkeys(
@@ -215,7 +229,7 @@ def write_track_tdm(
             )
         )
     )
-    frame = azure.fetch_contact_columns(
+    frame = ksat_adx.fetch_contact_columns(
         request.contact_id,
         metadata.contact.start,
         metadata.contact.stop,
@@ -229,10 +243,10 @@ def write_track_tdm(
     stamp = created.astimezone(dt.UTC).strftime("%Y-%m-%dT%H-%M-%S")
     filename = f"TRACK_{metadata.contact.antenna}_{metadata.contact.cospar}_{stamp}.tdm"
     if output_dir is None:
-        return TrackResult(filename, text)
+        return TrackResult(filename, text, metadata=metadata.contact)
     destination = Path(output_dir) / filename
     if destination.exists() and not overwrite:
         raise FileExistsError(f"refusing to overwrite {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(text, encoding="ascii")
-    return TrackResult(filename, text, destination)
+    return TrackResult(filename, text, destination, metadata.contact)

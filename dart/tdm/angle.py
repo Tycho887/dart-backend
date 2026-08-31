@@ -9,7 +9,7 @@ from pathlib import Path
 
 import polars as pl
 
-from dart.io import azure, meos
+from dart.io import azure, ksat_adx, meos
 from dart.tdm.common import (
     BANDS,
     COLUMN,
@@ -54,6 +54,9 @@ class AngleRequest:
     tracking_mode: str
     angle_type: str = "AZEL"
     columns: AngleColumns = field(default_factory=AngleColumns)
+    expected_station: str | None = None
+    calibration: meos.TrackCalibration | None = None
+    controller_readback_confirmed: bool = False
 
     def __post_init__(self) -> None:
         if not IDENTIFIER.fullmatch(self.contact_id):
@@ -66,6 +69,10 @@ class AngleRequest:
             raise NotImplementedError(
                 "ANGLE type requires confirmed telemetry mappings; only AZEL is available"
             )
+        if self.expected_station is not None and not IDENTIFIER.fullmatch(
+            self.expected_station
+        ):
+            raise ValueError("expected station contains unsupported characters")
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,26 +81,32 @@ class AngleResult:
     text: str
     path: Path | None = None
     warnings: tuple[str, ...] = ()
+    metadata: ContactMetadata | None = None
 
 
 def _calibration(
-    metadata: ContactMetadata, band: str, columns: AngleColumns
+    metadata: ContactMetadata, request: AngleRequest
 ) -> tuple[meos.TrackCalibration | None, tuple[str, ...]]:
-    mapping_warning = (
-        f"confirm that ADX columns {columns.angle_1!r} and {columns.angle_2!r} "
-        "contain controller pointing readback for the target site"
-    )
+    warnings = []
+    if not request.controller_readback_confirmed:
+        warnings.append(
+            f"confirm that ADX columns {request.columns.angle_1!r} and "
+            f"{request.columns.angle_2!r} contain controller pointing readback "
+            "for the target site"
+        )
+    if request.calibration is not None:
+        return request.calibration, tuple(warnings)
     try:
         calibration = meos.get_track_calibration(
-            metadata.antenna, band, metadata.start
+            metadata.antenna, request.band, metadata.start
         )
     except LookupError:
-        calibration_warning = (
+        warnings.append(
             f"no reviewed pedestal offset or TLT calibration for "
-            f"{metadata.antenna}/{band}; ANGLE calibration comments use UNKNOWN"
+            f"{metadata.antenna}/{request.band}; ANGLE calibration comments use UNKNOWN"
         )
-        return None, (mapping_warning, calibration_warning)
-    return calibration, (mapping_warning,)
+        return None, tuple(warnings)
+    return calibration, tuple(warnings)
 
 
 def _value(value: object, column: str) -> float:
@@ -192,11 +205,14 @@ def write_angle_tdm(
     overwrite: bool = False,
     creation_date: dt.datetime | None = None,
     timeout_seconds: float = azure.ADX_QUERY_TIMEOUT_SECONDS,
+    kogs_api_key: str | None = None,
 ) -> AngleResult:
     """Fetch, validate, render, and optionally write one KSAT ANGLE file."""
     metadata = load_contact_metadata(
-        request.contact_id, request.band, timeout_seconds, "ANGLE"
+        request.contact_id, request.band, timeout_seconds, "ANGLE", kogs_api_key
     )
+    if request.expected_station and metadata.antenna != request.expected_station:
+        raise ValueError("KOGS antenna does not match the TDM profile station")
     columns = request.columns
     selected = (
         columns.timestamp,
@@ -205,7 +221,7 @@ def write_angle_tdm(
         columns.angle_1,
         columns.angle_2,
     )
-    frame = azure.fetch_contact_columns(
+    frame = ksat_adx.fetch_contact_columns(
         request.contact_id,
         metadata.start,
         metadata.stop,
@@ -214,7 +230,7 @@ def write_angle_tdm(
         contact_column=columns.contact_id,
         timeout_seconds=timeout_seconds,
     )
-    calibration, warnings = _calibration(metadata, request.band, columns)
+    calibration, warnings = _calibration(metadata, request)
     created = creation_date or dt.datetime.now(dt.UTC)
     text = _render(
         request,
@@ -226,10 +242,10 @@ def write_angle_tdm(
     stamp = created.astimezone(dt.UTC).strftime("%Y-%m-%dT%H-%M-%S")
     filename = f"ANGLE_{metadata.antenna}_{metadata.cospar}_{stamp}.tdm"
     if output_dir is None:
-        return AngleResult(filename, text, warnings=warnings)
+        return AngleResult(filename, text, warnings=warnings, metadata=metadata)
     destination = Path(output_dir) / filename
     if destination.exists() and not overwrite:
         raise FileExistsError(f"refusing to overwrite {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(text, encoding="ascii")
-    return AngleResult(filename, text, destination, warnings)
+    return AngleResult(filename, text, destination, warnings, metadata)

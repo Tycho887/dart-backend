@@ -139,3 +139,54 @@ profile. Reviewed pedestal, TLT, and Doppler-correction constants belong in
 See [KSAT TRACK export](docs/ksat-tdm-export.md) for the Python API, data-source
 rules, and command-line example. Credentials remain in `KOGS_API_KEY` and the
 existing Azure ADX environment variables.
+
+## DART 0.9 service contract
+
+DART 0.9 exposes two asynchronous operations through the versioned `/v1`
+HTTP API:
+
+- `POST /v1/solve-jobs` runs one supported optimizer for one contact.
+- `POST /v1/tdm-jobs` generates one KSAT `TRACK` mode-4 or `ANGLE` AZEL file
+  from a versioned deployment profile.
+
+Both return `202` and a job UUID. Grafana reads results from the database views
+described below; 0.9 deliberately has no general REST status, search, or result
+API. TDM profiles keep reviewed station mappings and calibration outside the
+browser request. They are loaded from `DART_TDM_PROFILE_DIR` (default
+`config/tdm-profiles`) and contain no credentials.
+
+The browser contract allows cross-origin `GET`, `POST`, and `OPTIONS` requests
+from any origin, without cookies or HTTP credentials, and accepts
+`Content-Type`, `Idempotency-Key`, `X-DART-Actor-ID`, and `X-DART-Actor-Type`.
+Those actor headers are assertions rather than authentication. Deploy 0.9 only
+on a trusted network where untrusted web pages cannot reach the API; a gateway
+that authenticates users and injects identity is required before an Internet-
+reachable deployment.
+
+### Expected TimescaleDB schema
+
+The service uses ordinary PostgreSQL tables in a TimescaleDB database; 0.9
+does not create hypertables or a retention policy.
+
+| Relation | Purpose and important fields |
+| --- | --- |
+| `dart.optimizer_profiles` | Immutable optimizer definitions keyed by `(name, version)` |
+| `dart.tdm_profiles` | Deployment-owned TRACK/ANGLE definitions keyed by `(name, version)`, with `product` and the validated JSON snapshot |
+| `dart.jobs` | Durable request envelope: `operation` (`solve` or `tdm_export`), state/stage, actor and idempotency identity, retry/lease fields, request and resolved configuration, warnings and terminal error |
+| `dart.job_contacts` | Ordered contact identity plus KOGS/configuration provenance |
+| `dart.job_runs` | Backend execution; TDM uses `ksat_tdm` with `track_mode_4` or `angle_azel` |
+| `dart.job_artifacts` | SHA-256-addressed JSON, MessagePack, or ASCII payload with optional standard filename and metadata |
+| `dart.job_events` | Append-only state transition and diagnostic history |
+
+Grafana receives `SELECT` access only to these stable views:
+
+| View | Contract |
+| --- | --- |
+| `dart.job_status_v1` | Current operation, status/stage, actor, timing, retry, warning, error, and primary-contact fields |
+| `dart.job_results_v1` | Completed run backend/variant, compact result summary, error, contact, and operation |
+| `dart.job_events_v1` | Ordered lifecycle events for a job |
+| `dart.tdm_artifacts_v1` | Completed TDM product, filename, media type, digest, byte count, warnings, creation time, and decoded ASCII `tdm_text` |
+
+Do not grant the Grafana role access to base tables, artifact MessagePack, or
+deployment secret stores. A dashboard can download `tdm_text` by constructing
+a browser `Blob` using the accompanying filename after the job succeeds.

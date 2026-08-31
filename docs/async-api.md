@@ -20,6 +20,7 @@ Install/build the project with `uv sync`, then configure:
 | `DART_HEARTBEAT_SECONDS` | `30` | Lease heartbeat interval |
 | `DART_POLL_SECONDS` | `5` | Poll fallback after `LISTEN/NOTIFY` |
 | `DART_MAX_ATTEMPTS` | `3` | Total attempts for transient failures |
+| `DART_TDM_PROFILE_DIR` | `config/tdm-profiles` | Reviewed versioned TRACK/ANGLE profiles |
 
 Apply migrations and run the two processes separately:
 
@@ -37,19 +38,25 @@ The API also migrates on startup. Production deployments should normally run
 Every operation except health and metrics is intended for a trusted network.
 Submission requires `Idempotency-Key`, `X-DART-Actor-ID`, and
 `X-DART-Actor-Type` (`human` or `service`). Validation and cancellation require
-the actor headers. The network gateway must prevent clients from forging them.
+the actor headers. In 0.9 these are trusted-network assertions and can be sent
+directly by Grafana; an untrusted deployment must use a gateway that prevents
+clients from forging them.
 
 The dispatch surface is:
 
 - `POST /v1/solve-jobs/validate`
 - `POST /v1/solve-jobs`
+- `POST /v1/tdm-jobs/validate`
+- `POST /v1/tdm-jobs`
 - `POST /v1/jobs/{job_id}/cancel`
 - `GET /v1/capabilities`
 - `GET /v1/optimizer-profiles`
+- `GET /v1/tdm-profiles`
 - `GET /health/live`, `GET /health/ready`, and `GET /metrics`
 
-`POST /v1/solve-jobs` returns `202` with the UUID and whether the response was
-an idempotent replay. V1 deliberately has no REST polling or result endpoint;
+Job submission returns `202` with the UUID and whether the response was an
+idempotent replay. Each TDM job generates one TRACK mode-4 or ANGLE AZEL
+artifact using a versioned server profile. V1 deliberately has no REST polling or result endpoint;
 therefore the response has no `Location` header. Request errors use RFC 9457
 problem documents with stable `code` and `retryable` fields.
 
@@ -75,6 +82,7 @@ Timescale hypertable. Grant Grafana read-only access to these stable views:
 SELECT * FROM dart.job_status_v1 ORDER BY created_at DESC;
 SELECT * FROM dart.job_results_v1 WHERE status = 'succeeded';
 SELECT * FROM dart.job_events_v1 WHERE job_id = $1 ORDER BY created_at, id;
+SELECT * FROM dart.tdm_artifacts_v1 WHERE job_id = $1;
 ```
 
 The underlying tables retain requests, configuration and KOGS provenance,

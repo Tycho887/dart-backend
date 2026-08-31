@@ -19,11 +19,11 @@ from dart.codec import (
     encode_result,
 )
 from dart.schema import (
+    SCHEMA_VERSION,
     FitParameter,
     ForceModel,
     Observation,
     Rk89Input,
-    SCHEMA_VERSION,
     Sgp4FitOptions,
     Sgp4Input,
     SolverOptions,

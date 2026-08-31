@@ -9,15 +9,15 @@ import pytest
 
 dart_solver = pytest.importorskip("dart_solver")
 
+from test_loaders import ISS_LINE1, ISS_LINE2, STATIONS, telemetry_frame
+
 from dart.io.tdm import write_result_tdm, write_tdm
 from dart.loaders.cislunar import build_rk89_input, parse_oem_state
 from dart.loaders.leo import build_sgp4_input
 from dart.schema import SCHEMA_VERSION, Tle
 from dart.solver import solve
 
-from test_loaders import ISS_LINE1, ISS_LINE2, STATIONS, telemetry_frame
-
-CREATION = datetime.datetime(2026, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
+CREATION = datetime.datetime(2026, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
 
 
 def test_leo_pipeline_end_to_end(tmp_path):

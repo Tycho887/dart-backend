@@ -32,6 +32,7 @@ from .metrics import (
 from .models import MeanElementsSolver, SolveJobRequest
 from .profiles import resolve_profile
 from .resolver import InputResolver, ResolutionError, dataclass_document
+from .tdm_executor import TdmJobExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +51,8 @@ def _problem(code: str, detail: str, retryable: bool) -> dict:
 def result_summary(result) -> tuple[dict, list[str]]:
     names = list(result.parameter_names)
     units = {
-        "mean_anomaly_rad": "rad",
-        "mean_motion_rad_s": "rad/s",
+        "delta_mean_anomaly_rad": "rad",
+        "delta_mean_motion_rad_s": "rad/s",
         "time_shift_s": "s",
         "delta_center_frequency_hz": "Hz",
     }
@@ -65,7 +66,11 @@ def result_summary(result) -> tuple[dict, list[str]]:
         uncertainty = (
             math.sqrt(variance) if variance is not None and variance >= 0 else None
         )
-        unit = "Hz" if name.startswith("pass_bias_hz") else units.get(name)
+        unit = (
+            "Hz"
+            if name.startswith(("pass_bias_hz", "doppler_bias_hz:"))
+            else units.get(name)
+        )
         parameters.append(
             {
                 "name": name,
@@ -164,6 +169,16 @@ class Worker:
     def _process(self, job: ClaimedJob) -> None:
         run_id = uuid4()
         try:
+            if job.operation == "tdm_export":
+                TdmJobExecutor(
+                    self.database, self.settings, self._cancel_if_requested
+                ).execute(job, run_id)
+                return
+            if job.operation != "solve":
+                raise ResolutionError(
+                    "stored_operation_invalid",
+                    f"Unsupported stored job operation {job.operation!r}.",
+                )
             try:
                 request = SolveJobRequest.model_validate(job.request_json)
                 profile, effective = resolve_profile(request)

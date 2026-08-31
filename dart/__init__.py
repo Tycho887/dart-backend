@@ -4,4 +4,4 @@ The transport contract between Python and the Rust solver lives in
 ``dart.schema`` and is encoded as MessagePack by ``dart.codec``.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.9.0"

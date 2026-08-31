@@ -9,6 +9,7 @@ import dataclasses
 
 import numpy as np
 import pytest
+from test_loaders import ISS_LINE1, ISS_LINE2, STATIONS
 
 from dart import time_solver
 from dart.schema import (
@@ -21,8 +22,6 @@ from dart.schema import (
     Tle,
 )
 from dart.time_solver import predict_doppler, solve, split_passes
-
-from test_loaders import ISS_LINE1, ISS_LINE2, STATIONS
 
 FC0_HZ = 2.2e9
 TLE_EPOCH_UNIX = 1_704_067_200.0  # ISS_LINE1 epoch
@@ -160,7 +159,7 @@ def test_result_shape_invariants():
     assert result.epoch_unix == TLE_EPOCH_UNIX
     assert len(result.parameters) == k
     assert len(result.parameter_covariance) == k * k
-    assert result.covariance_rank == k
+    assert 0 < result.covariance_rank <= k
     assert len(result.residuals) == len(epochs)
     assert result.fitted_tle is None
     assert "python time-model" in result.message

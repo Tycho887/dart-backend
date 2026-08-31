@@ -86,7 +86,6 @@ def predicted_doppler_hz(
     predicted = -(frequency / C_M_S) * rates
 
     if pass_biases_hz:
-        pass_index = {pid: i for i, pid in enumerate(input.fit.pass_ids)}
         for index, observation in enumerate(input.observations):
             predicted[index] += pass_biases_hz[observation.contact_id]
     return predicted

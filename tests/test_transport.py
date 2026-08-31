@@ -9,20 +9,13 @@ import pytest
 
 dart_solver = pytest.importorskip("dart_solver")
 
+from test_codec import sample_rk89_input, sample_sgp4_input
+
 from dart.schema import (
-    ForceModel,
-    Observation,
-    Rk89Input,
     SCHEMA_VERSION,
-    Sgp4Input,
-    SolverOptions,
     SolverResult,
-    Station,
-    Tle,
 )
 from dart.solver import solve
-
-from test_codec import ISS_TLE, sample_rk89_input, sample_sgp4_input
 
 
 def test_sgp4_transport_roundtrip():
@@ -60,7 +53,7 @@ def test_unknown_mode_comes_back_as_error_result():
 def test_version_mismatch_comes_back_as_error_result():
     import msgpack
 
-    from dart.codec import encode_input, decode_result
+    from dart.codec import decode_result, encode_input
 
     raw = msgpack.unpackb(encode_input(sample_sgp4_input()))
     raw["schema_version"] = 999

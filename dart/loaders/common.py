@@ -22,7 +22,7 @@ def tle_epoch_unix(line1: str) -> float:
     day_of_year = float(epoch_str[2:])
     year = 1900 + year_yy if year_yy >= 57 else 2000 + year_yy
     # TLE day-of-year is 1-based: "001.00000000" is Jan 1 00:00:00
-    epoch = datetime.datetime(year, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(
+    epoch = datetime.datetime(year, 1, 1, tzinfo=datetime.UTC) + datetime.timedelta(
         days=day_of_year - 1.0
     )
     return epoch.timestamp()

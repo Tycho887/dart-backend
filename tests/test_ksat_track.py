@@ -7,8 +7,7 @@ import pytest
 from dart.io import azure, kogs, meos
 from dart.tdm.ranging import FrequencySource, TrackRequest, write_track_tdm
 
-
-CREATED = dt.datetime(2026, 8, 28, 12, 34, 56, 999, tzinfo=dt.timezone.utc)
+CREATED = dt.datetime(2026, 8, 28, 12, 34, 56, 999, tzinfo=dt.UTC)
 
 
 def request(**overrides) -> TrackRequest:
@@ -137,8 +136,8 @@ def test_mode_4_fetches_bounded_data_and_writes_standard_tdm(monkeypatch, tmp_pa
     )
     args, kwargs = calls[0]
     assert args[1:3] == (
-        dt.datetime(2026, 8, 28, 10, tzinfo=dt.timezone.utc),
-        dt.datetime(2026, 8, 28, 10, 10, tzinfo=dt.timezone.utc),
+        dt.datetime(2026, 8, 28, 10, tzinfo=dt.UTC),
+        dt.datetime(2026, 8, 28, 10, 10, tzinfo=dt.UTC),
     )
     assert kwargs["order_by"] == "timestamp"
 
@@ -200,7 +199,7 @@ def test_empty_measurement_selection_is_rejected(monkeypatch):
     )
     mock_sources(monkeypatch, frame)
 
-    with pytest.raises(ValueError, match="no complete TRACK"):
+    with pytest.raises(ValueError, match="contains a null value"):
         write_track_tdm(request(), creation_date=CREATED)
 
 
@@ -223,5 +222,5 @@ def test_writer_stays_within_complexity_budget():
 def test_meos_lookup_fails_closed():
     with pytest.raises(LookupError, match="no reviewed MEOS"):
         meos.get_track_calibration(
-            "UNCONFIGURED", "S", dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+            "UNCONFIGURED", "S", dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         )

@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import psycopg
 import pytest
-from test_service_api import request_body
+from test_service_api import request_body, tdm_request_body
 
 from dart.service.config import ServiceSettings
 from dart.service.database import Database, IdempotencyConflict, JobOwnershipConflict
@@ -154,9 +154,62 @@ def test_idempotency_claim_artifacts_and_grafana_views(database):
             "SELECT sha256 FROM dart.job_artifacts WHERE job_id = %s", (job_id,)
         ).fetchone()
     assert status["status"] == "succeeded"
+    assert status["operation"] == "solve"
     assert status["contact_id"] == uuid4().__class__(body["contact_ids"][0])
     assert result["result_summary"]["converged"] is True
     assert len(artifact["sha256"]) == 64
+
+
+def test_tdm_artifact_grafana_view(database):
+    body = tdm_request_body()
+    job_id, _ = database.submit_job(
+        request_json=body,
+        actor_id="operator-1",
+        actor_type="human",
+        idempotency_key="tdm-database-test",
+        max_attempts=3,
+        operation="tdm_export",
+    )
+    claimed = database.claim_job("worker-tdm", 300)
+    assert claimed.id == job_id
+    assert claimed.operation == "tdm_export"
+    run_id = uuid4()
+    database.store_resolution(
+        job_id=job_id,
+        worker_id="worker-tdm",
+        resolved_configuration={"profile": body["profile"]},
+        contact={"contact_id": body["contact_id"], "provenance": {}},
+        run_id=run_id,
+        algorithm="ksat_tdm",
+        parameterization="track_mode_4",
+    )
+    filename = "TRACK_SG221_2024-149A_2026-08-28T12-34-56.tdm"
+    text = "CCSDS_TDM_VERS = 2.0\nDATA_STOP\n"
+    database.store_artifact(
+        job_id=job_id,
+        run_id=run_id,
+        kind="tdm",
+        content_type="text/plain; charset=us-ascii",
+        data=text.encode("ascii"),
+        filename=filename,
+        metadata={"product": "track"},
+    )
+    database.finish_success(
+        job_id=job_id,
+        worker_id="worker-tdm",
+        run_id=run_id,
+        summary={"product": "track", "filename": filename},
+        warnings=[],
+    )
+
+    with database.pool.connection() as conn:
+        artifact = conn.execute(
+            "SELECT * FROM dart.tdm_artifacts_v1 WHERE job_id = %s", (job_id,)
+        ).fetchone()
+    assert artifact["product"] == "track"
+    assert artifact["filename"] == filename
+    assert artifact["tdm_text"] == text
+    assert artifact["byte_count"] == len(text)
 
 
 def test_concurrent_claims_are_distinct(database):

@@ -27,11 +27,11 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from dart.loaders.offline import build_sgp4_input_from_parquet, _parquet_files
+from doppler_model import in_track_km, predicted_doppler_hz
+
+from dart.loaders.offline import _parquet_files, build_sgp4_input_from_parquet
 from dart.schema import Sgp4Input
 from dart.solver import solve
-
-from doppler_model import in_track_km, predicted_doppler_hz
 
 SOURCE = sys.argv[1] if len(sys.argv) > 1 else "doppler_parquet"
 RADIUS_KM = 7_000.0
@@ -146,7 +146,7 @@ def real_data() -> None:
             n = p[1] if shared_count[mode] >= 2 and len(p) > 1 else float("nan")
             f = p[2] if shared_count[mode] >= 3 and len(p) > 2 else float("nan")
             print(f"{path.name:<18}{MODE_LABELS[mode]:<5}"
-                  f"{'ok' if result.success else 'FAIL':>4}{str(result.converged):>5}"
+                  f"{'ok' if result.success else 'FAIL':>4}{result.converged!s:>5}"
                   f"{result.iterations:>5}{result.rms:>9.0f}{ma:>8.0f}{n:>11.2e}{f:>11.1f}"
                   f"{result.covariance_rank:>5}")
 
