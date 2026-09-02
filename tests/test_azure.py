@@ -10,7 +10,6 @@ the env and live tests skip with a clear message.
 """
 
 import datetime
-import importlib
 import os
 
 import pandas as pd
@@ -26,15 +25,15 @@ from dart.io.auth import create_api_auth
 
 SECRETS_ENV = os.environ.get("DART_SECRETS_ENV", "/opt/dart/secrets/test.env")
 
-# Keys the module reads at import time (HTTP_PROXY is optional and tolerated empty).
+# Keys the ADX client reads from the environment (HTTP_PROXY is optional).
 REQUIRED_KEYS = {
     "AZURE_ADX_CLUSTER_ENDPOINT",
     "AZURE_CLIENT_ID",
     "AZURE_CLIENT_SECRET",
     "AZURE_TENANT_ID",
 }
-ALL_ENV_KEYS = REQUIRED_KEYS | {"HTTP_PROXY"}
 LIVE_TEST_TIMEOUT_SECONDS = 45
+
 
 # Columns projected by the KQL query in fetch_tracking_data.
 PROJECTED_COLUMNS = {
@@ -74,20 +73,20 @@ def secrets_env() -> dict:
 
 @pytest.fixture
 def azure_with_env(secrets_env):
-    """Load the secrets file into the process env, reload ``dart.io.azure``
-    so its import-time env bindings pick them up, then restore + reload on
-    teardown so the module state seen by the rest of the suite is unchanged."""
+    """Load the secrets file into the process env and restore it on teardown.
+
+    ``dart.io.azure.client_from_env`` reads ``os.environ`` lazily, so no module
+    reload is needed."""
     saved = {k: os.environ.get(k) for k in secrets_env}
     try:
         load_dotenv(SECRETS_ENV, override=True)
-        yield importlib.reload(azure)
+        yield azure
     finally:
         for key, value in saved.items():
             if value is None:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
-        importlib.reload(azure)
 
 
 class RedactedAuth(str):
@@ -150,16 +149,10 @@ def test_secrets_file_endpoint_is_https(secrets_env):
     assert secrets_env["AZURE_ADX_CLUSTER_ENDPOINT"].startswith("https://")
 
 
-def test_env_class_populated_from_secrets(azure_with_env, secrets_env):
-    """The import-time plumbing: env class attributes == file values."""
-    for key in ALL_ENV_KEYS:
-        assert getattr(azure_with_env.env, key) == secrets_env.get(key, ""), key
-
-
-def test_get_client_constructs_from_env(azure_with_env, secrets_env):
-    """get_client() plumbs the file's credentials into a KustoClient
+def test_client_from_env_constructs_from_env(azure_with_env, secrets_env):
+    """client_from_env() plumbs the environment credentials into a KustoClient
     (construction is lazy — no network is touched here)."""
-    client = azure_with_env.get_client()
+    client = azure_with_env.client_from_env()
     assert isinstance(client, KustoClient)
     assert client._kcsb.data_source == secrets_env["AZURE_ADX_CLUSTER_ENDPOINT"]
     expected_proxy = secrets_env.get("HTTP_PROXY", "") or None
@@ -220,7 +213,7 @@ def fake_dataframe_from_result_table(primary_results, fake):
 
 def _mock_client(monkeypatch):
     fake = FakeKustoClient()
-    monkeypatch.setattr(azure, "get_client", lambda: fake)
+    monkeypatch.setattr(azure, "client_from_env", lambda: fake)
     monkeypatch.setattr(
         azure,
         "dataframe_from_result_table",
@@ -466,7 +459,7 @@ def test_tracking_context_from_payload_quirks():
 @pytest.mark.timeout(LIVE_TEST_TIMEOUT_SECONDS)
 def test_live_adx_connectivity(azure_with_env):
     """Credentials + cluster reachability end to end."""
-    client = azure_with_env.get_client()
+    client = azure_with_env.client_from_env()
     response = client.execute("telemetry", ".show version", _live_query_properties())
     assert response.primary_results
     result_table = response.primary_results[0]

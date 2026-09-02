@@ -1,5 +1,6 @@
 """ADX/Kusto telemetry client (ported from lib/IO/azure.py) plus the query
 context model (ported from depr/load.py)."""
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -12,38 +13,48 @@ from azure.kusto.data import (
     KustoConnectionStringBuilder,
 )
 from azure.kusto.data.helpers import dataframe_from_result_table
-from dotenv import load_dotenv
 
-from dart.io.utils import _join_list, _safe_bool, _safe_str, setup_logger
+from dart.io.utils import _join_list, _safe_bool, _safe_str
 
-logger = setup_logger()
-load_dotenv()
+logger = logging.getLogger(__name__)
 
 ADX_QUERY_TIMEOUT_SECONDS = 30.0
 
-class env:
-    AZURE_ADX_CLUSTER_ENDPOINT: str = os.getenv("AZURE_ADX_CLUSTER_ENDPOINT", "")
-    AZURE_CLIENT_ID: str = os.getenv("AZURE_CLIENT_ID", "")
-    AZURE_CLIENT_SECRET: str = os.getenv("AZURE_CLIENT_SECRET", "")
-    AZURE_TENANT_ID: str = os.getenv("AZURE_TENANT_ID", "")
-    HTTP_PROXY: str = os.getenv("HTTP_PROXY", "")
 
-def get_client() -> KustoClient:
+def get_client(
+    endpoint: str,
+    client_id: str,
+    client_secret: str,
+    tenant_id: str,
+    *,
+    proxy: str = "",
+) -> KustoClient:
+    """Build a KustoClient from explicit credentials (no environment access)."""
     logger.info(
-        f'Connecting to ADX cluster {env.AZURE_ADX_CLUSTER_ENDPOINT}, '
-        f'client {env.AZURE_CLIENT_ID}, tenant {env.AZURE_TENANT_ID}'
+        f"Connecting to ADX cluster {endpoint}, "
+        f"client {client_id}, tenant {tenant_id}"
     )
     kcsb = KustoConnectionStringBuilder.with_aad_application_key_authentication(
-      connection_string=env.AZURE_ADX_CLUSTER_ENDPOINT,
-      aad_app_id=env.AZURE_CLIENT_ID,
-      app_key=env.AZURE_CLIENT_SECRET,
-      authority_id=env.AZURE_TENANT_ID
+        connection_string=endpoint,
+        aad_app_id=client_id,
+        app_key=client_secret,
+        authority_id=tenant_id,
     )
     client = KustoClient(kcsb)
-
-    if env.HTTP_PROXY:
-        client.set_proxy(env.HTTP_PROXY)
+    if proxy:
+        client.set_proxy(proxy)
     return client
+
+
+def client_from_env() -> KustoClient:
+    """Build a KustoClient from the standard ADX environment variables."""
+    return get_client(
+        endpoint=os.getenv("AZURE_ADX_CLUSTER_ENDPOINT", ""),
+        client_id=os.getenv("AZURE_CLIENT_ID", ""),
+        client_secret=os.getenv("AZURE_CLIENT_SECRET", ""),
+        tenant_id=os.getenv("AZURE_TENANT_ID", ""),
+        proxy=os.getenv("HTTP_PROXY", ""),
+    )
 
 def _query_properties(timeout_seconds: float) -> ClientRequestProperties:
     if timeout_seconds <= 0:
@@ -98,7 +109,7 @@ def fetch_contact_columns(
         f"| project {', '.join(selected)}\n"
         f"| order by {order_by} asc"
     )
-    with get_client() as client:
+    with client_from_env() as client:
         response = client.execute_query(
             "telemetry", query, _query_properties(timeout_seconds)
         )
@@ -115,8 +126,6 @@ def fetch_tracking_data(
     injects KQL-level filtering, and returns a unified Polars DataFrame.
     """
     prefix = "lr1_receiver1"
-
-    print(ctx)
 
     # 1. Determine the Routing Case and Initial Dataset
     if ctx.spacecraft_uuid and ctx.start_time_iso and ctx.end_time_iso:
@@ -162,9 +171,6 @@ def fetch_tracking_data(
 
     filter_clause = " and ".join(filters)
 
-    print(f"Target clause: {target_clause}")
-    print(f"Filter clause: {filter_clause}")
-
     # 3. Construct Unified Query
     query = (
         f"contacts\n"
@@ -178,7 +184,7 @@ def fetch_tracking_data(
     )
 
     # 4. Execute Query
-    with get_client() as client:
+    with client_from_env() as client:
         db = "telemetry"
         logger.debug(f"Executing KQL Query:\n{query}")
         response = client.execute_query(db, query, _query_properties(timeout_seconds))
@@ -231,7 +237,7 @@ def fetch_contact_tracking_data(
         f"{prefix}_actualCarrierFrequencyOffset\n"
         "| order by timestamp asc"
     )
-    with get_client() as client:
+    with client_from_env() as client:
         response = client.execute_query(
             "telemetry", query, _query_properties(timeout_seconds)
         )

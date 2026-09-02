@@ -1,27 +1,5 @@
 """Shared helpers for backend payload normalization (ported from lib/IO/utils.py)."""
 import datetime
-import logging
-import os
-
-LOGGER_NAME = "logs/dart_production"
-
-
-def setup_logger():
-    """Sets up the logger to write only to a file."""
-    logger = logging.getLogger(LOGGER_NAME)
-    logger.setLevel(logging.DEBUG)
-
-    if not logger.handlers:
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(pathname)s:%(lineno)d"
-            " - %(funcName)s() - %(message)s"
-        )
-        os.makedirs(os.path.dirname(LOGGER_NAME), exist_ok=True)
-        file_handler = logging.FileHandler(f"{LOGGER_NAME}.log", encoding="utf-8")
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-
-    return logger
 
 
 def _safe_str(value) -> str | None:
