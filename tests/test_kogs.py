@@ -89,26 +89,6 @@ def test_auth_header_rejects_malformed_credentials(value):
         kogs_headers(value)
 
 
-def test_link_frequency_uses_exact_spacecraft_and_direction(monkeypatch, tmp_path):
-    config = tmp_path / "ctrl-config" / "v2" / "spacecrafts"
-    config.mkdir(parents=True)
-    (config / "TESTSAT.yml").write_text(
-        "links:\n  selected:\n    direction: down\n    frequency: 2269750000\n"
-    )
-    monkeypatch.setattr(kogs, "_PROJECT_ROOT", tmp_path)
-
-    assert kogs.get_link_frequency("TESTSAT", "selected", "down") == 2_269_750_000
-    with pytest.raises(ValueError, match="not a uplink"):
-        kogs.get_link_frequency("TESTSAT", "selected", "up")
-
-
-def test_link_frequency_requires_matching_control_config(monkeypatch, tmp_path):
-    monkeypatch.setattr(kogs, "_PROJECT_ROOT", tmp_path)
-
-    with pytest.raises(FileNotFoundError, match="No config found"):
-        kogs.get_link_frequency("MISSING", "downlink", "down")
-
-
 def test_ephemeris_identity_uses_and_cross_checks_tle_and_omm():
     tle = (
         "TESTSAT\n"

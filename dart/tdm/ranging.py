@@ -10,7 +10,7 @@ from pathlib import Path
 
 import polars as pl
 
-from dart.io import azure, kogs, meos
+from dart.io import azure, ctrl_config, kogs, meos
 from dart.tdm.common import (
     BANDS,
     COLUMN,
@@ -122,8 +122,8 @@ def _metadata(
         contact,
         request.calibration
         or meos.get_track_calibration(contact.antenna, request.band, contact.start),
-        kogs.get_link_frequency(contact.spacecraft, request.transmit.link_name, "up"),
-        kogs.get_link_frequency(contact.spacecraft, request.receive.link_name, "down"),
+        ctrl_config.get_link_frequency(contact.spacecraft, request.transmit.link_name, "up"),
+        ctrl_config.get_link_frequency(contact.spacecraft, request.receive.link_name, "down"),
     )
 
 def _frequency(center: float, value: object, source: FrequencySource) -> Decimal:

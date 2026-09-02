@@ -4,15 +4,12 @@ Each ``get_*`` hits a KOGS endpoint and returns the raw JSON payload; each
 ``parse_*`` normalizes a payload into a dataclass of strings/floats. The
 loaders combine both into ``dart.schema`` transport structs.
 """
-import math
 import re
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 import requests
 import satkit
-import yaml
 
 from dart.io.auth import kogs_headers
 from dart.io.utils import (
@@ -24,7 +21,6 @@ from dart.io.utils import (
 )
 
 KOGS_REQUEST_TIMEOUT_SECONDS = 30.0
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def unwrap_payload(value: object, key: str) -> dict:
@@ -35,73 +31,6 @@ def unwrap_payload(value: object, key: str) -> dict:
     if not isinstance(nested, dict):
         raise ValueError(f"KOGS {key} response contains no {key}")
     return nested
-
-
-def _config_path(kind: str, name: str) -> Path:
-    if not name or Path(name).name != name:
-        raise ValueError(f"invalid {kind} configuration name {name!r}")
-    return _PROJECT_ROOT / "ctrl-config" / "v2" / kind / f"{name}.yml"
-
-
-def antenna_has_config(system_name: str) -> bool:
-    return _config_path("system", system_name).is_file()
-
-
-def spacecraft_has_config(spacecraft_name: str) -> bool:
-    return _config_path("spacecrafts", spacecraft_name).is_file()
-
-
-def get_ip_address(system_name: str) -> str:
-    """Find the IP address for the system's qradio's REST API from ctrl-config"""
-    # NOTE: For this to work, the file MUST be ran through docker or from the root of the project dir
-    path = _config_path("system", system_name)
-
-    if not antenna_has_config(system_name):
-        raise FileNotFoundError(f"No config found for system '{system_name}'.")
-
-    with open(path, "r") as f:
-        data = yaml.safe_load(f)
-
-    defaults = data.get("defaults")
-    if isinstance(defaults, dict):
-        if "qradio" in defaults:
-            return defaults["qradio"].get("rest")
-    elif isinstance(defaults, list):
-        for entry in defaults:
-            if isinstance(entry, dict) and "qradio" in entry:
-                return entry["qradio"].get("rest")
-
-    raise ValueError(
-        f"'qradio' with 'rest' not found in the config for '{system_name}'."
-    )
-
-
-def get_link_frequency(spacecraft_name: str, link_name: str, direction: str) -> float:
-    """Return one positive ctrl-config link frequency after checking direction."""
-    if direction not in {"up", "down"}:
-        raise ValueError("link direction must be 'up' or 'down'")
-    path = _config_path("spacecrafts", spacecraft_name)
-    if not path.is_file():
-        raise FileNotFoundError(f"No config found for spacecraft {spacecraft_name!r}.")
-    with path.open(encoding="utf-8") as stream:
-        data = yaml.safe_load(stream) or {}
-    link = data.get("links", {}).get(link_name)
-    if not isinstance(link, dict):
-        raise ValueError(f"link {link_name!r} is missing from {spacecraft_name}.yml")
-    if link.get("direction") != direction:
-        raise ValueError(f"link {link_name!r} is not a {direction}link")
-    try:
-        frequency = float(link["frequency"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError(f"link {link_name!r} has no numeric frequency") from exc
-    if not math.isfinite(frequency) or frequency <= 0:
-        raise ValueError(f"link {link_name!r} frequency must be positive and finite")
-    return frequency
-
-
-def get_observed_frequency(spacecraft_name: str) -> float:
-    """Return the legacy primary S-band downlink frequency."""
-    return get_link_frequency(spacecraft_name, "s_band_downlink_p1_1", "down")
 
 
 def parse_ephemeris_identity(data: "EphemerisData") -> tuple[str, str]:

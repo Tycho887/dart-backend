@@ -8,8 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from dart.io import ctrl_config
 from dart.io.azure import fetch_contact_tracking_data
 from dart.io.kogs import (
     get_contact,
@@ -64,61 +63,50 @@ class PreparedSolve:
     contact_record: dict
 
 
-class ControlConfigV2:
-    LINK_NAME = "s_band_downlink_p1_1"
-
-    def __init__(self, root: Path):
-        self.root = root.resolve()
+class InputResolver:
+    def __init__(self, *, kogs_auth: str, control_config_dir: Path):
+        self.kogs_auth = kogs_auth
+        self.control_config = control_config_dir
 
     def observed_frequency(self, spacecraft_name: str) -> tuple[float, dict]:
-        if Path(spacecraft_name).name != spacecraft_name or spacecraft_name in {
-            ".",
-            "..",
-        }:
+        """Resolve the primary downlink frequency from ctrl-config v2."""
+        try:
+            path = ctrl_config.spacecraft_config_path(
+                self.control_config, spacecraft_name
+            )
+        except ValueError as exc:
             raise ResolutionError(
                 "invalid_spacecraft_config_name",
                 f"Unsafe spacecraft configuration name {spacecraft_name!r}.",
-            )
-        path = (self.root / "spacecrafts" / f"{spacecraft_name}.yml").resolve()
-        expected_parent = (self.root / "spacecrafts").resolve()
-        if path.parent != expected_parent:
-            raise ResolutionError(
-                "invalid_spacecraft_config_name", "Configuration path escaped V2 root."
-            )
-        try:
-            raw = path.read_bytes()
-        except FileNotFoundError as exc:
+            ) from exc
+        if not path.is_file():
             raise ResolutionError(
                 "control_config_not_found",
                 f"No V2 spacecraft configuration exists for {spacecraft_name!r}.",
-            ) from exc
+            )
         try:
-            document = yaml.safe_load(raw) or {}
-            value = float(document["links"][self.LINK_NAME]["frequency"])
-        except (KeyError, TypeError, ValueError, yaml.YAMLError) as exc:
+            value = ctrl_config.get_observed_frequency(
+                spacecraft_name, root=self.control_config
+            )
+        except (ValueError, FileNotFoundError) as exc:
             raise ResolutionError(
                 "control_config_frequency_invalid",
                 f"V2 configuration for {spacecraft_name!r} has no valid "
-                f"links.{self.LINK_NAME}.frequency.",
+                f"links.{ctrl_config.OBSERVED_LINK_NAME}.frequency.",
             ) from exc
         if not 1_000_000.0 <= value <= 100_000_000_000.0:
             raise ResolutionError(
                 "control_config_frequency_invalid",
                 f"Configured frequency {value} Hz is outside the service bounds.",
             )
+        raw = path.read_bytes()
         return value, {
             "source": "control_config_v2",
             "path": str(path),
-            "link": self.LINK_NAME,
+            "link": ctrl_config.OBSERVED_LINK_NAME,
             "sha256": hashlib.sha256(raw).hexdigest(),
             "value_hz": value,
         }
-
-
-class InputResolver:
-    def __init__(self, *, kogs_auth: str, control_config_dir: Path):
-        self.kogs_auth = kogs_auth
-        self.control_config = ControlConfigV2(control_config_dir)
 
     @staticmethod
     def _unwrap(payload: dict, key: str) -> dict:
@@ -183,7 +171,7 @@ class InputResolver:
             frequency = request.solver.nominal_center_frequency_hz
             frequency_provenance = {"source": "request", "value_hz": frequency}
         else:
-            frequency, frequency_provenance = self.control_config.observed_frequency(
+            frequency, frequency_provenance = self.observed_frequency(
                 spacecraft.name
             )
 

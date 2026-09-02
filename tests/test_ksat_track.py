@@ -4,7 +4,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from dart.io import azure, kogs, meos
+from dart.io import azure, ctrl_config, kogs, meos
 from dart.tdm.ranging import FrequencySource, TrackRequest, write_track_tdm
 
 CREATED = dt.datetime(2026, 8, 28, 12, 34, 56, 999, tzinfo=dt.UTC)
@@ -87,7 +87,7 @@ def mock_sources(monkeypatch, frame=None):
         "s_band_downlink_p1_1": 2_269_750_000.0,
     }
     monkeypatch.setattr(
-        kogs, "get_link_frequency", lambda _, link, __: frequencies[link]
+        ctrl_config, "get_link_frequency", lambda _, link, __: frequencies[link]
     )
     calibration = meos.TrackCalibration(4.0, dt.date(2026, 8, 1), -0.125)
     monkeypatch.setattr(meos, "get_track_calibration", lambda *args: calibration)

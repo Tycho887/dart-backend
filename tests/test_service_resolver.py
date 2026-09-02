@@ -4,16 +4,25 @@ import hashlib
 
 import pytest
 
-from dart.service.resolver import ControlConfigV2, ResolutionError
+from dart.service.resolver import InputResolver, ResolutionError
 
 
-def test_control_config_v2_frequency_and_provenance(tmp_path):
+def _resolver(tmp_path) -> InputResolver:
+    return InputResolver(kogs_auth="", control_config_dir=tmp_path)
+
+
+def test_observed_frequency_and_provenance(tmp_path):
     spacecrafts = tmp_path / "spacecrafts"
     spacecrafts.mkdir()
-    raw = b"links:\n  s_band_downlink_p1_1:\n    frequency: 2269750000\n"
+    raw = (
+        b"links:\n"
+        b"  s_band_downlink_p1_1:\n"
+        b"    direction: down\n"
+        b"    frequency: 2269750000\n"
+    )
     (spacecrafts / "TESTSAT.yml").write_bytes(raw)
 
-    value, provenance = ControlConfigV2(tmp_path).observed_frequency("TESTSAT")
+    value, provenance = _resolver(tmp_path).observed_frequency("TESTSAT")
 
     assert value == 2_269_750_000.0
     assert provenance["link"] == "s_band_downlink_p1_1"
@@ -21,15 +30,21 @@ def test_control_config_v2_frequency_and_provenance(tmp_path):
 
 
 @pytest.mark.parametrize("name", ["../secret", "a/b", ".", ".."])
-def test_control_config_rejects_unsafe_spacecraft_names(tmp_path, name):
+def test_observed_frequency_rejects_unsafe_spacecraft_names(tmp_path, name):
     with pytest.raises(ResolutionError, match="Unsafe"):
-        ControlConfigV2(tmp_path).observed_frequency(name)
+        _resolver(tmp_path).observed_frequency(name)
 
 
-def test_control_config_requires_selected_v2_link(tmp_path):
+def test_observed_frequency_requires_config_file(tmp_path):
+    with pytest.raises(ResolutionError) as error:
+        _resolver(tmp_path).observed_frequency("MISSING")
+    assert error.value.code == "control_config_not_found"
+
+
+def test_observed_frequency_requires_selected_v2_link(tmp_path):
     spacecrafts = tmp_path / "spacecrafts"
     spacecrafts.mkdir()
     (spacecrafts / "TESTSAT.yml").write_text("links: {}\n")
     with pytest.raises(ResolutionError) as error:
-        ControlConfigV2(tmp_path).observed_frequency("TESTSAT")
+        _resolver(tmp_path).observed_frequency("TESTSAT")
     assert error.value.code == "control_config_frequency_invalid"
