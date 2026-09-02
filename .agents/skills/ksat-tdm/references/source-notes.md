@@ -25,6 +25,6 @@ Known source issues:
   position-angle columns have the required semantics.
 - The normative `TDM-Meteorology` PDF is absent.
 
-The generic `dart.io.tdm` output is a DART solver record, not a KSAT template:
+The generic `dart.tdm.legacy` output is a DART solver record, not a KSAT template:
 it uses `ORIGINATOR = DART`, assigns participant roles differently, and writes
 observations as separate `EPOCH` records. Use `dart.io.ksat_tdm` instead.

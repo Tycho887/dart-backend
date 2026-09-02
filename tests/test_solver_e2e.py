@@ -11,7 +11,7 @@ dart_solver = pytest.importorskip("dart_solver")
 
 from test_loaders import ISS_LINE1, ISS_LINE2, STATIONS, telemetry_frame
 
-from dart.io.tdm import write_result_tdm, write_tdm
+from dart.tdm.legacy import write_result_tdm, write_tdm
 from dart.loaders.cislunar import build_rk89_input, parse_oem_state
 from dart.loaders.leo import build_sgp4_input
 from dart.schema import SCHEMA_VERSION, Tle

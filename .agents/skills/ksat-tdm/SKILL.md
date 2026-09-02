@@ -43,7 +43,7 @@ Eb/N0 as PC/N0 or PR/N0.
   requested product was skipped.
 - Reject undocumented modes, topologies, fields, ratios, or conversions rather
   than inferring them.
-- Keep the legacy `dart.io.tdm` solver-record format separate. It reverses the
+- Keep the legacy `dart.tdm.legacy` solver-record format separate. It reverses the
   KSAT participant roles and does not implement the KSAT observation grammar.
 
 METEO serialization is deferred because the supplied directory omits the

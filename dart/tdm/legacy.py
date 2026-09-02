@@ -1,4 +1,4 @@
-"""CCSDS 503.0-B-2 Tracking Data Message (TDM) writer.
+"""Legacy DART solver-record TDM writer.
 
 Emits every field of the intermediate struct (``Sgp4Input``/``Rk89Input``)
 as a TDM file, so the file is a complete, round-trippable record of what
@@ -11,6 +11,9 @@ was fed to the solver. Because the transport already uses CCSDS units
 - ``USER_DEFINED_*`` keys for everything else (TLE, ECI state, force model,
   solver options, station coordinates), prefixed ``USER_DEFINED_STATION_<id>``
   for stations so ids with dashes stay legal key characters.
+
+This is a solver diagnostic record, not a KSAT delivery template. KSAT
+products use ``dart.io.ksat_tdm``.
 """
 
 from __future__ import annotations

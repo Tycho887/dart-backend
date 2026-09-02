@@ -28,7 +28,7 @@ Orbit-determination path
 ADX telemetry ─┐   dart.loaders    schema inputs    MessagePack    Rust/Python solver
 KOGS metadata ─┴─────────────────► Sgp4Input/Rk89Input ──────────► SolverResult
                                           │                            │
-                                          └──── dart.io.tdm ───────────┘
+                                          └──── dart.tdm.legacy ───────────┘
                                                        │
                                               diagnostic TDM records
 
@@ -64,7 +64,7 @@ differences.
   by hand in `crates/dart_solver/src/schema.rs`. Field names are the interface:
   Python field name == msgpack key == serde field name == TDM keyword (snake_case).
 - Units are the CCSDS ones — km, km/s, Hz, degrees; epochs are f64 unix-seconds
-  in UTC. Because the wire units are the TDM units, `dart/io/tdm.py` is a
+  in UTC. Because the wire units are the TDM units, `dart/tdm/legacy.py` is a
   mechanical field copy.
 - `schema_version` is the first field of every message; mismatched versions are
   rejected loudly on both sides, never silently misread.

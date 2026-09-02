@@ -5,7 +5,7 @@ import datetime
 import pytest
 from test_codec import sample_result, sample_rk89_input, sample_sgp4_input
 
-from dart.io.tdm import format_epoch, write_result_tdm, write_tdm
+from dart.tdm.legacy import format_epoch, write_result_tdm, write_tdm
 
 CREATION = datetime.datetime(2026, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
 

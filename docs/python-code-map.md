@@ -15,7 +15,7 @@ recorded parquet ── dart.loaders.offline ─────────┤
                                                   ├─ dart.solver ── MessagePack ── Rust SGP4/RK89 dispatcher
                                                   └─ dart.time_solver ── Python time-shift fit
 
-schema dataclasses/results ── dart.io.tdm ── diagnostic CCSDS TDM text
+schema dataclasses/results ── dart.tdm.legacy ── diagnostic CCSDS TDM text
 
 KOGS contact/antenna ─┐
 bounded ADX contact ──┴─ dart.tdm.ranging ── KSAT TRACK mode-4 TDM
@@ -65,7 +65,7 @@ position/velocity covariance and is not currently populated by the active solver
 | `dart/io/azure.py` | Creates the Azure Data Explorer client, normalizes Grafana payloads into `TrackingContext`, builds bounded KQL queries, applies telemetry gates, and returns timestamp-ordered Polars frames. Requests use a 30-second default timeout. |
 | `dart/io/kogs.py` | Calls KOGS contact, spacecraft, station, antenna, and ephemeris endpoints and parses their JSON payloads into small normalization dataclasses. Requests use a 30-second timeout. |
 | `dart/io/utils.py` | Shared conversion helpers for loose backend values, ISO-to-Unix conversion, KOGS authorization formatting, and the file logger used by the ADX path. |
-| `dart/io/tdm.py` | Writes solver inputs and results as CCSDS 503.0-B-2 TDM KVN text. Standard observations use native TDM keywords; DART-only state and fit fields use `USER_DEFINED_*`. |
+| `dart/tdm/legacy.py` | Writes solver inputs and results as CCSDS 503.0-B-2 TDM KVN text. Standard observations use native TDM keywords; DART-only state and fit fields use `USER_DEFINED_*`. |
 | `dart/io/meos.py` | Provides fail-closed reviewed pedestal, TLT, and Doppler-correction constants until a live MEOS client is available. |
 | `dart/tdm/ranging.py` | Validates, renders, and writes the compact KSAT TRACK mode-4 product while delegating all backend access to `dart.io`. |
 

@@ -82,7 +82,7 @@ DART keeps three product classes distinct:
   raw source observations and declared correction terms. Serialization must
   not silently add orbit, ranging, media, spacecraft, or Doppler models.
 - **Solver diagnostics** record the normalized inputs and fitted outputs used
-  to reproduce or inspect a solve. The legacy `dart.io.tdm` format belongs
+  to reproduce or inspect a solve. The legacy `dart.tdm.legacy` format belongs
   here and is not a KSAT delivery template.
 - **Derived orbit products** such as OEM are sampled from an authoritative
   fitted solution. They carry frame, time-system, interpolation, covariance,

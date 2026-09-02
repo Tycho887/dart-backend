@@ -1,6 +1,6 @@
 """Canonical public facade for the supported KSAT TDM products.
 
-The legacy :mod:`dart.io.tdm` module remains a solver diagnostic format.  This
+The legacy :mod:`dart.tdm.legacy` module remains a solver diagnostic format.  This
 module deliberately exposes only the reviewed KSAT TRACK mode-4 and ANGLE AZEL
 writers used by the service and command line.
 """

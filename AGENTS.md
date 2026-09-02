@@ -62,7 +62,7 @@ roadmap, and the proposed (not yet implemented) UKF/controller contracts.
 - KSAT delivery TDM is CCSDS 503.0-B-2 KVN built from raw, typed tracking data.
   Preserve measurements and declared correction terms while serializing; do
   not apply orbit, media, ranging, or Doppler models in the writer.
-- Keep `dart.io.tdm`, the legacy DART solver-record format, separate from the
+- Keep `dart.tdm.legacy`, the legacy DART solver-record format, separate from the
   KSAT delivery path. It is not a template or authority for KSAT products.
 - Derived OEM must come from a typed orbit solution with an explicit frame,
   time system, state history, covariance where available, source solution, and
@@ -122,7 +122,7 @@ The core tenet of DART is that it should work well and remain readable.
   `crates/dart_solver/src/schema.rs`. Field names are the interface: Python field name ==
   msgpack key == serde field name == TDM keyword, snake_case.
 - Units are the CCSDS ones: km, km/s, Hz, degrees; epochs are f64 unix-seconds (UTC).
-  Because wire units are TDM units, `dart/io/tdm.py` is a mechanical field copy.
+  Because wire units are TDM units, `dart/tdm/legacy.py` is a mechanical field copy.
 - `schema_version` is the first field of every message; mismatched versions are rejected
   loudly on both sides. Bump it on any incompatible change.
 - Nothing crosses the boundary except data: no numpy/polars/satkit objects. Loaders in
