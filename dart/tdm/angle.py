@@ -9,7 +9,7 @@ from pathlib import Path
 
 import polars as pl
 
-from dart.io import azure, ksat_adx, meos
+from dart.io import azure, meos
 from dart.tdm.common import (
     BANDS,
     COLUMN,
@@ -221,7 +221,7 @@ def write_angle_tdm(
         columns.angle_1,
         columns.angle_2,
     )
-    frame = ksat_adx.fetch_contact_columns(
+    frame = azure.fetch_contact_columns(
         request.contact_id,
         metadata.start,
         metadata.stop,

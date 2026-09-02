@@ -1,8 +1,8 @@
 # ADX-backed export
 
-Use `dart.io.ksat_adx` for live telemetry. Every query must select exactly one
-contact and a bounded UTC interval. The selected ADX station must equal the
-configured KSAT header site.
+Use `dart.io.azure.fetch_contact_columns` for live telemetry. Every query must
+select exactly one contact and a bounded UTC interval. The selected ADX station
+must equal the configured KSAT header site.
 
 For TRACK mode 3, the minimum setup is:
 

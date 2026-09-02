@@ -11,7 +11,7 @@ description: >-
 # KSAT TDM
 
 Generate KSAT delivery products from the supplied KSAT documentation and the
-typed writers in `dart.io.ksat_tdm` and `dart.io.ksat_adx`.
+typed writers in `dart.io.ksat_tdm` and the bounded ADX query in `dart.io.azure`.
 
 ## Workflow
 
@@ -29,8 +29,8 @@ typed writers in `dart.io.ksat_tdm` and `dart.io.ksat_adx`.
    KSAT writer with the legacy DART writer.
 
 Use `dart.io.ksat_tdm` for already typed product data. For ADX-backed export,
-use `dart.io.ksat_adx` with a bounded contact/time query and explicit source
-column plus unit mappings. The generic timestamp and antenna-angle defaults
+use `dart.io.azure.fetch_contact_columns` with a bounded contact/time query and
+explicit source column plus unit mappings. The generic timestamp and antenna-angle defaults
 match DART's current telemetry query but must be confirmed for the target site.
 Do not treat a carrier-frequency offset as an absolute carrier frequency, or
 Eb/N0 as PC/N0 or PR/N0.

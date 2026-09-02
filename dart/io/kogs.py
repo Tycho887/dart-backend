@@ -212,7 +212,7 @@ def get_ephemeris(
     url = f"https://mgmt.kogs.api.ksat.no/24.08/ephemeris/{ephemeris_id}"
     return _get(url, auth, timeout_seconds=timeout_seconds)
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class AntennaData:
     antenna_id: Optional[str]
     antenna_name: Optional[str]
@@ -233,7 +233,7 @@ class AntennaData:
     bands_polarizations: Optional[str]
     partner: Optional[str]
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class EphemerisData:
     ephemeris_uuid: Optional[str]
     spacecraft_uuid: Optional[str]
@@ -253,7 +253,7 @@ class EphemerisData:
     is_cui: Optional[str]
     payload: Optional[str]
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class SatelliteData:
     id: Optional[str]
     name: Optional[str]
@@ -264,7 +264,7 @@ class SatelliteData:
     orbit: Optional[str]
     norad_id: Optional[float]
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ReservationData:
     id: Optional[str]
     state: Optional[str]

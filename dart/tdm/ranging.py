@@ -10,7 +10,7 @@ from pathlib import Path
 
 import polars as pl
 
-from dart.io import azure, kogs, ksat_adx, meos
+from dart.io import azure, kogs, meos
 from dart.tdm.common import (
     BANDS,
     COLUMN,
@@ -229,7 +229,7 @@ def write_track_tdm(
             )
         )
     )
-    frame = ksat_adx.fetch_contact_columns(
+    frame = azure.fetch_contact_columns(
         request.contact_id,
         metadata.contact.start,
         metadata.contact.stop,
