@@ -7,14 +7,7 @@ it so callers work with the schema dataclasses directly.
 
 from __future__ import annotations
 
-try:  # the extension is only importable once `uv sync`/`maturin develop` ran
-    from dart_solver import solve as _solve
-except ImportError as exc:  # pragma: no cover - exercised only on fresh checkouts
-    raise ImportError(
-        "the dart_solver extension is not built; run `uv sync` (or "
-        "`maturin develop`) to build it into the venv"
-    ) from exc
-
+from dart_solver import solve as _solve
 from dart.codec import SolverInput, decode_result, encode_input
 from dart.schema import SolverResult
 
