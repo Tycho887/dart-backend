@@ -61,4 +61,22 @@ def _iso_to_unix(iso_str) -> float | None:
         return None
 
 
+def utc(value: object, label: str) -> datetime.datetime:
+    """Coerce a string or datetime to an aware UTC datetime."""
+    if isinstance(value, str):
+        parsed = datetime.datetime.fromisoformat(value)
+    elif isinstance(value, datetime.datetime):
+        parsed = value
+    else:
+        raise ValueError(f"invalid {label} epoch {value!r}")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        parsed = parsed.replace(tzinfo=datetime.UTC)
+    return parsed.astimezone(datetime.UTC)
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise ValueError(message)
+
+
 
