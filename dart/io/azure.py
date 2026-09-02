@@ -271,17 +271,6 @@ class TrackingContext:
     min_doppler: float = 1.0
     max_doppler: float = 1e5
 
-    # Optimization modes (Mapped 1:1 with internal Config)
-    angle_constraint: float = 1.0
-    penalty_weight: float = 1e4
-    qmc_samples: int = 20
-    loss_function: str = "linear"
-    f_scale: float = 500.0
-    model_type: str = "auto"
-    criterion: str = "bic"
-    use_qmc: bool = True
-    method: str = "dogbox"
-
     @classmethod
     def from_payload(cls, payload: dict):
         kwargs = {
@@ -299,15 +288,6 @@ class TrackingContext:
             "minimum_ebn0": ("minimumEbN0", float),
             "min_doppler": ("minDoppler", float),
             "max_doppler": ("maxDoppler", float),
-            "angle_constraint": ("angleConstraint", float),
-            "penalty_weight": ("penaltyWeight", float),
-            "qmc_samples": ("qmcSamples", int),
-            "loss_function": ("lossFunction", str),
-            "f_scale": ("fScale", float),
-            "model_type": ("modelType", str),
-            "criterion": ("criterion", str),
-            "use_qmc": ("useQmc", _safe_bool),
-            "method": ("method", str)
         }
 
         for dc_field, (payload_key, cast_func) in optional_fields.items():

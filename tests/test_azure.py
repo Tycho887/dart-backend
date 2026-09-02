@@ -393,15 +393,6 @@ def test_tracking_context_from_payload_full():
         "minimumEbN0": 2.5,
         "minDoppler": 10.0,
         "maxDoppler": 5000.0,
-        "angleConstraint": 2.0,
-        "penaltyWeight": 100.0,
-        "qmcSamples": 50,
-        "lossFunction": "soft_l1",
-        "fScale": 300.0,
-        "modelType": "linear",
-        "criterion": "aic",
-        "useQmc": True,
-        "method": "trf",
     }
 
     ctx = TrackingContext.from_payload(payload)
@@ -417,15 +408,6 @@ def test_tracking_context_from_payload_full():
     assert ctx.minimum_ebn0 == 2.5
     assert ctx.min_doppler == 10.0
     assert ctx.max_doppler == 5000.0
-    assert ctx.angle_constraint == 2.0
-    assert ctx.penalty_weight == 100.0
-    assert ctx.qmc_samples == 50
-    assert ctx.loss_function == "soft_l1"
-    assert ctx.f_scale == 300.0
-    assert ctx.model_type == "linear"
-    assert ctx.criterion == "aic"
-    assert ctx.use_qmc is True
-    assert ctx.method == "trf"
 
 
 def test_tracking_context_from_payload_quirks():
@@ -439,7 +421,6 @@ def test_tracking_context_from_payload_quirks():
         "Mode": "sgp4",
         "minElevation": 0,  # skipped -> default 1.0 kept
         "minDoppler": 0,  # skipped -> default 1.0 kept
-        "useQmc": False,  # bool -> kept
     }
 
     ctx = TrackingContext.from_payload(payload)
@@ -448,7 +429,6 @@ def test_tracking_context_from_payload_quirks():
     assert ctx.lock_requirement is False
     assert ctx.min_elevation == 1.0
     assert ctx.min_doppler == 1.0
-    assert ctx.use_qmc is False
 
 
 # ---------------------------------------------------------------------------
