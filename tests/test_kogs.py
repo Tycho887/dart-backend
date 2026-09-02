@@ -1,6 +1,7 @@
 import pytest
 
 from dart.io import kogs
+from dart.io.auth import kogs_headers
 
 
 class FakeResponse:
@@ -65,10 +66,10 @@ def test_get_ephemeris_accepts_explicit_timeout(monkeypatch):
 def test_auth_header_accepts_raw_or_canonical_key_without_double_prefixing():
     raw_key = "d" * 40
 
-    assert kogs.generate_auth_header(raw_key)["Authorization"] == (
+    assert kogs_headers(raw_key)["Authorization"] == (
         f"KSAT1-PLAIN {raw_key}"
     )
-    assert kogs.generate_auth_header(f"KSAT1-PLAIN {raw_key}")["Authorization"] == (
+    assert kogs_headers(f"KSAT1-PLAIN {raw_key}")["Authorization"] == (
         f"KSAT1-PLAIN {raw_key}"
     )
 
@@ -85,7 +86,7 @@ def test_auth_header_accepts_raw_or_canonical_key_without_double_prefixing():
 )
 def test_auth_header_rejects_malformed_credentials(value):
     with pytest.raises((TypeError, ValueError)):
-        kogs.generate_auth_header(value)
+        kogs_headers(value)
 
 
 def test_link_frequency_uses_exact_spacecraft_and_direction(monkeypatch, tmp_path):

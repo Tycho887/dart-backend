@@ -17,7 +17,7 @@ from typing import Protocol, Sequence
 import requests
 import yaml
 
-from dart.io.utils import create_api_auth
+from dart.io.auth import create_api_auth
 
 
 class SchedulingError(RuntimeError):

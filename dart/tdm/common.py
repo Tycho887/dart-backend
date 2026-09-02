@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import satkit as sk
 
 from dart.io import kogs
-from dart.io.utils import create_api_auth
+from dart.io.auth import create_api_auth
 
 BANDS = {"S", "X", "Ka"}
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")

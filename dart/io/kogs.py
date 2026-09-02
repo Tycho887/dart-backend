@@ -14,13 +14,13 @@ import requests
 import satkit
 import yaml
 
+from dart.io.auth import kogs_headers
 from dart.io.utils import (
     _iso_to_unix,
     _join_field,
     _join_list,
     _safe_float,
     _safe_str,
-    create_api_auth,
 )
 
 KOGS_REQUEST_TIMEOUT_SECONDS = 30.0
@@ -132,12 +132,6 @@ def parse_ephemeris_identity(data: "EphemerisData") -> tuple[str, str]:
         raise ValueError("contact TLE and OMM identities do not match")
     return identities[0]
 
-def generate_auth_header(auth: str) -> dict:
-    return {
-        'Authorization': create_api_auth(auth),
-        'Accept': 'application/json'
-    }
-
 def validate(resp: requests.Response) -> dict:
     """Raises HTTP Errors, if one occured. Otherwise, data is returned"""
     resp.raise_for_status()
@@ -152,7 +146,7 @@ def _get(
     return validate(
         requests.get(
             url,
-            headers=generate_auth_header(auth),
+            headers=kogs_headers(auth),
             timeout=timeout_seconds,
         )
     )

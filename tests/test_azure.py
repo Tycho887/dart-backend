@@ -22,7 +22,7 @@ from dotenv import dotenv_values, load_dotenv
 from dart.io import azure
 from dart.io.azure import TrackingContext
 from dart.io.kogs import get_contact, parse_reservation
-from dart.io.utils import create_api_auth
+from dart.io.auth import create_api_auth
 
 SECRETS_ENV = os.environ.get("DART_SECRETS_ENV", "/opt/dart/secrets/test.env")
 
