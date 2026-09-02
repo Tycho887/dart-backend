@@ -8,7 +8,7 @@ from typing import Literal
 
 import requests
 
-from .controller import OffsetWrite, WriteAcknowledgement
+from dart.controller.controller import OffsetWrite, WriteAcknowledgement
 
 
 class OrbitalTransportError(RuntimeError):
