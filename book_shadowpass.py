@@ -11,9 +11,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from dart.io.kogs_scheduling import RequestsShadowBookingClient
 from dart.shadow_scheduler import (
     JsonlAuditStore,
-    RequestsShadowBookingClient,
     ShadowScheduleConfig,
     ShadowScheduler,
 )

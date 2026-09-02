@@ -79,4 +79,23 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def require_utc(value: datetime.datetime) -> datetime.datetime:
+    """Reject naive or non-UTC timestamps and return an aware UTC datetime."""
+    if value.tzinfo is None or value.utcoffset() != datetime.timedelta(0):
+        raise ValueError("timestamp must be timezone-aware UTC")
+    return value.astimezone(datetime.UTC)
+
+
+def parse_utc(value: object) -> datetime.datetime:
+    """Parse an ISO-8601 timestamp (naive means UTC) into aware UTC."""
+    return require_utc(
+        datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    )
+
+
+def utc_text(value: datetime.datetime) -> str:
+    """Format an aware UTC datetime as a Z-suffixed ISO-8601 string."""
+    return require_utc(value).isoformat().replace("+00:00", "Z")
+
+
 

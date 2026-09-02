@@ -9,19 +9,19 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, Sequence
 
-import requests
 import yaml
 
-from dart.io.auth import create_api_auth
-
-
-class SchedulingError(RuntimeError):
-    """Raised when a safe shadow booking cannot be planned or completed."""
+from dart.io.kogs_scheduling import (
+    Contact,
+    RequestsShadowBookingClient,
+    SchedulingError,
+)
+from dart.io.utils import require_utc
 
 
 class Lifecycle(StrEnum):
@@ -77,24 +77,6 @@ class ShadowScheduleConfig:
         if config.search_window_s <= config.minimum_lead_s:
             raise ValueError("search_window_s must exceed minimum_lead_s")
         return config
-
-
-@dataclass(frozen=True)
-class Contact:
-    id: str
-    spacecraft_id: str
-    system_id: str
-    station_id: str
-    mission_profile_id: str
-    ephemeris_id: str
-    start: datetime
-    end: datetime
-    state: str
-    external_ref: str = ""
-
-    @property
-    def duration_s(self) -> float:
-        return (self.end - self.start).total_seconds()
 
 
 @dataclass(frozen=True)
@@ -163,111 +145,6 @@ class JsonlAuditStore:
             stream.write(json.dumps(document, sort_keys=True) + "\n")
 
 
-class RequestsShadowBookingClient:
-    """Small KOGS adapter; endpoint details live only at this boundary."""
-
-    def __init__(
-        self,
-        api_key: str,
-        base_url: str,
-        timeout_s: float,
-        mutation_contract_confirmed: bool = False,
-    ) -> None:
-        self._headers = {
-            "Authorization": create_api_auth(api_key),
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
-        self._base_url = base_url.rstrip("/")
-        self._timeout_s = timeout_s
-        self._mutation_contract_confirmed = mutation_contract_confirmed
-
-    def validate_credentials(self) -> None:
-        response = requests.get(
-            f"{self._base_url}/contacts",
-            headers=self._headers,
-            params={"limit": 1},
-            timeout=self._timeout_s,
-        )
-        response.raise_for_status()
-
-    def list_contacts(
-        self,
-        start: datetime,
-        end: datetime,
-        *,
-        station_ids: Sequence[str] = (),
-        system_ids: Sequence[str] = (),
-    ) -> list[Contact]:
-        params = {
-            "start_time": _utc_text(start),
-            "end_time": _utc_text(end),
-            "station_ids": list(station_ids),
-            "system_ids": list(system_ids),
-        }
-        payload = self._request("GET", "/contacts", params=params)
-        raw_contacts = payload.get("data")
-        if not isinstance(raw_contacts, list):
-            raise SchedulingError("KOGS contacts response contains no data list")
-        return [_parse_contact(item) for item in raw_contacts]
-
-    def book_shadow(self, plan: ShadowPlan) -> Contact:
-        self._require_mutation_contract()
-        body = {
-            "source_contact_id": plan.source.id,
-            "system_id": plan.target_antenna_id,
-            "mission_profile_id": plan.mission_profile_id,
-            "external_ref": plan.identity,
-        }
-        return _parse_contact(
-            self._request("POST", "/contacts/shadow", json_body=body)
-        )
-
-    def get_ephemeris_snapshot(self, ephemeris_id: str) -> dict:
-        return self._request("GET", f"/ephemeris/{ephemeris_id}")
-
-    def assign_ephemeris(self, contact_id: str, ephemeris_id: str) -> None:
-        self._require_mutation_contract()
-        self._request(
-            "PUT",
-            f"/contacts/{contact_id}/ephemeris",
-            json_body={"ephemeris_id": ephemeris_id, "mode": "manual"},
-        )
-
-    def cancel_contact(self, contact_id: str) -> None:
-        self._require_mutation_contract()
-        self._request("POST", f"/contacts/{contact_id}/cancel", json_body={})
-
-    def _require_mutation_contract(self) -> None:
-        if not self._mutation_contract_confirmed:
-            raise SchedulingError("KOGS mutation contract has not been confirmed")
-
-    def _request(
-        self,
-        method: str,
-        path: str,
-        *,
-        params: dict[str, str | list[str]] | None = None,
-        json_body: dict[str, object] | None = None,
-    ) -> dict:
-        response = requests.request(
-            method,
-            f"{self._base_url}{path}",
-            headers=self._headers,
-            timeout=self._timeout_s,
-            params=params,
-            json=json_body,
-        )
-        response.raise_for_status()
-        try:
-            payload = response.json()
-        except requests.JSONDecodeError as exc:
-            raise SchedulingError("KOGS returned malformed JSON") from exc
-        if not isinstance(payload, dict):
-            raise SchedulingError("KOGS response must be an object")
-        return payload
-
-
 class ShadowScheduler:
     def __init__(
         self,
@@ -280,7 +157,7 @@ class ShadowScheduler:
         self._config = config
 
     def plan(self, now: datetime) -> ShadowPlan:
-        now = _require_utc(now)
+        now = require_utc(now)
         self._client.validate_credentials()
         start = now + timedelta(seconds=self._config.minimum_lead_s)
         end = now + timedelta(seconds=self._config.search_window_s)
@@ -412,7 +289,7 @@ class ShadowScheduler:
                 ephemeris_id=plan.source.ephemeris_id,
                 ephemeris_snapshot_json=plan.ephemeris_snapshot_json,
                 status=status,
-                recorded_at=_require_utc(now),
+                recorded_at=require_utc(now),
                 request_digest=request_digest,
                 response_digest=_digest(_contact_document(booked)) if booked else None,
                 failure_reason=failure_reason,
@@ -490,40 +367,6 @@ def _has_conflict(
         and contact.start < end
         for contact in contacts
     )
-
-
-def _parse_contact(value: object) -> Contact:
-    if not isinstance(value, dict):
-        raise SchedulingError("KOGS contact is not an object")
-    try:
-        return Contact(
-            id=str(value["id"]),
-            spacecraft_id=str(value["spacecraft_id"]),
-            system_id=str(value["system_id"]),
-            station_id=str(value["station_id"]),
-            mission_profile_id=str(value.get("mission_profile_id", "")),
-            ephemeris_id=str(value["ephemeris_id"]),
-            start=_parse_utc(value["start_time"]),
-            end=_parse_utc(value["end_time"]),
-            state=str(value["state"]),
-            external_ref=str(value.get("external_ref", "")),
-        )
-    except (KeyError, TypeError, ValueError) as exc:
-        raise SchedulingError("KOGS contact response is incomplete") from exc
-
-
-def _parse_utc(value: object) -> datetime:
-    return _require_utc(datetime.fromisoformat(str(value).replace("Z", "+00:00")))
-
-
-def _require_utc(value: datetime) -> datetime:
-    if value.tzinfo is None or value.utcoffset() != timedelta(0):
-        raise ValueError("timestamp must be timezone-aware UTC")
-    return value.astimezone(UTC)
-
-
-def _utc_text(value: datetime) -> str:
-    return _require_utc(value).isoformat().replace("+00:00", "Z")
 
 
 def _booking_document(plan: ShadowPlan) -> dict[str, str]:
