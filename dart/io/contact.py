@@ -1,14 +1,16 @@
-"""Resolve one KOGS contact into typed delivery metadata.
+"""Resolve KOGS contacts and provide forward-model estimation containers.
 
-This is the only KOGS access required by the KSAT TDM writers; the writers
-themselves validate and serialize and never open a KOGS or ADX client.
+This module resolves delivery metadata from KOGS and structures observation
+batches and sensor configurations for the Rust forward-models backend.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Sequence
 
 import satkit as sk
 
@@ -17,8 +19,16 @@ from dart.io.auth import create_api_auth
 from dart.io.utils import require, utc
 
 
+class MeasurementKind(str, Enum):
+    """Supported measurement types matching the Rust forward model."""
+    DOPPLER = "Doppler"
+    TRUE_RANGE = "TrueRange"
+    PSEUDORANGE_PHASE = "PseudorangePhase"
+
+
 @dataclass(frozen=True, slots=True)
 class ContactMetadata:
+    """Identity, station, and ephemeris metadata for one KOGS contact."""
     spacecraft_id: str
     system_id: str
     station_id: str
@@ -34,6 +44,157 @@ class ContactMetadata:
     catalog: str
     start: dt.datetime
     stop: dt.datetime
+
+    def to_itrfcoord(self) -> sk.itrfcoord:
+        """Convert antenna coordinates into a satkit ITRF coordinate object."""
+        return sk.itrfcoord(
+            latitude_deg=self.latitude,
+            longitude_deg=self.longitude,
+            altitude=self.altitude,
+        )
+
+
+@dataclass(slots=True)
+class ForwardObservation:
+    """Generic container matching Rust's ObservationRecord wire format.
+
+    All numerical fields use standard SI units (Hz for Doppler, meters for Range).
+    """
+    time: sk.instant
+    observed: list[f64] = field(default_factory=list)
+    noise_cov: list[list[float]] = field(default_factory=list)
+    receiver_id: int = 0
+    pass_index: int = 0
+    kind: MeasurementKind = MeasurementKind.DOPPLER
+    contact_id: str | None = None
+
+    @classmethod
+    def from_scalar(
+        cls,
+        time: sk.instant | dt.datetime | float,
+        value: float,
+        variance: float,
+        receiver_id: int = 0,
+        pass_index: int = 0,
+        kind: MeasurementKind = MeasurementKind.DOPPLER,
+        contact_id: str | None = None,
+    ) -> ForwardObservation:
+        """Construct an observation for scalar observables (e.g., Doppler shift)."""
+        instant = cls._coerce_instant(time)
+        return cls(
+            time=instant,
+            observed=[float(value)],
+            noise_cov=[[float(variance)]],
+            receiver_id=receiver_id,
+            pass_index=pass_index,
+            kind=kind,
+            contact_id=contact_id,
+        )
+
+    @staticmethod
+    def _coerce_instant(time: sk.instant | dt.datetime | float) -> sk.instant:
+        """Convert datetime or Unix epoch float into satkit Instant."""
+        if isinstance(time, sk.instant):
+            return time
+        if isinstance(time, dt.datetime):
+            return sk.instant.from_datetime(time)
+        if isinstance(time, (int, float)):
+            return sk.instant.from_unixtime(float(time))
+        raise TypeError(f"Unsupported time type: {type(time)}")
+
+
+@dataclass(slots=True)
+class ForwardModelContext:
+    """Batch estimation context matching Rust's EstimationEngine configuration.
+
+    Consolidates receivers, pass-to-index mapping, and observations to avoid
+    discrepancies between Python ingestion and the Rust calculation engine.
+    """
+    center_frequency_hz: float
+    receivers: list[sk.itrfcoord] = field(default_factory=list)
+    contacts: dict[str, ContactMetadata] = field(default_factory=dict)
+    contact_to_pass_idx: dict[str, int] = field(default_factory=dict)
+    system_to_receiver_idx: dict[str, int] = field(default_factory=dict)
+    observations: list[ForwardObservation] = field(default_factory=list)
+
+    @property
+    def num_passes(self) -> int:
+        """Return the number of registered passes."""
+        return len(self.contact_to_pass_idx)
+
+    def register_contact(self, contact: ContactMetadata) -> tuple[int, int]:
+        """Register a contact, tracking receiver indices and pass allocations.
+
+        Returns a tuple of (receiver_id, pass_index).
+        """
+        if contact.system_id not in self.system_to_receiver_idx:
+            receiver_idx = len(self.receivers)
+            self.receivers.append(contact.to_itrfcoord())
+            self.system_to_receiver_idx[contact.system_id] = receiver_idx
+        else:
+            receiver_idx = self.system_to_receiver_idx[contact.system_id]
+
+        contact_key = f"{contact.spacecraft_id}_{contact.start.isoformat()}"
+        if contact_key not in self.contact_to_pass_idx:
+            pass_idx = len(self.contact_to_pass_idx)
+            self.contact_to_pass_idx[contact_key] = pass_idx
+            self.contacts[contact_key] = contact
+        else:
+            pass_idx = self.contact_to_pass_idx[contact_key]
+
+        return receiver_idx, pass_idx
+
+    def add_observation(
+        self,
+        time: sk.instant | dt.datetime | float,
+        value: float,
+        variance: float,
+        system_id: str,
+        contact_key: str,
+        kind: MeasurementKind = MeasurementKind.DOPPLER,
+    ) -> None:
+        """Append an observation with automatic receiver and pass resolution."""
+        require(system_id in self.system_to_receiver_idx, f"Unknown system ID: {system_id}")
+        require(contact_key in self.contact_to_pass_idx, f"Unknown contact key: {contact_key}")
+
+        receiver_id = self.system_to_receiver_idx[system_id]
+        pass_index = self.contact_to_pass_idx[contact_key]
+
+        obs = ForwardObservation.from_scalar(
+            time=time,
+            value=value,
+            variance=variance,
+            receiver_id=receiver_id,
+            pass_index=pass_index,
+            kind=kind,
+            contact_id=contact_key,
+        )
+        self.observations.append(obs)
+
+    def validate(self) -> None:
+        """Validate context consistency against the Rust EstimationEngine constraints."""
+        require(
+            self.center_frequency_hz > 0.0,
+            "Center frequency must be finite and positive",
+        )
+        require(len(self.receivers) > 0, "At least one receiver must be registered")
+        for i, obs in enumerate(self.observations):
+            require(
+                obs.receiver_id < len(self.receivers),
+                f"Observation {i} receiver_id {obs.receiver_id} out of bounds",
+            )
+            if self.num_passes > 0:
+                require(
+                    obs.pass_index < self.num_passes,
+                    f"Observation {i} pass_index {obs.pass_index} out of bounds",
+                )
+
+
+@dataclass(frozen=True, slots=True)
+class BatchEvaluationResult:
+    """Evaluated whitened residuals and Jacobian matrix from Rust."""
+    residuals: list[float]
+    residual_jacobian: list[list[float]]
 
 
 def load_contact_metadata(

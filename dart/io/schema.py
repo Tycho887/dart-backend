@@ -50,32 +50,32 @@ class Observation:
     range_km: float | None = None
 
 
-@dataclass(frozen=True)
-class Tle:
-    """Two-line element set as plain strings (never parsed at the boundary)."""
+# @dataclass(frozen=True)
+# class Tle:
+#     """Two-line element set as plain strings (never parsed at the boundary)."""
 
-    line1: str
-    line2: str
+#     line1: str
+#     line2: str
+
+# This should be defined in 
+# @dataclass(frozen=True)
+# class ForceModel:
+#     """RK89 (cislunar) force model selection. ``gravity_deg`` is the central
+#     body harmonic cutoff: 0 = point mass, 4 = zonal/tesseral up to degree 4."""
+
+#     gravity_deg: int = 4
+#     third_body: bool = True  # Sun + Moon point masses
+#     srp: bool = False
+#     step_s: float = 60.0  # initial integrator step
 
 
-@dataclass(frozen=True)
-class ForceModel:
-    """RK89 (cislunar) force model selection. ``gravity_deg`` is the central
-    body harmonic cutoff: 0 = point mass, 4 = zonal/tesseral up to degree 4."""
+# @dataclass(frozen=True)
+# class SolverOptions:
+#     """Numeric control for the least-squares fit, shared by both modes."""
 
-    gravity_deg: int = 4
-    third_body: bool = True  # Sun + Moon point masses
-    srp: bool = False
-    step_s: float = 60.0  # initial integrator step
-
-
-@dataclass(frozen=True)
-class SolverOptions:
-    """Numeric control for the least-squares fit, shared by both modes."""
-
-    max_iterations: int = 10
-    tolerance: float = 1e-8
-    ref_frame: str = "TEME"  # "TEME" for sgp4, "EME2000" for rk89
+#     max_iterations: int = 10
+#     tolerance: float = 1e-8
+    # ref_frame: str = "TEME"  # "TEME" for sgp4, "EME2000" for rk89
 
 
 @dataclass(frozen=True)
@@ -127,41 +127,41 @@ class Sgp4FitOptions:
     xtol_rel: float = 1e-6
 
 
-@dataclass(frozen=True)
-class Sgp4Input:
-    """LEO batch: a single TLE propagated over station observations.
+# @dataclass(frozen=True)
+# class Sgp4Input:
+#     """LEO batch: a single TLE propagated over station observations.
 
-    ``epoch_unix`` is the reference epoch the fitted state is expressed at
-    (normally the TLE epoch). Propagation itself runs through satkit's SGP4
-    in Rust through satkit; this struct is what the solver consumes.
-    """
+#     ``epoch_unix`` is the reference epoch the fitted state is expressed at
+#     (normally the TLE epoch). Propagation itself runs through satkit's SGP4
+#     in Rust through satkit; this struct is what the solver consumes.
+#     """
 
-    schema_version: int = SCHEMA_VERSION
-    mode: str = "sgp4"
-    spacecraft_id: str = ""
-    epoch_unix: float = 0.0
-    tle: Tle = Tle("", "")
-    stations: list[Station] = field(default_factory=list)
-    observations: list[Observation] = field(default_factory=list)
-    options: SolverOptions = SolverOptions()
-    fit: Sgp4FitOptions = Sgp4FitOptions()
+#     schema_version: int = SCHEMA_VERSION
+#     mode: str = "sgp4"
+#     spacecraft_id: str = ""
+#     epoch_unix: float = 0.0
+#     tle: Tle = Tle("", "")
+#     stations: list[Station] = field(default_factory=list)
+#     observations: list[Observation] = field(default_factory=list)
+#     options: SolverOptions = SolverOptions()
+#     fit: Sgp4FitOptions = Sgp4FitOptions()
 
 
-@dataclass(frozen=True)
-class Rk89Input:
-    """Cislunar batch: initial ECI state (``ref_frame``) integrated with an
-    8(9) adaptive Runge-Kutta over the station observations."""
+# @dataclass(frozen=True)
+# class Rk89Input:
+#     """Cislunar batch: initial ECI state (``ref_frame``) integrated with an
+#     8(9) adaptive Runge-Kutta over the station observations."""
 
-    schema_version: int = SCHEMA_VERSION
-    mode: str = "rk89"
-    spacecraft_id: str = ""
-    epoch_unix: float = 0.0
-    pos_km: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    vel_km_s: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    force_model: ForceModel = ForceModel()
-    stations: list[Station] = field(default_factory=list)
-    observations: list[Observation] = field(default_factory=list)
-    options: SolverOptions = SolverOptions()
+#     schema_version: int = SCHEMA_VERSION
+#     mode: str = "rk89"
+#     spacecraft_id: str = ""
+#     epoch_unix: float = 0.0
+#     pos_km: tuple[float, float, float] = (0.0, 0.0, 0.0)
+#     vel_km_s: tuple[float, float, float] = (0.0, 0.0, 0.0)
+#     force_model: ForceModel = ForceModel()
+#     stations: list[Station] = field(default_factory=list)
+#     observations: list[Observation] = field(default_factory=list)
+#     options: SolverOptions = SolverOptions()
 
 
 @dataclass(frozen=True)

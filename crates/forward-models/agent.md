@@ -15,7 +15,7 @@ The engine provides a dual-mode API for orbit determination and trajectory analy
 
 * **Target Layout**: Entire implementation consolidated within a single file (`src/lib.rs` or `src/estimation.rs`).
 * **Active Measurement Model**: **Doppler shift** only (with pass-specific bias estimation).
-* **Deferred Models**: `TrueRange`, `PseudorangePhase`, and `PseudorangeCode` must remain marked with `todo!()`.
+* **Deferred Models**: `TrueRange`, `PseudorangePhase` must remain marked with `todo!()`.
 * **Execution Sequence**: Complete **Phase 1 (Rust Unit Tests)** and ensure compilation before filling model bodies.
 
 ---
@@ -84,7 +84,7 @@ Before completing the production algorithms, write the Rust test module (`#[cfg(
 2. **Doppler Sign and Magnitude**: Verify that positive range-rate (receding satellite) produces a negative Doppler shift frequency offset.
 3. **Chain Rule Verification**: Ensure that multiplying a known $1 \times 6$ sensitivity vector by a known $6 \times 6$ identity or scaled transition matrix produces the exact projected row.
 4. **Dimension Assertions on Batch Evaluation**: Verify that $N$ measurements and $P$ pass parameters generate a residual vector of size $N$ and a Jacobian matrix of size $N \times (6 + P)$.
-5. **Deferred Measurement Panics**: Ensure that calling `evaluate_local_sensor` with `MeasurementKind::TrueRange`, `PseudorangePhase`, or `PseudorangeCode` panics with an explicit `todo!()` message.
+5. **Deferred Measurement Panics**: Ensure that calling `evaluate_local_sensor` with `MeasurementKind::TrueRange`, `PseudorangePhase` panics with an explicit `todo!()` message.
 
 ### Phase 2: Core Data Structures
 
@@ -114,7 +114,6 @@ pub enum MeasurementKind {
     Doppler,
     TrueRange,
     PseudorangePhase,
-    PseudorangeCode,
 }
 
 #[derive(Clone, Debug)]

@@ -10,9 +10,9 @@
 //!   STMs, and local measurement sensitivities `H_k` for sequential estimators
 //!   (EKF/UKF/RTS) and MPC.
 //! - **Batch** ([`EstimationEngine::batch_evaluate`], [`hifi_evaluate`],
-//!   [`lofi_evaluate`], [`evaluate_objective`]): stacked residuals and epoch
-//!   Jacobians `J_k = H_k · Phi(t_k, t_0)` for non-linear least squares
-//!   (e.g. SciPy `least_squares`).
+//!   [`lofi_evaluate`], [`evaluate_objective`]): stacked, whitened
+//!   predicted-minus-observed residuals and their Jacobians for non-linear
+//!   least squares (e.g. SciPy `least_squares`).
 //!
 //! Internal units are SI throughout (meters, m/s, Hz) to match `satkit`.
 //!
@@ -21,12 +21,36 @@
 
 use numeris::{DynMatrix, DynVector, Matrix, Vector3, Vector6};
 use satkit::frametransform::{itrf_to_gcrf_state, transform_state};
-use satkit::orbitprop::{propagate, CovState, PropSettings};
-use satkit::sgp4::{sgp4, SGP4Error};
+use satkit::orbitprop::{CovState, PropSettings, propagate};
+use satkit::sgp4::{GravConst, OpsMode, SGP4Error, sgp4_full};
 use satkit::{Frame, ITRFCoord, Instant, TLE};
+use std::fmt;
 
-/// Result alias for the fallible propagation/FFI-facing entry points.
-pub type FmResult<T> = Result<T, Box<dyn std::error::Error>>;
+/// Errors returned by validated forward-model entry points.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ForwardModelError {
+    InvalidInput(String),
+    InvalidTrajectory(String),
+    Propagation(String),
+    LinearAlgebra(String),
+}
+
+impl fmt::Display for ForwardModelError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (kind, message) = match self {
+            Self::InvalidInput(message) => ("invalid input", message),
+            Self::InvalidTrajectory(message) => ("invalid trajectory", message),
+            Self::Propagation(message) => ("propagation failed", message),
+            Self::LinearAlgebra(message) => ("linear algebra failed", message),
+        };
+        write!(f, "{kind}: {message}")
+    }
+}
+
+impl std::error::Error for ForwardModelError {}
+
+/// Result alias for fallible numerical and FFI-facing entry points.
+pub type FmResult<T> = Result<T, ForwardModelError>;
 
 // ---------------------------------------------------------------------------
 // Core data structures (standard wire-facing layout)
@@ -54,49 +78,66 @@ pub struct TrajectoryArc {
 }
 
 impl TrajectoryArc {
-    /// Interpolates state and epoch STM at an arbitrary observation timestamp.
+    /// Returns the state and epoch STM at an exact trajectory node.
     ///
-    /// Queries outside the arc are clamped to the boundary node. Between nodes
-    /// both state and `phi_epoch` are linearly interpolated.
-    ///
-    /// TODO(accuracy): Hermite cubic state interpolation using velocity; STM
-    /// interpolation is not physically exact for large node spacing.
-    pub fn evaluate_at(&self, time: &Instant) -> (DynVector<f64>, DynMatrix<f64>) {
-        assert!(!self.steps.is_empty(), "cannot evaluate an empty TrajectoryArc");
-
-        let last = self.steps.len() - 1;
-        if *time <= self.steps[0].time {
-            return (
-                self.steps[0].state.clone(),
-                self.steps[0].phi_epoch.clone(),
-            );
-        }
-        if *time >= self.steps[last].time {
-            return (
-                self.steps[last].state.clone(),
-                self.steps[last].phi_epoch.clone(),
-            );
-        }
-
-        // First node index strictly after `time`; interval is (upper-1, upper).
-        let upper = self.steps.partition_point(|s| s.time <= *time);
-        let (a, b) = (&self.steps[upper - 1], &self.steps[upper]);
-        let f = (*time - a.time).as_seconds() / (b.time - a.time).as_seconds();
-
-        let n = a.state.len();
-        let mut state = DynVector::<f64>::zeros(n);
-        for i in 0..n {
-            state[i] = a.state[i] + f * (b.state[i] - a.state[i]);
-        }
-
-        let mut phi = DynMatrix::<f64>::zeros(6, 6);
-        for r in 0..6 {
-            for c in 0..6 {
-                phi[(r, c)] = a.phi_epoch[(r, c)] + f * (b.phi_epoch[(r, c)] - a.phi_epoch[(r, c)]);
-            }
-        }
-        (state, phi)
+    /// Interpolation and extrapolation are deliberately rejected: interpolating
+    /// an STM element-by-element does not preserve its dynamics.
+    pub fn evaluate_at(&self, time: &Instant) -> FmResult<(DynVector<f64>, DynMatrix<f64>)> {
+        self.validate()?;
+        self.evaluate_exact(time)
     }
+
+    fn validate(&self) -> FmResult<()> {
+        if self.steps.is_empty() {
+            return Err(ForwardModelError::InvalidTrajectory(
+                "trajectory contains no nodes".to_string(),
+            ));
+        }
+        for (index, step) in self.steps.iter().enumerate() {
+            if step.time < self.epoch {
+                return Err(ForwardModelError::InvalidTrajectory(format!(
+                    "node {index} precedes the trajectory epoch"
+                )));
+            }
+            if index > 0 && step.time <= self.steps[index - 1].time {
+                return Err(ForwardModelError::InvalidTrajectory(format!(
+                    "node times are not strictly increasing at index {index}"
+                )));
+            }
+            if step.state.len() != 6 || !step.state.as_slice().iter().all(|v| v.is_finite()) {
+                return Err(ForwardModelError::InvalidTrajectory(format!(
+                    "node {index} state must contain six finite values"
+                )));
+            }
+            validate_stm(&step.phi_step, index, "phi_step")?;
+            validate_stm(&step.phi_epoch, index, "phi_epoch")?;
+        }
+        Ok(())
+    }
+
+    fn evaluate_exact(&self, time: &Instant) -> FmResult<(DynVector<f64>, DynMatrix<f64>)> {
+        match self.steps.binary_search_by_key(time, |step| step.time) {
+            Ok(index) => Ok((
+                self.steps[index].state.clone(),
+                self.steps[index].phi_epoch.clone(),
+            )),
+            Err(_) => Err(ForwardModelError::InvalidTrajectory(format!(
+                "no trajectory node at {time}"
+            ))),
+        }
+    }
+}
+
+fn validate_stm(matrix: &DynMatrix<f64>, index: usize, name: &str) -> FmResult<()> {
+    if matrix.nrows() != 6
+        || matrix.ncols() != 6
+        || !matrix.as_slice().iter().all(|v| v.is_finite())
+    {
+        return Err(ForwardModelError::InvalidTrajectory(format!(
+            "node {index} {name} must be a finite 6x6 matrix"
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,7 +145,6 @@ pub enum MeasurementKind {
     Doppler,
     TrueRange,
     PseudorangePhase,
-    PseudorangeCode,
 }
 
 /// Generic container for an incoming observation.
@@ -114,7 +154,7 @@ pub struct ObservationRecord {
     pub kind: MeasurementKind,
     /// Measured values (1D for Doppler/Range, multi-D for angular/dual-frequency).
     pub observed: DynVector<f64>,
-    /// Measurement noise covariance or standard deviation weights (R matrix).
+    /// Measurement covariance R in squared native units.
     pub noise_cov: DynMatrix<f64>,
     /// Station or receiver identifier: index into `EstimationEngine::receivers`.
     pub receiver_id: u32,
@@ -126,7 +166,7 @@ pub struct ObservationRecord {
 #[derive(Clone, Debug)]
 pub struct StepObservationEval {
     pub time: Instant,
-    /// Residual: y_k - h(x_k).
+    /// Raw residual in native units: h(x_k) - y_k.
     pub residual: DynVector<f64>,
     /// Predicted observation: h(x_k).
     pub predicted: DynVector<f64>,
@@ -139,14 +179,10 @@ pub struct StepObservationEval {
 /// Monolithic output format optimized for PyO3 / NumPy consumption.
 #[derive(Clone, Debug)]
 pub struct BatchEvaluationResult {
-    /// Concatenated residual vector: [r_0; r_1; ...; r_N].
+    /// Cholesky-whitened residual vector, with raw residual h(x) - y.
     pub residuals: DynVector<f64>,
-    /// Full stacked epoch Jacobian: J = [H_0·Phi(t_0,t_0); ...; H_N·Phi(t_N,t_0)].
-    pub jacobian: DynMatrix<f64>,
-    /// Diagonal measurement weights (W = R^-1). Currently always `None`.
-    ///
-    /// TODO(weights): derive from `ObservationRecord::noise_cov`.
-    pub weights: Option<DynVector<f64>>,
+    /// Cholesky-whitened derivative of `residuals` with respect to parameters.
+    pub residual_jacobian: DynMatrix<f64>,
 }
 
 impl BatchEvaluationResult {
@@ -155,7 +191,7 @@ impl BatchEvaluationResult {
     /// The Jacobian slice is **column-major** (numeris `DynMatrix` layout);
     /// on the NumPy side use `np.asarray(s).reshape((n, m), order="F")`.
     pub fn as_slices(&self) -> (&[f64], &[f64]) {
-        (self.residuals.as_slice(), self.jacobian.as_slice())
+        (self.residuals.as_slice(), self.residual_jacobian.as_slice())
     }
 }
 
@@ -234,65 +270,88 @@ impl EstimationEngine {
         &self,
         trajectory: &TrajectoryArc,
         observations: &[ObservationRecord],
-    ) -> Vec<StepObservationEval> {
+    ) -> FmResult<Vec<StepObservationEval>> {
+        self.validate()?;
+        trajectory.validate()?;
         let mut evaluations = Vec::with_capacity(observations.len());
-        for obs in observations {
-            let (state_k, _phi_epoch) = trajectory.evaluate_at(&obs.time);
-            evaluations.push(self.evaluate_local_sensor(&state_k, obs));
+        for (index, obs) in observations.iter().enumerate() {
+            self.validate_observation(obs, index)?;
+            let (state_k, _phi_epoch) = trajectory.evaluate_exact(&obs.time)?;
+            evaluations.push(self.evaluate_local_sensor(&state_k, obs)?);
         }
-        evaluations
+        Ok(evaluations)
     }
 
-    /// Batch pipeline: assembles the multi-time epoch Jacobian via the chain
-    /// rule J_k = [ H_k·Phi(t_k, t_0) | dh/dp ] with columns [x(t_0) (6) |
-    /// pass biases (P)].
+    /// Batch pipeline returning whitened residuals and their Jacobian.
     ///
-    /// Residuals are evaluated at the nominal parameters; callers folding in
-    /// parameter offsets (e.g. pass biases) adjust rows afterwards — see
-    /// [`hifi_evaluate`].
+    /// Raw residuals use `h(x_k) + b_pass - y_k`; each observation block and
+    /// its Jacobian are premultiplied by the inverse Cholesky factor of its
+    /// covariance.
     pub fn batch_evaluate(
         &self,
         trajectory: &TrajectoryArc,
         observations: &[ObservationRecord],
-    ) -> BatchEvaluationResult {
+        pass_biases: &[f64],
+    ) -> FmResult<BatchEvaluationResult> {
+        self.validate()?;
+        trajectory.validate()?;
+        if pass_biases.len() != self.num_passes || !pass_biases.iter().all(|v| v.is_finite()) {
+            return Err(ForwardModelError::InvalidInput(format!(
+                "expected {} finite pass biases, got {}",
+                self.num_passes,
+                pass_biases.len()
+            )));
+        }
+
         let num_cols = 6 + self.num_passes;
         let total_rows: usize = observations.iter().map(|o| o.observed.len()).sum();
         let mut residuals = DynVector::<f64>::zeros(total_rows);
-        let mut jacobian = DynMatrix::<f64>::zeros(total_rows, num_cols);
+        let mut residual_jacobian = DynMatrix::<f64>::zeros(total_rows, num_cols);
 
         let mut row0 = 0;
-        for obs in observations {
-            let (state_k, phi_epoch) = trajectory.evaluate_at(&obs.time);
-            let eval = self.evaluate_local_sensor(&state_k, obs);
+        for (index, obs) in observations.iter().enumerate() {
+            self.validate_observation(obs, index)?;
+            let (state_k, phi_epoch) = trajectory.evaluate_exact(&obs.time)?;
+            let eval = self.evaluate_local_sensor(&state_k, obs)?;
             let m_dim = eval.residual.len();
-
-            for r in 0..m_dim {
-                residuals[row0 + r] = eval.residual[r];
-            }
-
             let j_state = &eval.h_state * &phi_epoch;
+            let mut raw_residual = eval.residual;
+            let mut raw_jacobian = DynMatrix::<f64>::zeros(m_dim, num_cols);
+
             for r in 0..m_dim {
                 for c in 0..6 {
-                    jacobian[(row0 + r, c)] = j_state[(r, c)];
+                    raw_jacobian[(r, c)] = j_state[(r, c)];
                 }
             }
 
             if let Some(h_p) = &eval.h_params {
                 for r in 0..m_dim {
                     for c in 0..self.num_passes {
-                        jacobian[(row0 + r, 6 + c)] = h_p[(r, c)];
+                        raw_residual[r] += h_p[(r, c)] * pass_biases[c];
+                    }
+                }
+                for r in 0..m_dim {
+                    for c in 0..self.num_passes {
+                        raw_jacobian[(r, 6 + c)] = h_p[(r, c)];
                     }
                 }
             }
 
+            let (whitened_residual, whitened_jacobian) =
+                whiten_block(&raw_residual, &raw_jacobian, &obs.noise_cov)?;
+            for r in 0..m_dim {
+                residuals[row0 + r] = whitened_residual[r];
+                for c in 0..num_cols {
+                    residual_jacobian[(row0 + r, c)] = whitened_jacobian[(r, c)];
+                }
+            }
             row0 += m_dim;
         }
 
-        BatchEvaluationResult {
+        Ok(BatchEvaluationResult {
             residuals,
-            jacobian,
-            weights: None,
-        }
+            residual_jacobian,
+        })
     }
 
     /// Local measurement model dispatch at a single epoch.
@@ -300,7 +359,10 @@ impl EstimationEngine {
         &self,
         state: &DynVector<f64>,
         obs: &ObservationRecord,
-    ) -> StepObservationEval {
+    ) -> FmResult<StepObservationEval> {
+        self.validate()?;
+        self.validate_observation(obs, 0)?;
+        validate_state(state)?;
         match obs.kind {
             MeasurementKind::Doppler => self.evaluate_doppler(state, obs),
             kind => todo!("MeasurementKind::{kind:?} not yet implemented"),
@@ -309,11 +371,30 @@ impl EstimationEngine {
 
     /// Doppler measurement model: h(x) = -fc/c * rho_dot (+ pass bias,
     /// represented through `h_params` rather than in the predicted value).
-    fn evaluate_doppler(&self, state: &DynVector<f64>, obs: &ObservationRecord) -> StepObservationEval {
-        let station = &self.receivers[obs.receiver_id as usize];
+    fn evaluate_doppler(
+        &self,
+        state: &DynVector<f64>,
+        obs: &ObservationRecord,
+    ) -> FmResult<StepObservationEval> {
+        let station = self
+            .receivers
+            .get(obs.receiver_id as usize)
+            .ok_or_else(|| {
+                ForwardModelError::InvalidInput(format!(
+                    "receiver index {} is out of range",
+                    obs.receiver_id
+                ))
+            })?;
         let (pos_stn, vel_stn) = station_gcrf_state(station, &obs.time);
         let pos_sat = Vector3::from_array([state[0], state[1], state[2]]);
         let vel_sat = Vector3::from_array([state[3], state[4], state[5]]);
+
+        let range = (pos_sat - pos_stn).norm();
+        if !range.is_finite() || range <= 0.0 {
+            return Err(ForwardModelError::InvalidInput(
+                "satellite and receiver geometry has zero or invalid range".to_string(),
+            ));
+        }
 
         let rr = range_rate(&pos_stn, &vel_stn, &pos_sat, &vel_sat);
         let predicted = doppler_shift(rr, self.center_frequency);
@@ -334,14 +415,132 @@ impl EstimationEngine {
             }
         };
 
-        StepObservationEval {
+        Ok(StepObservationEval {
             time: obs.time,
-            residual: DynVector::from_vec(vec![obs.observed[0] - predicted]),
+            residual: DynVector::from_vec(vec![predicted - obs.observed[0]]),
             predicted: DynVector::from_vec(vec![predicted]),
             h_state,
             h_params,
+        })
+    }
+
+    fn validate(&self) -> FmResult<()> {
+        if !self.center_frequency.is_finite() || self.center_frequency <= 0.0 {
+            return Err(ForwardModelError::InvalidInput(
+                "center frequency must be finite and positive".to_string(),
+            ));
+        }
+        if self.receivers.iter().any(|receiver| {
+            !receiver
+                .itrf
+                .as_slice()
+                .iter()
+                .all(|value| value.is_finite())
+        }) {
+            return Err(ForwardModelError::InvalidInput(
+                "receiver coordinates must be finite".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_observation(&self, obs: &ObservationRecord, index: usize) -> FmResult<()> {
+        if obs.kind == MeasurementKind::Doppler && obs.observed.len() != 1 {
+            return Err(ForwardModelError::InvalidInput(format!(
+                "observation {index} Doppler value must be scalar"
+            )));
+        }
+        if !obs.observed.as_slice().iter().all(|v| v.is_finite()) {
+            return Err(ForwardModelError::InvalidInput(format!(
+                "observation {index} contains a non-finite value"
+            )));
+        }
+        if obs.receiver_id as usize >= self.receivers.len() {
+            return Err(ForwardModelError::InvalidInput(format!(
+                "observation {index} receiver index {} is out of range",
+                obs.receiver_id
+            )));
+        }
+        if self.num_passes > 0 && obs.pass_index >= self.num_passes {
+            return Err(ForwardModelError::InvalidInput(format!(
+                "observation {index} pass index {} is out of range",
+                obs.pass_index
+            )));
+        }
+        validate_covariance(&obs.noise_cov, obs.observed.len(), index)
+    }
+}
+
+fn validate_state(state: &DynVector<f64>) -> FmResult<()> {
+    if state.len() != 6 || !state.as_slice().iter().all(|v| v.is_finite()) {
+        return Err(ForwardModelError::InvalidInput(
+            "state must contain six finite values".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_covariance(covariance: &DynMatrix<f64>, size: usize, index: usize) -> FmResult<()> {
+    if covariance.nrows() != size || covariance.ncols() != size {
+        return Err(ForwardModelError::InvalidInput(format!(
+            "observation {index} covariance must be {size}x{size}"
+        )));
+    }
+    if !covariance.as_slice().iter().all(|v| v.is_finite()) {
+        return Err(ForwardModelError::InvalidInput(format!(
+            "observation {index} covariance contains a non-finite value"
+        )));
+    }
+    for row in 0..size {
+        for column in 0..row {
+            let a = covariance[(row, column)];
+            let b = covariance[(column, row)];
+            let tolerance = 1e-12 * a.abs().max(b.abs()).max(1.0);
+            if (a - b).abs() > tolerance {
+                return Err(ForwardModelError::InvalidInput(format!(
+                    "observation {index} covariance is not symmetric"
+                )));
+            }
         }
     }
+    covariance.cholesky().map_err(|error| {
+        ForwardModelError::LinearAlgebra(format!(
+            "observation {index} covariance is not positive definite: {error:?}"
+        ))
+    })?;
+    Ok(())
+}
+
+fn whiten_block(
+    residual: &DynVector<f64>,
+    jacobian: &DynMatrix<f64>,
+    covariance: &DynMatrix<f64>,
+) -> FmResult<(DynVector<f64>, DynMatrix<f64>)> {
+    let factor = covariance.cholesky().map_err(|error| {
+        ForwardModelError::LinearAlgebra(format!("covariance factorization failed: {error:?}"))
+    })?;
+    let lower = factor.l();
+    let rows = residual.len();
+    let mut whitened_residual = DynVector::<f64>::zeros(rows);
+    let mut whitened_jacobian = DynMatrix::<f64>::zeros(rows, jacobian.ncols());
+
+    for row in 0..rows {
+        let mut value = residual[row];
+        for previous in 0..row {
+            value -= lower[(row, previous)] * whitened_residual[previous];
+        }
+        whitened_residual[row] = value / lower[(row, row)];
+    }
+    for column in 0..jacobian.ncols() {
+        for row in 0..rows {
+            let mut value = jacobian[(row, column)];
+            for previous in 0..row {
+                value -= lower[(row, previous)] * whitened_jacobian[(previous, column)];
+            }
+            whitened_jacobian[(row, column)] = value / lower[(row, row)];
+        }
+    }
+    Ok((whitened_residual, whitened_jacobian))
 }
 
 // ---------------------------------------------------------------------------
@@ -351,14 +550,34 @@ impl EstimationEngine {
 /// Propagates `state0` (meters, m/s GCRF) from `epoch` with the high-fidelity
 /// force model, sampling state + epoch STM at `node_times` (ascending).
 ///
-/// `phi_step[k]` is reconstructed as Phi(t_k,t_0) · Phi(t_{k-1},t_0)^{-1}.
+/// The first `phi_step` maps from `epoch` to the first node. Later steps are
+/// reconstructed as Phi(t_k,t_0) · Phi(t_{k-1},t_0)^{-1}.
 pub fn propagate_arc(
     state0: &Vector6<f64>,
     epoch: &Instant,
     node_times: &[Instant],
     settings: &PropSettings,
 ) -> FmResult<TrajectoryArc> {
-    let t_end = node_times.last().ok_or("propagate_arc: empty node list")?;
+    let t_end = node_times.last().ok_or_else(|| {
+        ForwardModelError::InvalidInput("propagate_arc requires at least one node".to_string())
+    })?;
+    if !state0.as_slice().iter().all(|value| value.is_finite()) {
+        return Err(ForwardModelError::InvalidInput(
+            "initial state must contain finite values".to_string(),
+        ));
+    }
+    for (index, time) in node_times.iter().enumerate() {
+        if *time < *epoch {
+            return Err(ForwardModelError::InvalidInput(format!(
+                "propagation node {index} precedes the epoch"
+            )));
+        }
+        if index > 0 && *time <= node_times[index - 1] {
+            return Err(ForwardModelError::InvalidInput(format!(
+                "propagation nodes are not strictly increasing at index {index}"
+            )));
+        }
+    }
 
     // CovState layout: column 0 = state, columns 1..7 = 6x6 STM w.r.t. epoch.
     let mut cov_state = CovState::zeros();
@@ -367,8 +586,15 @@ pub fn propagate_arc(
     }
     cov_state.set_block(0, 1, &Matrix::<f64, 6, 6>::eye());
 
-    let result = propagate(&cov_state, epoch, t_end, settings, None)?;
-    let samples = result.interp_batch(node_times)?;
+    let samples = if *t_end == *epoch {
+        vec![cov_state]
+    } else {
+        let result = propagate(&cov_state, epoch, t_end, settings, None)
+            .map_err(|error| ForwardModelError::Propagation(error.to_string()))?;
+        result
+            .interp_batch(node_times)
+            .map_err(|error| ForwardModelError::Propagation(error.to_string()))?
+    };
 
     let mut steps = Vec::with_capacity(samples.len());
     let mut prev_phi: Option<DynMatrix<f64>> = None;
@@ -376,8 +602,13 @@ pub fn propagate_arc(
         let state = DynVector::from_vec((0..6).map(|r| s[(r, 0)]).collect());
         let phi_epoch = DynMatrix::from_fn(6, 6, |r, c| s[(r, c + 1)]);
         let phi_step = match &prev_phi {
-            None => DynMatrix::<f64>::eye(6),
-            Some(prev) => &phi_epoch * &prev.inverse().map_err(|e| format!("STM inverse failed: {e:?}"))?,
+            None => phi_epoch.clone(),
+            Some(prev) => {
+                let inverse = prev.inverse().map_err(|error| {
+                    ForwardModelError::LinearAlgebra(format!("STM inverse failed: {error:?}"))
+                })?;
+                &phi_epoch * &inverse
+            }
         };
         prev_phi = Some(phi_epoch.clone());
         steps.push(TrajectoryStep {
@@ -388,17 +619,19 @@ pub fn propagate_arc(
         });
     }
 
-    Ok(TrajectoryArc {
+    let arc = TrajectoryArc {
         epoch: *epoch,
         steps,
-    })
+    };
+    arc.validate()?;
+    Ok(arc)
 }
 
 /// High-fidelity batch objective over Doppler observations.
 ///
 /// `x` is the estimation vector [epoch-state correction (6, m + m/s) | pass
-/// biases (P, Hz)] applied on top of `nominal0`; `observations` must be
-/// sorted ascending by time (one arc node per observation).
+/// biases (P, Hz)] applied on top of `nominal0`. Observation order and repeated
+/// epochs are preserved; propagation nodes are sorted and deduplicated.
 ///
 /// TODO(params): support estimating force-model parameters (Cd, Cr) through
 /// an augmented STM rather than epoch state only.
@@ -410,9 +643,24 @@ pub fn hifi_evaluate(
     observations: &[ObservationRecord],
     settings: &PropSettings,
 ) -> FmResult<BatchEvaluationResult> {
+    engine.validate()?;
     let expected = 6 + engine.num_passes;
     if x.len() != expected {
-        return Err(format!("parameter vector length {} != 6 + {} passes", x.len(), engine.num_passes).into());
+        return Err(ForwardModelError::InvalidInput(format!(
+            "parameter vector length {} != 6 + {} passes",
+            x.len(),
+            engine.num_passes
+        )));
+    }
+    if !x.iter().all(|value| value.is_finite())
+        || !nominal0.as_slice().iter().all(|value| value.is_finite())
+    {
+        return Err(ForwardModelError::InvalidInput(
+            "state and parameter values must be finite".to_string(),
+        ));
+    }
+    for (index, observation) in observations.iter().enumerate() {
+        engine.validate_observation(observation, index)?;
     }
 
     let mut state0 = *nominal0;
@@ -420,15 +668,11 @@ pub fn hifi_evaluate(
         state0[r] += x[r];
     }
 
-    let times: Vec<Instant> = observations.iter().map(|o| o.time).collect();
+    let mut times: Vec<Instant> = observations.iter().map(|o| o.time).collect();
+    times.sort();
+    times.dedup();
     let arc = propagate_arc(&state0, epoch, &times, settings)?;
-    let mut result = engine.batch_evaluate(&arc, observations);
-
-    // Fold pass biases into the residuals: r_k = y_k - (h(x_k) + b_pass).
-    for (i, obs) in observations.iter().enumerate() {
-        result.residuals[i] -= x[6 + obs.pass_index];
-    }
-    Ok(result)
+    engine.batch_evaluate(&arc, observations, &x[6..])
 }
 
 // ---------------------------------------------------------------------------
@@ -461,18 +705,29 @@ const FD_REL_STEP: f64 = 1e-6;
 
 /// SGP4 propagation to GCRF Cartesian states (meters, m/s) at `times`.
 pub fn propagate_sgp4_gcrf(tle: &TLE, times: &[Instant]) -> FmResult<Vec<Vector6<f64>>> {
-    let mut tle = tle.clone();
-    let out = sgp4(&mut tle, times)?;
+    let mut fresh_tle = tle_with_offset(tle, &[0.0; SGP4_PARAMS.len()])?;
+    let out = sgp4_full(&mut fresh_tle, times, GravConst::WGS72, OpsMode::IMPROVED)
+        .map_err(|error| ForwardModelError::Propagation(error.to_string()))?;
 
     let mut states = Vec::with_capacity(times.len());
     for (k, t) in times.iter().enumerate() {
         if out.errcode[k] != SGP4Error::SGP4Success {
-            return Err(format!("SGP4 error at node {k}: {}", out.errcode[k]).into());
+            return Err(ForwardModelError::Propagation(format!(
+                "SGP4 error at node {k}: {}",
+                out.errcode[k]
+            )));
         }
         let pos_teme = Vector3::from_array([out.pos[(0, k)], out.pos[(1, k)], out.pos[(2, k)]]);
         let vel_teme = Vector3::from_array([out.vel[(0, k)], out.vel[(1, k)], out.vel[(2, k)]]);
-        let (pos, vel) = transform_state(Frame::TEME, Frame::GCRF, t, &pos_teme, &vel_teme)?;
-        states.push(Vector6::from_array([pos[0], pos[1], pos[2], vel[0], vel[1], vel[2]]));
+        let (pos, vel) = transform_state(Frame::TEME, Frame::GCRF, t, &pos_teme, &vel_teme)
+            .map_err(|error| ForwardModelError::Propagation(error.to_string()))?;
+        let state = Vector6::from_array([pos[0], pos[1], pos[2], vel[0], vel[1], vel[2]]);
+        if !state.as_slice().iter().all(|value| value.is_finite()) {
+            return Err(ForwardModelError::Propagation(format!(
+                "SGP4 produced a non-finite state at node {k}"
+            )));
+        }
+        states.push(state);
     }
     Ok(states)
 }
@@ -483,7 +738,14 @@ pub fn propagate_sgp4_gcrf(tle: &TLE, times: &[Instant]) -> FmResult<Vec<Vector6
 /// `TLE` caches its SGP4 `SatRec` in a `pub(crate)` field, and mutating the
 /// public element fields does not invalidate it. Copying the public fields
 /// into a fresh `TLE` leaves the cache empty, so offsets actually take effect.
-fn tle_with_offset(base: &TLE, offsets: &[f64]) -> TLE {
+fn tle_with_offset(base: &TLE, offsets: &[f64]) -> FmResult<TLE> {
+    if offsets.len() != SGP4_PARAMS.len() || !offsets.iter().all(|value| value.is_finite()) {
+        return Err(ForwardModelError::InvalidInput(format!(
+            "expected {} finite SGP4 offsets, got {}",
+            SGP4_PARAMS.len(),
+            offsets.len()
+        )));
+    }
     let mut tle = TLE::new();
     tle.name = base.name.clone();
     tle.intl_desig = base.intl_desig.clone();
@@ -504,7 +766,40 @@ fn tle_with_offset(base: &TLE, offsets: &[f64]) -> TLE {
     tle.mean_anomaly = base.mean_anomaly + offsets[1];
     tle.mean_motion = base.mean_motion + offsets[0];
     tle.rev_num = base.rev_num;
-    tle
+    let remaining_elements = [
+        tle.mean_motion_dot,
+        tle.mean_motion_dot_dot,
+        tle.inclination,
+        tle.raan,
+        tle.eccen,
+        tle.arg_of_perigee,
+    ];
+    if !remaining_elements.iter().all(|value| value.is_finite()) {
+        return Err(ForwardModelError::InvalidInput(
+            "TLE elements must be finite".to_string(),
+        ));
+    }
+    if !tle.mean_motion.is_finite() || tle.mean_motion <= 0.0 {
+        return Err(ForwardModelError::InvalidInput(
+            "corrected TLE mean motion must be finite and positive".to_string(),
+        ));
+    }
+    if !tle.mean_anomaly.is_finite() || !tle.bstar.is_finite() {
+        return Err(ForwardModelError::InvalidInput(
+            "corrected TLE elements must be finite".to_string(),
+        ));
+    }
+    if !(0.0..1.0).contains(&tle.eccen) {
+        return Err(ForwardModelError::InvalidInput(
+            "TLE eccentricity must be in [0, 1)".to_string(),
+        ));
+    }
+    if !(0.0..=180.0).contains(&tle.inclination) {
+        return Err(ForwardModelError::InvalidInput(
+            "TLE inclination must be in [0, 180] degrees".to_string(),
+        ));
+    }
+    Ok(tle)
 }
 
 fn fd_step(value: f64, scale: f64) -> f64 {
@@ -514,25 +809,53 @@ fn fd_step(value: f64, scale: f64) -> f64 {
 /// 6xM state transition matrix of the SGP4-mapped Cartesian state w.r.t. the
 /// parameter offsets `x` (SGP4_PARAMS order), via central finite differencing.
 pub fn compute_sgp4_stm(base: &TLE, time: &Instant, x: &[f64]) -> FmResult<DynMatrix<f64>> {
-    let m = x.len();
-    let times = [*time];
-    let mut phi = DynMatrix::<f64>::zeros(6, m);
-    for j in 0..m {
-        let h = fd_step(x[j], SGP4_PARAM_SCALES[j]);
-        let (mut xp, mut xm) = (x.to_vec(), x.to_vec());
-        xp[j] += h;
-        xm[j] -= h;
-        let s_plus = propagate_sgp4_gcrf(&tle_with_offset(base, &xp), &times)?[0];
-        let s_minus = propagate_sgp4_gcrf(&tle_with_offset(base, &xm), &times)?[0];
-        for r in 0..6 {
-            phi[(r, j)] = (s_plus[r] - s_minus[r]) / (2.0 * h);
-        }
-    }
-    Ok(phi)
+    let propagation = sgp4_states_and_sensitivities(base, &[*time], x)?;
+    Ok(propagation.sensitivities[0].clone())
 }
 
-/// SGP4 batch objective for Doppler residuals, FFI-ready for SciPy
-/// `least_squares`: returns (residuals[N], jacobian row-major flat [N*M]).
+struct Sgp4Propagation {
+    states: Vec<Vector6<f64>>,
+    sensitivities: Vec<DynMatrix<f64>>,
+}
+
+fn sgp4_states_and_sensitivities(
+    base: &TLE,
+    times: &[Instant],
+    offsets: &[f64],
+) -> FmResult<Sgp4Propagation> {
+    let corrected = tle_with_offset(base, offsets)?;
+    let states = propagate_sgp4_gcrf(&corrected, times)?;
+    let parameter_values = [
+        corrected.mean_motion,
+        corrected.mean_anomaly,
+        corrected.bstar,
+    ];
+    let mut sensitivities = (0..times.len())
+        .map(|_| DynMatrix::<f64>::zeros(6, SGP4_PARAMS.len()))
+        .collect::<Vec<_>>();
+
+    for parameter in 0..SGP4_PARAMS.len() {
+        let step = fd_step(parameter_values[parameter], SGP4_PARAM_SCALES[parameter]);
+        let (mut plus_offsets, mut minus_offsets) = (offsets.to_vec(), offsets.to_vec());
+        plus_offsets[parameter] += step;
+        minus_offsets[parameter] -= step;
+        let plus = propagate_sgp4_gcrf(&tle_with_offset(base, &plus_offsets)?, times)?;
+        let minus = propagate_sgp4_gcrf(&tle_with_offset(base, &minus_offsets)?, times)?;
+        for time_index in 0..times.len() {
+            for state_index in 0..6 {
+                sensitivities[time_index][(state_index, parameter)] =
+                    (plus[time_index][state_index] - minus[time_index][state_index]) / (2.0 * step);
+            }
+        }
+    }
+    Ok(Sgp4Propagation {
+        states,
+        sensitivities,
+    })
+}
+
+/// Single-station SGP4 Doppler objective, FFI-ready for SciPy `least_squares`.
+/// Returns predicted-minus-observed residuals and their row-major Jacobian.
 ///
 /// `x` is the parameter offset vector in [`SGP4_PARAMS`] order; the Jacobian
 /// row for measurement k is `-fc/c · H_range_rate(1x6) · Phi_sgp4(6xM, t_k)`,
@@ -549,85 +872,100 @@ pub fn evaluate_objective(
     station: &ITRFCoord,
     center_frequency: f64,
 ) -> FmResult<(Vec<f64>, Vec<f64>)> {
-    let n = times.len();
-    let m = x.len();
-    if doppler_hz.len() != n {
-        return Err(format!("doppler length {} != times length {}", doppler_hz.len(), n).into());
+    if doppler_hz.len() != times.len() {
+        return Err(ForwardModelError::InvalidInput(format!(
+            "doppler length {} != times length {}",
+            doppler_hz.len(),
+            times.len()
+        )));
     }
-    if m != SGP4_PARAMS.len() {
-        return Err(format!("parameter length {m} != {}", SGP4_PARAMS.len()).into());
-    }
-
-    let base_states = propagate_sgp4_gcrf(&tle_with_offset(base_tle, x), times)?;
-
-    // One batched SGP4 call per perturbation side and parameter: 2M total.
-    let mut steps = Vec::with_capacity(m);
-    let mut plus = Vec::with_capacity(m);
-    let mut minus = Vec::with_capacity(m);
-    for j in 0..m {
-        let h = fd_step(x[j], SGP4_PARAM_SCALES[j]);
-        let (mut xp, mut xm) = (x.to_vec(), x.to_vec());
-        xp[j] += h;
-        xm[j] -= h;
-        steps.push(h);
-        plus.push(propagate_sgp4_gcrf(&tle_with_offset(base_tle, &xp), times)?);
-        minus.push(propagate_sgp4_gcrf(&tle_with_offset(base_tle, &xm), times)?);
-    }
-
-    let doppler_scale = -center_frequency / satkit::consts::C;
-    let mut residuals = Vec::with_capacity(n);
-    let mut jacobian = vec![0.0; n * m]; // row-major: numpy.reshape(n, m)
-
-    for k in 0..n {
-        let s = &base_states[k];
-        let pos_sat = Vector3::from_array([s[0], s[1], s[2]]);
-        let vel_sat = Vector3::from_array([s[3], s[4], s[5]]);
-        let (pos_stn, vel_stn) = station_gcrf_state(station, &times[k]);
-
-        let rr = range_rate(&pos_stn, &vel_stn, &pos_sat, &vel_sat);
-        residuals.push(doppler_hz[k] - doppler_shift(rr, center_frequency));
-
-        let h_rr = compute_range_rate_jacobian(&pos_stn, &vel_stn, &pos_sat, &vel_sat);
-        let mut phi = DynMatrix::<f64>::zeros(6, m);
-        for j in 0..m {
-            for r in 0..6 {
-                phi[(r, j)] = (plus[j][k][r] - minus[j][k][r]) / (2.0 * steps[j]);
-            }
-        }
-        // Chain rule: J_row = -fc/c * H_range_rate(1x6) * Phi(6xM)
-        let j_row = (h_rr * doppler_scale) * &phi;
-        for j in 0..m {
-            jacobian[k * m + j] = j_row[(0, j)];
+    let engine = EstimationEngine {
+        receivers: vec![*station],
+        center_frequency,
+        num_passes: 0,
+    };
+    let observations = times
+        .iter()
+        .zip(doppler_hz)
+        .map(|(time, observed)| ObservationRecord {
+            time: *time,
+            kind: MeasurementKind::Doppler,
+            observed: DynVector::from_vec(vec![*observed]),
+            noise_cov: DynMatrix::<f64>::eye(1),
+            receiver_id: 0,
+            pass_index: 0,
+        })
+        .collect::<Vec<_>>();
+    let result = lofi_evaluate(&engine, x, base_tle, &observations)?;
+    let mut row_major = Vec::with_capacity(times.len() * x.len());
+    for row in 0..times.len() {
+        for column in 0..x.len() {
+            row_major.push(result.residual_jacobian[(row, column)]);
         }
     }
-
-    Ok((residuals, jacobian))
+    Ok((result.residuals.as_slice().to_vec(), row_major))
 }
 
-/// Low-fidelity (SGP4) batch evaluation with the same output shape as
-/// [`hifi_evaluate`]. Note the Jacobian columns are the SGP4 parameter
-/// offsets ([`SGP4_PARAMS`] order), not epoch Cartesian state.
+/// Low-fidelity SGP4 batch evaluation.
 ///
-/// TODO(multi-station): currently assumes all observations share one receiver
-/// (that of the first observation); group by `receiver_id` when needed.
+/// `x` contains the three [`SGP4_PARAMS`] offsets followed by one bias in Hz
+/// for each configured pass. Every observation uses its selected receiver.
 pub fn lofi_evaluate(
     engine: &EstimationEngine,
     x: &[f64],
     base_tle: &TLE,
     observations: &[ObservationRecord],
 ) -> FmResult<BatchEvaluationResult> {
-    let first = observations.first().ok_or("lofi_evaluate: no observations")?;
-    let station = &engine.receivers[first.receiver_id as usize];
-    let times: Vec<Instant> = observations.iter().map(|o| o.time).collect();
-    let observed: Vec<f64> = observations.iter().map(|o| o.observed[0]).collect();
+    engine.validate()?;
+    let expected = SGP4_PARAMS.len() + engine.num_passes;
+    if x.len() != expected || !x.iter().all(|value| value.is_finite()) {
+        return Err(ForwardModelError::InvalidInput(format!(
+            "expected {expected} finite low-fidelity parameters, got {}",
+            x.len()
+        )));
+    }
+    if observations.is_empty() {
+        return Err(ForwardModelError::InvalidInput(
+            "lofi_evaluate requires at least one observation".to_string(),
+        ));
+    }
+    for (index, observation) in observations.iter().enumerate() {
+        engine.validate_observation(observation, index)?;
+    }
 
-    let (residuals, jac_flat) =
-        evaluate_objective(x, base_tle, &times, &observed, station, engine.center_frequency)?;
+    let times: Vec<Instant> = observations.iter().map(|o| o.time).collect();
+    let propagation = sgp4_states_and_sensitivities(base_tle, &times, &x[..SGP4_PARAMS.len()])?;
+    let pass_biases = &x[SGP4_PARAMS.len()..];
+    let rows = observations.len();
+    let mut residuals = DynVector::<f64>::zeros(rows);
+    let mut residual_jacobian = DynMatrix::<f64>::zeros(rows, expected);
+
+    for (index, observation) in observations.iter().enumerate() {
+        let state = DynVector::from_vec(propagation.states[index].as_slice().to_vec());
+        let evaluation = engine.evaluate_local_sensor(&state, observation)?;
+        let measurement_sensitivity = &evaluation.h_state * &propagation.sensitivities[index];
+        let mut raw_residual = evaluation.residual;
+        let mut raw_jacobian = DynMatrix::<f64>::zeros(1, expected);
+        for parameter in 0..SGP4_PARAMS.len() {
+            raw_jacobian[(0, parameter)] = measurement_sensitivity[(0, parameter)];
+        }
+        if let Some(h_params) = &evaluation.h_params {
+            for pass in 0..engine.num_passes {
+                raw_residual[0] += h_params[(0, pass)] * pass_biases[pass];
+                raw_jacobian[(0, SGP4_PARAMS.len() + pass)] = h_params[(0, pass)];
+            }
+        }
+        let (whitened_residual, whitened_jacobian) =
+            whiten_block(&raw_residual, &raw_jacobian, &observation.noise_cov)?;
+        residuals[index] = whitened_residual[0];
+        for column in 0..expected {
+            residual_jacobian[(index, column)] = whitened_jacobian[(0, column)];
+        }
+    }
 
     Ok(BatchEvaluationResult {
-        jacobian: DynMatrix::from_rows(residuals.len(), x.len(), &jac_flat),
-        residuals: DynVector::from_vec(residuals),
-        weights: None,
+        residuals,
+        residual_jacobian,
     })
 }
 
@@ -640,6 +978,7 @@ mod tests {
     use super::*;
     use numeris::vector;
     use satkit::Duration;
+    use satkit::sgp4::sgp4;
 
     fn generate_mock_vectors() -> (Vector3<f64>, Vector3<f64>, Vector3<f64>, Vector3<f64>) {
         let pos_stn = vector![6378137.0, 0.0, 0.0];
@@ -745,21 +1084,49 @@ mod tests {
             .collect();
         let engine = mock_engine(1);
         let arc = mock_arc(epoch, &times);
-        let obs: Vec<ObservationRecord> = times
-            .iter()
-            .map(|&t| mock_observation(t, 0))
-            .collect();
+        let obs: Vec<ObservationRecord> = times.iter().map(|&t| mock_observation(t, 0)).collect();
 
         // Local sensitivity at the first node.
-        let evals = engine.step_evaluate(&arc, &obs);
+        let evals = engine.step_evaluate(&arc, &obs).unwrap();
         let h_local = &evals[0].h_state;
 
         // Batch row must equal H_k * Phi(t_k, t_0) = 2 * H_k.
-        let batch = engine.batch_evaluate(&arc, &obs);
+        let batch = engine.batch_evaluate(&arc, &obs, &[0.0]).unwrap();
         for c in 0..6 {
             assert!(
-                (batch.jacobian[(0, c)] - 2.0 * h_local[(0, c)]).abs() < 1e-18,
+                (batch.residual_jacobian[(0, c)] - 2.0 * h_local[(0, c)]).abs() < 1e-18,
                 "chain rule mismatch at column {c}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_local_residual_jacobian_sign_against_finite_difference() {
+        let time = Instant::from_unixtime(1_700_000_000.0);
+        let engine = mock_engine(0);
+        let observation = mock_observation(time, 0);
+        let state = DynVector::from_vec(vec![7000e3, 1000e3, 2000e3, 500.0, 7200.0, 1500.0]);
+        let evaluation = engine.evaluate_local_sensor(&state, &observation).unwrap();
+
+        for column in 0..6 {
+            let step = if column < 3 { 1.0 } else { 1e-3 };
+            let (mut plus, mut minus) = (state.clone(), state.clone());
+            plus[column] += step;
+            minus[column] -= step;
+            let plus_residual = engine
+                .evaluate_local_sensor(&plus, &observation)
+                .unwrap()
+                .residual[0];
+            let minus_residual = engine
+                .evaluate_local_sensor(&minus, &observation)
+                .unwrap()
+                .residual[0];
+            let finite_difference = (plus_residual - minus_residual) / (2.0 * step);
+            let error = (finite_difference - evaluation.h_state[(0, column)]).abs();
+            let scale = finite_difference.abs().max(1e-9);
+            assert!(
+                error / scale < 1e-5,
+                "residual derivative mismatch at {column}"
             );
         }
     }
@@ -780,16 +1147,140 @@ mod tests {
             .map(|(k, &t)| mock_observation(t, k % num_passes))
             .collect();
 
-        let batch = engine.batch_evaluate(&arc, &obs);
+        let batch = engine.batch_evaluate(&arc, &obs, &[0.0, 0.0]).unwrap();
         assert_eq!(batch.residuals.len(), num_obs);
-        assert_eq!(batch.jacobian.nrows(), num_obs);
-        assert_eq!(batch.jacobian.ncols(), 6 + num_passes);
+        assert_eq!(batch.residual_jacobian.nrows(), num_obs);
+        assert_eq!(batch.residual_jacobian.ncols(), 6 + num_passes);
 
-        // One-hot pass-bias columns.
+        // One-hot pass-bias columns for predicted-minus-observed residuals.
         for k in 0..num_obs {
             for p in 0..num_passes {
                 let expect = if p == k % num_passes { 1.0 } else { 0.0 };
-                assert_eq!(batch.jacobian[(k, 6 + p)], expect);
+                assert_eq!(batch.residual_jacobian[(k, 6 + p)], expect);
+            }
+        }
+    }
+
+    #[test]
+    fn test_batch_applies_bias_and_scalar_whitening() {
+        let epoch = Instant::from_unixtime(1_700_000_000.0);
+        let engine = mock_engine(1);
+        let arc = mock_arc(epoch, &[epoch]);
+        let mut observation = mock_observation(epoch, 0);
+        observation.noise_cov = DynMatrix::from_rows(1, 1, &[4.0]);
+
+        let local = engine
+            .evaluate_local_sensor(&arc.steps[0].state, &observation)
+            .unwrap();
+        let batch = engine
+            .batch_evaluate(&arc, &[observation], &[10.0])
+            .unwrap();
+
+        assert!((batch.residuals[0] - (local.residual[0] + 10.0) / 2.0).abs() < 1e-12);
+        assert!((batch.residual_jacobian[(0, 6)] - 0.5).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_correlated_covariance_whitening() {
+        let covariance = DynMatrix::from_rows(2, 2, &[4.0, 2.0, 2.0, 9.0]);
+        let residual = DynVector::from_vec(vec![6.0, 5.0]);
+        let jacobian = DynMatrix::from_rows(2, 1, &[2.0, 4.0]);
+        let (white_residual, white_jacobian) =
+            whiten_block(&residual, &jacobian, &covariance).unwrap();
+
+        assert!((white_residual[0] - 3.0).abs() < 1e-15);
+        assert!((white_residual[1] - 2.0 / 8.0_f64.sqrt()).abs() < 1e-15);
+        assert!((white_jacobian[(0, 0)] - 1.0).abs() < 1e-15);
+        assert!((white_jacobian[(1, 0)] - 3.0 / 8.0_f64.sqrt()).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_invalid_covariance_and_indices_return_errors() {
+        let time = Instant::from_unixtime(1_700_000_000.0);
+        let state = DynVector::from_vec(vec![7000e3, 1000e3, 2000e3, 500.0, 7200.0, 1500.0]);
+        let engine = mock_engine(1);
+
+        let mut observation = mock_observation(time, 1);
+        assert!(engine.evaluate_local_sensor(&state, &observation).is_err());
+
+        observation.pass_index = 0;
+        observation.receiver_id = 1;
+        assert!(engine.evaluate_local_sensor(&state, &observation).is_err());
+
+        observation.receiver_id = 0;
+        observation.noise_cov = DynMatrix::from_rows(1, 1, &[0.0]);
+        assert!(engine.evaluate_local_sensor(&state, &observation).is_err());
+    }
+
+    #[test]
+    fn test_invalid_covariance_shapes_and_values_return_errors() {
+        assert!(validate_covariance(&DynMatrix::from_rows(1, 2, &[1.0, 0.0]), 1, 0).is_err());
+        assert!(
+            validate_covariance(&DynMatrix::from_rows(2, 2, &[1.0, 0.5, 0.25, 1.0]), 2, 0,)
+                .is_err()
+        );
+        assert!(
+            validate_covariance(&DynMatrix::from_rows(2, 2, &[1.0, 1.0, 1.0, 1.0]), 2, 0,).is_err()
+        );
+        assert!(validate_covariance(&DynMatrix::from_rows(1, 1, &[f64::NAN]), 1, 0).is_err());
+    }
+
+    #[test]
+    fn test_trajectory_requires_exact_valid_nodes() {
+        let epoch = Instant::from_unixtime(1_700_000_000.0);
+        let later = epoch + Duration::from_seconds(60.0);
+        let arc = mock_arc(epoch, &[epoch, later]);
+
+        assert!(arc.evaluate_at(&epoch).is_ok());
+        assert!(arc.evaluate_at(&later).is_ok());
+        assert!(
+            arc.evaluate_at(&(epoch + Duration::from_seconds(30.0)))
+                .is_err()
+        );
+        assert!(
+            arc.evaluate_at(&(epoch - Duration::from_seconds(1.0)))
+                .is_err()
+        );
+
+        let malformed = mock_arc(epoch, &[later, epoch]);
+        assert!(malformed.evaluate_at(&epoch).is_err());
+
+        let duplicate = mock_arc(epoch, &[epoch, epoch]);
+        assert!(duplicate.evaluate_at(&epoch).is_err());
+
+        let mut invalid_state = mock_arc(epoch, &[epoch]);
+        invalid_state.steps[0].state[0] = f64::NAN;
+        assert!(invalid_state.evaluate_at(&epoch).is_err());
+
+        let mut invalid_stm = mock_arc(epoch, &[epoch]);
+        invalid_stm.steps[0].phi_epoch = DynMatrix::zeros(5, 6);
+        assert!(invalid_stm.evaluate_at(&epoch).is_err());
+    }
+
+    #[test]
+    fn test_propagate_arc_supports_epoch_only() {
+        let epoch = Instant::from_unixtime(1_700_000_000.0);
+        let state = Vector6::from_array([7000e3, 0.0, 0.0, 0.0, 7546.0, 100.0]);
+        let arc = propagate_arc(&state, &epoch, &[epoch], &PropSettings::default()).unwrap();
+
+        assert_eq!(arc.steps.len(), 1);
+        for row in 0..6 {
+            assert_eq!(arc.steps[0].state[row], state[row]);
+            for column in 0..6 {
+                let expected = if row == column { 1.0 } else { 0.0 };
+                assert_eq!(arc.steps[0].phi_step[(row, column)], expected);
+                assert_eq!(arc.steps[0].phi_epoch[(row, column)], expected);
+            }
+        }
+
+        let later = epoch + Duration::from_seconds(15.0);
+        let later_arc = propagate_arc(&state, &epoch, &[later], &PropSettings::default()).unwrap();
+        for row in 0..6 {
+            for column in 0..6 {
+                assert_eq!(
+                    later_arc.steps[0].phi_step[(row, column)],
+                    later_arc.steps[0].phi_epoch[(row, column)]
+                );
             }
         }
     }
@@ -797,7 +1288,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_true_range_panics() {
-        mock_engine(0).evaluate_local_sensor(
+        let _ = mock_engine(0).evaluate_local_sensor(
             &DynVector::<f64>::zeros(6),
             &ObservationRecord {
                 kind: MeasurementKind::TrueRange,
@@ -809,22 +1300,10 @@ mod tests {
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_pseudorange_phase_panics() {
-        mock_engine(0).evaluate_local_sensor(
+        let _ = mock_engine(0).evaluate_local_sensor(
             &DynVector::<f64>::zeros(6),
             &ObservationRecord {
                 kind: MeasurementKind::PseudorangePhase,
-                ..mock_observation(Instant::from_unixtime(1_700_000_000.0), 0)
-            },
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "not yet implemented")]
-    fn test_pseudorange_code_panics() {
-        mock_engine(0).evaluate_local_sensor(
-            &DynVector::<f64>::zeros(6),
-            &ObservationRecord {
-                kind: MeasurementKind::PseudorangeCode,
                 ..mock_observation(Instant::from_unixtime(1_700_000_000.0), 0)
             },
         );
@@ -851,6 +1330,203 @@ mod tests {
             (6.5e6..7.5e6).contains(&r),
             "LEO radius out of range: {r} m"
         );
+    }
+
+    #[test]
+    fn test_sgp4_rejects_invalid_elements() {
+        let mut tle = mock_tle();
+        tle.eccen = f64::NAN;
+        assert!(propagate_sgp4_gcrf(&tle, &[tle.epoch]).is_err());
+
+        let mut tle = mock_tle();
+        tle.eccen = 1.0;
+        assert!(propagate_sgp4_gcrf(&tle, &[tle.epoch]).is_err());
+    }
+
+    #[test]
+    fn test_sgp4_uses_fresh_wgs72_state() {
+        let time = mock_tle().epoch + Duration::from_seconds(600.0);
+        let mut cached = mock_tle();
+        let wgs84 = sgp4(&mut cached, &[time]).unwrap();
+        let actual = propagate_sgp4_gcrf(&cached, &[time]).unwrap()[0];
+
+        let mut reference_tle = mock_tle();
+        let reference = sgp4_full(
+            &mut reference_tle,
+            &[time],
+            GravConst::WGS72,
+            OpsMode::IMPROVED,
+        )
+        .unwrap();
+        let reference_pos = Vector3::from_array([
+            reference.pos[(0, 0)],
+            reference.pos[(1, 0)],
+            reference.pos[(2, 0)],
+        ]);
+        let reference_vel = Vector3::from_array([
+            reference.vel[(0, 0)],
+            reference.vel[(1, 0)],
+            reference.vel[(2, 0)],
+        ]);
+        let (reference_pos, reference_vel) = transform_state(
+            Frame::TEME,
+            Frame::GCRF,
+            &time,
+            &reference_pos,
+            &reference_vel,
+        )
+        .unwrap();
+        let expected = Vector6::from_array([
+            reference_pos[0],
+            reference_pos[1],
+            reference_pos[2],
+            reference_vel[0],
+            reference_vel[1],
+            reference_vel[2],
+        ]);
+
+        for index in 0..6 {
+            assert!((actual[index] - expected[index]).abs() < 1e-9);
+        }
+        let wgs84_position_teme =
+            Vector3::from_array([wgs84.pos[(0, 0)], wgs84.pos[(1, 0)], wgs84.pos[(2, 0)]]);
+        let wgs84_velocity_teme =
+            Vector3::from_array([wgs84.vel[(0, 0)], wgs84.vel[(1, 0)], wgs84.vel[(2, 0)]]);
+        let (wgs84_position, _) = transform_state(
+            Frame::TEME,
+            Frame::GCRF,
+            &time,
+            &wgs84_position_teme,
+            &wgs84_velocity_teme,
+        )
+        .unwrap();
+        assert!((wgs84_position - reference_pos).norm() > 1e-3);
+    }
+
+    #[test]
+    fn test_lofi_uses_each_receiver_and_pass_bias() {
+        let tle = mock_tle();
+        let time = tle.epoch + Duration::from_seconds(600.0);
+        let engine = EstimationEngine {
+            receivers: vec![
+                ITRFCoord::from_geodetic_deg(63.0, 10.0, 0.0),
+                ITRFCoord::from_geodetic_deg(-20.0, 130.0, 0.0),
+            ],
+            center_frequency: 400.0e6,
+            num_passes: 2,
+        };
+        let observations = vec![
+            mock_observation(time, 0),
+            ObservationRecord {
+                receiver_id: 1,
+                pass_index: 1,
+                ..mock_observation(time, 1)
+            },
+        ];
+        let result =
+            lofi_evaluate(&engine, &[0.0, 0.0, 0.0, 10.0, -20.0], &tle, &observations).unwrap();
+
+        assert_ne!(result.residuals[0] - 10.0, result.residuals[1] + 20.0);
+        assert_eq!(result.residual_jacobian[(0, 3)], 1.0);
+        assert_eq!(result.residual_jacobian[(0, 4)], 0.0);
+        assert_eq!(result.residual_jacobian[(1, 3)], 0.0);
+        assert_eq!(result.residual_jacobian[(1, 4)], 1.0);
+    }
+
+    #[test]
+    fn test_lofi_residual_jacobian_against_finite_difference() {
+        let tle = mock_tle();
+        let time = tle.epoch + Duration::from_seconds(900.0);
+        let engine = mock_engine(1);
+        let observations = [mock_observation(time, 0)];
+        let x = [0.0, 0.0, 0.0, 2.0];
+        let evaluation = lofi_evaluate(&engine, &x, &tle, &observations).unwrap();
+        let outer_steps = [1e-5, 1e-4, 1e-8, 1e-4];
+
+        for parameter in 0..x.len() {
+            let (mut plus, mut minus) = (x, x);
+            plus[parameter] += outer_steps[parameter];
+            minus[parameter] -= outer_steps[parameter];
+            let plus_residual = lofi_evaluate(&engine, &plus, &tle, &observations)
+                .unwrap()
+                .residuals[0];
+            let minus_residual = lofi_evaluate(&engine, &minus, &tle, &observations)
+                .unwrap()
+                .residuals[0];
+            let finite_difference =
+                (plus_residual - minus_residual) / (2.0 * outer_steps[parameter]);
+            let analytic = evaluation.residual_jacobian[(0, parameter)];
+            let relative_tolerance = if parameter == 2 { 5e-3 } else { 2e-3 };
+            let tolerance =
+                relative_tolerance * finite_difference.abs().max(analytic.abs()).max(1e-6);
+            assert!(
+                (finite_difference - analytic).abs() < tolerance,
+                "SGP4 residual derivative mismatch at {parameter}: {finite_difference} vs {analytic}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_hifi_residual_jacobian_against_finite_difference() {
+        let epoch = Instant::from_unixtime(1_700_000_000.0);
+        let observation_time = epoch + Duration::from_seconds(30.0);
+        let engine = mock_engine(1);
+        let observation = [mock_observation(observation_time, 0)];
+        let nominal = Vector6::from_array([7000e3, 0.0, 0.0, 0.0, 7546.0, 100.0]);
+        let settings = PropSettings::default();
+        let x = [0.0; 7];
+        let evaluation =
+            hifi_evaluate(&engine, &x, &nominal, &epoch, &observation, &settings).unwrap();
+        let steps = [1.0, 1.0, 1.0, 1e-3, 1e-3, 1e-3, 1e-3];
+
+        for parameter in 0..x.len() {
+            let (mut plus, mut minus) = (x, x);
+            plus[parameter] += steps[parameter];
+            minus[parameter] -= steps[parameter];
+            let plus_residual =
+                hifi_evaluate(&engine, &plus, &nominal, &epoch, &observation, &settings)
+                    .unwrap()
+                    .residuals[0];
+            let minus_residual =
+                hifi_evaluate(&engine, &minus, &nominal, &epoch, &observation, &settings)
+                    .unwrap()
+                    .residuals[0];
+            let finite_difference = (plus_residual - minus_residual) / (2.0 * steps[parameter]);
+            let analytic = evaluation.residual_jacobian[(0, parameter)];
+            let tolerance = 1e-4 * finite_difference.abs().max(analytic.abs()).max(1e-8);
+            assert!(
+                (finite_difference - analytic).abs() < tolerance,
+                "high-fidelity residual derivative mismatch at {parameter}: {finite_difference} vs {analytic}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_hifi_accepts_unsorted_repeated_epochs_without_pass_biases() {
+        let epoch = Instant::from_unixtime(1_700_000_000.0);
+        let early = epoch + Duration::from_seconds(15.0);
+        let late = epoch + Duration::from_seconds(30.0);
+        let engine = mock_engine(0);
+        let observations = [
+            mock_observation(late, 99),
+            mock_observation(early, 99),
+            mock_observation(early, 99),
+        ];
+        let nominal = Vector6::from_array([7000e3, 0.0, 0.0, 0.0, 7546.0, 100.0]);
+        let result = hifi_evaluate(
+            &engine,
+            &[0.0; 6],
+            &nominal,
+            &epoch,
+            &observations,
+            &PropSettings::default(),
+        )
+        .unwrap();
+
+        assert_eq!(result.residuals.len(), observations.len());
+        assert_eq!(result.residual_jacobian.nrows(), observations.len());
+        assert_eq!(result.residual_jacobian.ncols(), 6);
+        assert_eq!(result.residuals[1], result.residuals[2]);
     }
 
     #[test]
