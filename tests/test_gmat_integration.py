@@ -6,8 +6,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from dart.gmat import (FitConfig, GMAT_MJD_OFFSET, run_console, run_stage,
-                       runtime_manifest, utc, write_gmd, write_script, write_startup)
+from dart.gmat import (
+    GMAT_MJD_OFFSET,
+    FitConfig,
+    run_console,
+    run_stage,
+    runtime_manifest,
+    utc,
+    write_gmd,
+    write_script,
+    write_startup,
+)
 from dart.loaders.gps import GpsObservations, holdout_mask
 
 

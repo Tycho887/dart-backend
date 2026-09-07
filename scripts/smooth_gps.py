@@ -5,12 +5,36 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from dart.gmat import FitConfig, ROOT, execute, prepare, read_prepared, save_json, utc, validate_product
+from dart.gmat import (  # noqa: E402
+    ROOT,
+    FitConfig,
+    execute,
+    prepare,
+    read_prepared,
+    save_json,
+    utc,
+    validate_product,
+)
+
+
+def _run_satellite(args: argparse.Namespace, config: FitConfig, output: Path) -> dict:
+    if args.command == "validate":
+        return validate_product(output)
+    if not (output / "manifest.json").exists():
+        prepare(args.input_dir.resolve(), output, args.gmat_home.resolve(), config)
+    else:
+        saved_config, _, _ = read_prepared(output)
+        if saved_config != config:
+            raise ValueError("requested settings differ from existing run; use a new output directory")
+    if args.command == "prepare":
+        return {"satellite": config.satellite, "prepared": True, "directory": str(output)}
+    print(f"{config.satellite}: running/resuming GMAT fit and OEM export", flush=True)
+    return execute(output, args.gmat_home.resolve(), args.timeout)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,20 +58,7 @@ def main(argv: list[str] | None = None) -> int:
             config = FitConfig(satellite, center - args.duration_hours * 1800,
                                center + args.duration_hours * 1800, args.cadence, args.target_rms_m)
             output = args.output_dir.resolve() / satellite
-            if args.command == "validate":
-                result = validate_product(output)
-            else:
-                if not (output / "manifest.json").exists():
-                    prepare(args.input_dir.resolve(), output, args.gmat_home.resolve(), config)
-                else:
-                    saved_config, _, _ = read_prepared(output)
-                    if saved_config != config:
-                        raise ValueError("requested settings differ from existing run; use a new output directory")
-                if args.command == "prepare":
-                    result = {"satellite": satellite, "prepared": True, "directory": str(output)}
-                else:
-                    print(f"{satellite}: running/resuming GMAT fit and OEM export", flush=True)
-                    result = execute(output, args.gmat_home.resolve(), args.timeout)
+            result = _run_satellite(args, config, output)
             results.append(result)
             if result.get("accepted"):
                 rms = result["validation"]["withheld_position_residual_m"]["rms"]

@@ -1,0 +1,504 @@
+"""Python/Rust forward-model contract and SciPy integration tests."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any, cast
+
+import numpy as np
+import pytest
+import satkit as sk
+from numpy.typing import NDArray
+from scipy.optimize import least_squares
+
+from dart.forward_models import (
+    ForwardModelEvaluation,
+    evaluate_full_state,
+    evaluate_full_state_augmented,
+    evaluate_sgp4,
+    evaluate_sgp4_augmented,
+    tle_state_gcrf,
+)
+from dart.io import ForwardModelContext, ForwardObservation
+
+ISS_TLE = (
+    "1 25544U 98067A   08264.51782528 -.00002182  00000-0 -11606-4 0  2927",
+    "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537",
+)
+CENTER_FREQUENCY_HZ = 400e6
+STATIONS = [
+    sk.itrfcoord(latitude_deg=63.0, longitude_deg=10.0, altitude=0.0),
+    sk.itrfcoord(latitude_deg=-20.0, longitude_deg=130.0, altitude=0.0),
+    sk.itrfcoord(latitude_deg=35.0, longitude_deg=-120.0, altitude=0.0),
+]
+
+
+def context(
+    epochs_unix: list[float],
+    observed_hz: NDArray[np.float64],
+    receiver_ids: list[int],
+) -> ForwardModelContext:
+    observations = [
+        ForwardObservation.from_scalar(
+            epoch,
+            observed,
+            variance=1.0,
+            receiver_id=receiver_id,
+            pass_index=0,
+        )
+        for epoch, observed, receiver_id in zip(
+            epochs_unix, observed_hz, receiver_ids, strict=True
+        )
+    ]
+    return ForwardModelContext(
+        center_frequency_hz=CENTER_FREQUENCY_HZ,
+        receivers=STATIONS,
+        contact_to_pass_idx={"synthetic-pass": 0},
+        observations=observations,
+    )
+
+
+def synthetic_problem(
+    evaluator: Callable[
+        [NDArray[np.float64], ForwardModelContext], ForwardModelEvaluation
+    ],
+    target: NDArray[np.float64],
+    epochs_unix: list[float],
+    receiver_ids: list[int],
+) -> ForwardModelContext:
+    empty = context(epochs_unix, np.zeros(len(epochs_unix)), receiver_ids)
+    observed = evaluator(target, empty).residuals
+    return context(epochs_unix, observed, receiver_ids)
+
+
+def central_difference(
+    evaluator: Callable[[NDArray[np.float64]], ForwardModelEvaluation],
+    x: NDArray[np.float64],
+    steps: NDArray[np.float64],
+) -> NDArray[np.float64]:
+    columns = []
+    for index, step in enumerate(steps):
+        plus = x.copy()
+        minus = x.copy()
+        plus[index] += step
+        minus[index] -= step
+        columns.append(
+            (evaluator(plus).residuals - evaluator(minus).residuals) / (2.0 * step)
+        )
+    return np.column_stack(columns)
+
+
+@pytest.fixture(scope="module")
+def sgp4_problem() -> tuple[
+    Callable[[NDArray[np.float64]], ForwardModelEvaluation], NDArray[np.float64]
+]:
+    tle = sk.TLE.from_lines(list(ISS_TLE))
+    assert isinstance(tle, sk.TLE)
+    epoch = tle.epoch.as_unixtime()
+    epochs = [epoch + 60.0 * index for index in range(1, 41)]
+    receiver_ids = [index % 2 for index in range(len(epochs))]
+    target = np.array([2e-4, 0.0, 0.0, 0.0, 0.0, 0.05, 0.0, 8.0])
+
+    def evaluate(x: NDArray[np.float64], model_context: ForwardModelContext):
+        return evaluate_sgp4(x, ISS_TLE, model_context)
+
+    model_context = synthetic_problem(evaluate, target, epochs, receiver_ids)
+    return lambda x: evaluate(x, model_context), target
+
+
+@pytest.fixture(scope="module")
+def full_state_problem() -> tuple[
+    Callable[[NDArray[np.float64]], ForwardModelEvaluation], NDArray[np.float64]
+]:
+    epoch = sk.time.from_unixtime(1_700_000_000.0)
+    epoch_unix = epoch.as_unixtime()
+    epochs = [epoch_unix + 60.0 * step for step in range(1, 16) for _ in STATIONS]
+    receiver_ids = list(range(len(STATIONS))) * 15
+    nominal = np.array([7e6, 0.0, 0.0, 0.0, 7546.0, 100.0])
+    target = np.array([100.0, -80.0, 60.0, 0.1, -0.08, 0.05, 8.0])
+
+    def evaluate(x: NDArray[np.float64], model_context: ForwardModelContext):
+        return evaluate_full_state(x, nominal, epoch, model_context)
+
+    model_context = synthetic_problem(evaluate, target, epochs, receiver_ids)
+    return lambda x: evaluate(x, model_context), target
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "steps", "relative_tolerance"),
+    [
+        # B* sensitivity is itself computed by an inner finite difference and
+        # is small near the start of this arc, so the cross-language check uses
+        # a looser relative tolerance than the direct Rust kernel tests.
+        (
+            "sgp4_problem",
+            np.array([1e-5, 1e-7, 1e-7, 1e-7, 1e-7, 1e-4, 1e-8, 1e-4]),
+            7e-2,
+        ),
+        (
+            "full_state_problem",
+            np.array([1.0, 1.0, 1.0, 1e-3, 1e-3, 1e-3, 1e-3]),
+            2e-4,
+        ),
+    ],
+)
+def test_python_jacobian_matches_residual_finite_difference(
+    request: pytest.FixtureRequest,
+    fixture_name: str,
+    steps: NDArray[np.float64],
+    relative_tolerance: float,
+) -> None:
+    evaluate, target = request.getfixturevalue(fixture_name)
+    result = evaluate(target)
+    numerical = central_difference(evaluate, target, steps)
+
+    assert result.residuals.shape == (result.jacobian.shape[0],)
+    assert result.jacobian.shape == numerical.shape
+    assert result.residuals.dtype == np.float64
+    assert result.jacobian.dtype == np.float64
+    assert result.residuals.flags.c_contiguous
+    assert result.jacobian.flags.c_contiguous
+    np.testing.assert_allclose(
+        result.jacobian, numerical, rtol=relative_tolerance, atol=1e-7
+    )
+
+
+def test_sgp4_finite_difference_columns_are_step_stable(sgp4_problem) -> None:
+    evaluate, target = sgp4_problem
+    steps = np.array([1e-5, 1e-7, 1e-7, 1e-7, 1e-7, 1e-4, 1e-8, 1e-4])
+
+    half_step = central_difference(evaluate, target, 0.5 * steps)
+    double_step = central_difference(evaluate, target, 2.0 * steps)
+
+    np.testing.assert_allclose(
+        half_step[:, :7], double_step[:, :7], rtol=0.1, atol=1e-5
+    )
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "scale"),
+    [
+        (
+            "full_state_problem",
+            np.array([100.0, 100.0, 100.0, 0.1, 0.1, 0.1, 10.0]),
+        ),
+    ],
+)
+def test_scipy_least_squares_recovers_synthetic_correction(
+    request: pytest.FixtureRequest,
+    fixture_name: str,
+    scale: NDArray[np.float64],
+) -> None:
+    evaluate, target = request.getfixturevalue(fixture_name)
+    initial = np.zeros_like(target)
+    initial_cost = np.sum(evaluate(initial).residuals ** 2)
+    solution = least_squares(
+        lambda x: evaluate(x).residuals,
+        initial,
+        jac=lambda x: evaluate(x).jacobian,
+        x_scale=scale,
+        ftol=1e-11,
+        xtol=1e-11,
+        gtol=1e-11,
+        max_nfev=100,
+    )
+
+    assert solution.success
+    assert np.sum(solution.fun**2) < initial_cost * 1e-12
+    scaled_error = np.abs((solution.x - target) / scale)
+    assert np.max(scaled_error) < 1e-4
+
+
+def test_scipy_recovers_observable_sgp4_subset(sgp4_problem) -> None:
+    evaluate, target = sgp4_problem
+    selected = np.array([0, 5, 7])
+
+    def evaluate_subset(x: NDArray[np.float64]) -> ForwardModelEvaluation:
+        canonical = np.zeros(8)
+        canonical[selected] = x
+        result = evaluate(canonical)
+        return ForwardModelEvaluation(result.residuals, result.jacobian[:, selected])
+
+    expected = target[selected]
+    solution = least_squares(
+        lambda x: evaluate_subset(x).residuals,
+        np.zeros(3),
+        jac=lambda x: evaluate_subset(x).jacobian,
+        x_scale=np.array([1e-3, 0.1, 10.0]),
+        max_nfev=100,
+    )
+
+    assert solution.success
+    np.testing.assert_allclose(solution.x, expected, rtol=1e-4, atol=1e-7)
+
+
+def test_binding_rejects_invalid_model_inputs(sgp4_problem) -> None:
+    evaluate, _ = sgp4_problem
+    with pytest.raises(ValueError, match="expected 8 finite low-fidelity parameters"):
+        evaluate(np.zeros(7))
+
+    epoch = sk.time.from_unixtime(1_700_000_000.0)
+    model_context = context([epoch.as_unixtime()], np.zeros(1), [0])
+    with pytest.raises(ValueError, match="failed to parse TLE"):
+        evaluate_sgp4(np.zeros(8), ("invalid", "invalid"), model_context)
+    with pytest.raises(ValueError, match="nominal GCRF state must contain six values"):
+        evaluate_full_state(np.zeros(7), np.zeros(5), epoch, model_context)
+
+    invalid = np.zeros(8)
+    invalid[0] = -100.0
+    with pytest.raises(ValueError, match="mean motion must be positive"):
+        evaluate(invalid)
+    invalid = np.zeros(8)
+    invalid[1] = 2.0
+    with pytest.raises(ValueError, match="eccentricity must be below one"):
+        evaluate(invalid)
+    invalid = np.zeros(8)
+    invalid[2] = np.nan
+    with pytest.raises(ValueError, match="finite low-fidelity parameters"):
+        evaluate(invalid)
+
+
+def test_sgp4_bstar_is_an_independent_correction(sgp4_problem) -> None:
+    evaluate, _ = sgp4_problem
+    baseline = evaluate(np.zeros(8))
+    corrected = np.zeros(8)
+    corrected[6] = 1e-3
+
+    assert np.max(np.abs(evaluate(corrected).residuals - baseline.residuals)) > 1e-6
+
+
+def test_tle_state_gcrf_returns_si_state_at_satkit_epoch() -> None:
+    tle = sk.TLE.from_lines(list(ISS_TLE))
+    assert isinstance(tle, sk.TLE)
+
+    state = tle_state_gcrf(ISS_TLE, tle.epoch)
+
+    assert state.shape == (6,)
+    assert state.dtype == np.float64
+    assert state.flags.c_contiguous
+    assert np.all(np.isfinite(state))
+    assert 6.5e6 < np.linalg.norm(state[:3]) < 7.5e6
+
+
+def test_numerical_epochs_require_satkit_time() -> None:
+    with pytest.raises(TypeError, match="epoch must be a satkit.time"):
+        tle_state_gcrf(ISS_TLE, cast(Any, 1_700_000_000.0))
+    with pytest.raises(ValueError, match="failed to parse TLE"):
+        tle_state_gcrf(("invalid", "invalid"), sk.time.from_unixtime(1_700_000_000.0))
+
+
+def test_augmented_sgp4_columns_and_zero_compatibility() -> None:
+    tle = sk.TLE.from_lines(list(ISS_TLE))
+    assert isinstance(tle, sk.TLE)
+    epochs = [tle.epoch.as_unixtime() + 60.0 * index for index in range(1, 8)]
+    model_context = context(epochs, np.zeros(len(epochs)), [0] * len(epochs))
+    orbit = np.array([2e-4, 2e-5, -1e-5, 2e-5, -1e-5, 0.05, 1e-5])
+    augmented = np.concatenate((orbit, [0.2, 1e5, 8.0]))
+
+    def evaluate(x: NDArray[np.float64]) -> ForwardModelEvaluation:
+        return evaluate_sgp4_augmented(x, ISS_TLE, model_context)
+
+    result = evaluate(augmented)
+    numerical = central_difference(
+        evaluate,
+        augmented,
+        np.array([1e-5, 1e-7, 1e-7, 1e-7, 1e-7, 1e-4, 1e-8, 1e-2, 1e2, 1e-3]),
+    )
+    np.testing.assert_allclose(result.jacobian[:, 7], numerical[:, 7], rtol=3e-4)
+    np.testing.assert_allclose(result.jacobian[:, 8], numerical[:, 8], rtol=1e-7)
+
+    legacy = evaluate_sgp4(np.concatenate((orbit, [8.0])), ISS_TLE, model_context)
+    zero_augmented = evaluate_sgp4_augmented(
+        np.concatenate((orbit, [0.0, 0.0, 8.0])), ISS_TLE, model_context
+    )
+    np.testing.assert_allclose(zero_augmented.residuals, legacy.residuals, atol=1e-10)
+    np.testing.assert_allclose(
+        zero_augmented.jacobian[:, [0, 1, 2, 3, 4, 5, 6, 9]],
+        legacy.jacobian,
+        atol=1e-10,
+    )
+
+
+def test_augmented_full_state_columns_and_epoch_bounds() -> None:
+    epoch = sk.time.from_unixtime(1_700_000_000.0)
+    epochs = [epoch.as_unixtime() + 60.0 * index for index in range(1, 6)]
+    model_context = context(epochs, np.zeros(len(epochs)), [0] * len(epochs))
+    nominal = np.array([7e6, 0.0, 0.0, 0.0, 7546.0, 100.0])
+    augmented = np.array([100.0, -80.0, 60.0, 0.1, -0.08, 0.05, 0.2, 1e5, 8.0])
+
+    def evaluate(x: NDArray[np.float64]) -> ForwardModelEvaluation:
+        return evaluate_full_state_augmented(x, nominal, epoch, model_context)
+
+    result = evaluate(augmented)
+    numerical = central_difference(
+        evaluate,
+        augmented,
+        np.array([1.0, 1.0, 1.0, 1e-3, 1e-3, 1e-3, 1e-2, 1e2, 1e-3]),
+    )
+    np.testing.assert_allclose(result.jacobian[:, 6], numerical[:, 6], rtol=2e-3)
+    np.testing.assert_allclose(result.jacobian[:, 7], numerical[:, 7], rtol=1e-7)
+
+    legacy = evaluate_full_state(
+        np.array([100.0, -80.0, 60.0, 0.1, -0.08, 0.05, 8.0]),
+        nominal,
+        epoch,
+        model_context,
+    )
+    zero_augmented = evaluate_full_state_augmented(
+        np.array([100.0, -80.0, 60.0, 0.1, -0.08, 0.05, 0.0, 0.0, 8.0]),
+        nominal,
+        epoch,
+        model_context,
+    )
+    np.testing.assert_allclose(zero_augmented.residuals, legacy.residuals, atol=1e-8)
+    np.testing.assert_allclose(
+        zero_augmented.jacobian[:, [0, 1, 2, 3, 4, 5, 8]],
+        legacy.jacobian,
+        atol=1e-10,
+    )
+
+    too_early = context([epoch.as_unixtime()], np.zeros(1), [0])
+    with pytest.raises(ValueError, match="precedes the epoch"):
+        evaluate_full_state_augmented(np.zeros(9), nominal, epoch, too_early)
+
+
+def test_augmented_sgp4_retains_per_pass_biases() -> None:
+    tle = sk.TLE.from_lines(list(ISS_TLE))
+    assert isinstance(tle, sk.TLE)
+    epochs = [tle.epoch.as_unixtime() + 60.0, tle.epoch.as_unixtime() + 120.0]
+    observations = [
+        ForwardObservation.from_scalar(
+            epoch, 0.0, variance=1.0, receiver_id=0, pass_index=index
+        )
+        for index, epoch in enumerate(epochs)
+    ]
+    model_context = ForwardModelContext(
+        center_frequency_hz=CENTER_FREQUENCY_HZ,
+        receivers=STATIONS,
+        contact_to_pass_idx={"pass-a": 0, "pass-b": 1},
+        observations=observations,
+    )
+    unbiased = evaluate_sgp4_augmented(np.zeros(11), ISS_TLE, model_context)
+    biased = evaluate_sgp4_augmented(
+        np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0, -20.0]),
+        ISS_TLE,
+        model_context,
+    )
+
+    np.testing.assert_allclose(biased.residuals - unbiased.residuals, [10.0, -20.0])
+    np.testing.assert_array_equal(biased.jacobian[:, 9:], np.eye(2))
+
+
+@pytest.mark.parametrize(
+    ("evaluator", "x"),
+    [
+        (lambda x, c: evaluate_sgp4_augmented(x, ISS_TLE, c), np.zeros(10)),
+        (
+            lambda x, c: evaluate_full_state_augmented(
+                x,
+                np.array([7e6, 0.0, 0.0, 0.0, 7546.0, 100.0]),
+                sk.time.from_unixtime(1_700_000_000.0),
+                c,
+            ),
+            np.zeros(9),
+        ),
+    ],
+)
+def test_augmented_models_reject_nonpositive_effective_frequency(evaluator, x) -> None:
+    epoch = 1_700_000_060.0
+    model_context = context([epoch], np.zeros(1), [0])
+    frequency_index = len(x) - 2
+    x[frequency_index] = -CENTER_FREQUENCY_HZ
+
+    with pytest.raises(
+        ValueError, match="center frequency must be finite and positive"
+    ):
+        evaluator(x, model_context)
+
+
+@pytest.mark.parametrize(
+    "offsets", [np.zeros(7), np.array([1e-4, 1e-5, -1e-5, 1e-5, 0, 0.1, 1e-6])]
+)
+def test_sgp4_trajectory_order_units_and_doppler_parity(offsets) -> None:
+    from dart.forward_models import sgp4_states_gcrf
+
+    tle = sk.TLE.from_lines(list(ISS_TLE))
+    assert isinstance(tle, sk.TLE)
+    epoch = tle.epoch.as_unixtime()
+    unix = [epoch + 120, epoch, epoch + 60, epoch + 120]
+    epochs = [sk.time.from_unixtime(t) for t in unix]
+    states = sgp4_states_gcrf(offsets, ISS_TLE, epochs)
+    assert states.shape == (4, 6) and states.flags.c_contiguous
+    np.testing.assert_array_equal(states[0], states[3])
+    for index, time in enumerate(epochs):
+        np.testing.assert_allclose(
+            states[index], sgp4_states_gcrf(offsets, ISS_TLE, [time])[0], atol=1e-7
+        )
+    if not np.any(offsets):
+        np.testing.assert_array_equal(states[1], tle_state_gcrf(ISS_TLE, tle.epoch))
+    # Independent Doppler projection via satkit's ITRF/GCRF state operation.
+    model = context(unix, np.zeros(4), [0] * 4)
+    expected = evaluate_sgp4(np.r_[offsets, 0], ISS_TLE, model).residuals
+    actual = []
+    for state, time in zip(states, epochs, strict=True):
+        station_position = sk.frametransform.qitrf2gcrf(time) * STATIONS[0].vector
+        # Same rotating-station velocity convention verified in existing kernels.
+        omega = sk.frametransform.qitrf2gcrf(time) * np.array(
+            [0, 0, 7.29211514670698e-5]
+        )
+        station_velocity = np.cross(omega, station_position)
+        delta = state[:3] - station_position
+        rate = np.dot(delta, state[3:] - station_velocity) / np.linalg.norm(delta)
+        actual.append(-400e6 / 299792458 * rate)
+    np.testing.assert_allclose(actual, expected, atol=0.01)
+
+
+def test_hifi_trajectory_order_epoch_and_doppler_parity() -> None:
+    from dart.forward_models import full_state_states_gcrf
+
+    epoch = sk.time(2025, 1, 1)
+    state = np.array([7e6, 0, 0, 0, 7500, 200.0])
+    unix = epoch.as_unixtime() + np.array([120, 0, 60, 120.0])
+    epochs = [sk.time.from_unixtime(float(t)) for t in unix]
+    result = full_state_states_gcrf(state, epoch, epochs)
+    np.testing.assert_allclose(result[1], state, rtol=0, atol=1e-9)
+    np.testing.assert_array_equal(result[0], result[3])
+    # Restart the same model at each returned state; its immediate measurement
+    # must match propagation from the original epoch (including Doppler sign).
+    batch = evaluate_full_state(
+        np.zeros(7), state, epoch, context(unix.tolist(), np.zeros(4), [0] * 4)
+    )
+    for index, time in enumerate(epochs):
+        single = evaluate_full_state(
+            np.zeros(7), result[index], time, context([unix[index]], np.zeros(1), [0])
+        )
+        np.testing.assert_allclose(
+            single.residuals[0], batch.residuals[index], atol=1e-8
+        )
+    assert 6e6 < np.linalg.norm(result[0, :3]) < 8e6
+    assert 7000 < np.linalg.norm(result[0, 3:]) < 8000
+
+
+def test_trajectory_rejects_invalid_inputs() -> None:
+    from dart.forward_models import full_state_states_gcrf, sgp4_states_gcrf
+
+    epoch = sk.time(2025, 1, 1)
+    for offsets in ([0] * 6, [np.nan] * 7, [[0] * 7]):
+        with pytest.raises(ValueError):
+            sgp4_states_gcrf(offsets, ISS_TLE, [epoch])
+    with pytest.raises(ValueError):
+        sgp4_states_gcrf(np.zeros(7), ("bad", "bad"), [epoch])
+    with pytest.raises(ValueError):
+        sgp4_states_gcrf(np.zeros(7), ISS_TLE, [])
+    for state in ([0] * 5, [np.inf] * 6):
+        with pytest.raises(ValueError):
+            full_state_states_gcrf(state, epoch, [epoch])
+    with pytest.raises(ValueError, match="precedes"):
+        full_state_states_gcrf([7e6, 0, 0, 0, 7500, 0], epoch, [sk.time(2024, 12, 31)])
+    with pytest.raises(TypeError):
+        sgp4_states_gcrf(np.zeros(7), ISS_TLE, cast(Any, [1735689600.0]))
+    # Validate finite epochs at the raw extension boundary before constructing Instant.
+    from dart.forward_models import _native
+
+    with pytest.raises(ValueError, match="finite"):
+        _native.sgp4_states_gcrf([0.0] * 7, *ISS_TLE, [float("nan")])

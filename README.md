@@ -1,66 +1,96 @@
-# DART — orbit determination engine
+# DART
 
-Python loaders pull telemetry from ADX/Kusto and metadata from the KOGS API
-into a single transport struct; a Rust solver consumes it and returns a
-result struct; both can be exported as CCSDS TDM files.
+DART is being reorganized into independent modules for passive-RF data
+access, forward models, orbit determination, standards products, and antenna
+control. The supported Python surfaces are `dart.io`, a typed boundary around
+external data providers; `dart.forward_models`, the adapter to the Rust
+numerical core; and `dart.od`, the batch orbit-determination interface.
 
-## Pipeline
+## IO quick start
 
-```
-loaders (dart/loaders)                 schema (dart/schema)
-   ADX/Kusto telemetry  ─┐                 │
-   KOGS metadata     ────┤──► Sgp4Input / ─┴──► msgpack ──► dart_solver.solve() ──► SolverResult
-                         │   Rk89Input            (codec)       (Rust: serde)          (codec)
-                         └────────────────────────────────────────────┘
-                                   │ dart/io/tdm.py (CCSDS 503.0-B-2)
-                                   ▼
-                                TDM file
-```
+```python
+import asyncio
 
-Two solver modes, selected by the `mode` field:
+from dart.io import load_passes
+from dart.io.adx import client_from_env
+from dart.io.kogs import api_key_from_env
 
-- `sgp4` — LEO batches: bounded mean-anomaly/mean-motion/carrier fits with
-  per-contact Doppler biases (propagation via satkit's Rust SGP4 API).
-- `rk89` — cislunar batches: an initial ECI state integrated with an 8(9)
-  adaptive Runge-Kutta, with a selectable force model.
 
-## The wire format (the contract)
+async def main() -> None:
+    contacts, measurements = await load_passes(
+        ["contact-uuid"],
+        kogs_api_key=api_key_from_env(),
+        adx_client=client_from_env(),
+    )
+    print(contacts[0])
+    print(measurements)
 
-- Transport is **MessagePack bytes**: `dart_solver.solve(data: bytes) -> bytes`.
-  Python encodes/decodes with `dart.codec`; Rust uses serde + rmp-serde.
-- The schema is defined once, as dataclasses in `dart/schema.py`, and mirrored
-  by hand in `crates/dart_solver/src/schema.rs`. Field names are the interface:
-  Python field name == msgpack key == serde field name == TDM keyword (snake_case).
-- Units are the CCSDS ones — km, km/s, Hz, degrees; epochs are f64 unix-seconds
-  in UTC. Because the wire units are the TDM units, `dart/io/tdm.py` is a
-  mechanical field copy.
-- `schema_version` is the first field of every message; mismatched versions are
-  rejected loudly on both sides, never silently misread.
-- Nothing crosses the boundary except data — no numpy arrays, polars
-  DataFrames, or satkit objects. The loaders do the conversion.
 
-## Layout
-
-```
-dart/            python package: schema, codec, io (azure/kogs/tdm), loaders, solver facade
-crates/          dart_solver — Rust crate (pyo3 extension, serde schema mirrors)
-tests/           pytest suite + tests/fixtures/*.msgpack (consumed by cargo tests)
+asyncio.run(main())
 ```
 
-The Rust crate validates, version-checks, and dispatches both modes. The SGP4
-mode is implemented with robust bounded SLSQP; RK89 remains scaffold-only.
+`load_passes` resolves each KOGS contact, antenna, spacecraft, and ephemeris,
+then retrieves the contact-bounded ADX measurements. It returns metadata in
+the requested order and one timestamp-sorted Polars DataFrame. It does not
+apply optimizer filters or select a high- or low-fidelity model.
 
-## Build & test
+The canonical measurement columns are:
+
+```text
+timestamp, contact_id, spacecraft_id, system_id, antenna_name,
+tracking_epoch_offset_s, azimuth_deg, elevation_deg, carrier_lock,
+ebn0, doppler_hz
+```
+
+For callers of the shared forward-model interface,
+`dart.io.load_forward_context` converts this result into a
+`ForwardModelContext` using explicit center-frequency and Doppler-variance
+arguments.
+
+## Forward models
+
+`dart.forward_models` exposes the authoritative Rust SGP4 and Cartesian
+full-state Doppler models to Python. Both return whitened residual and Jacobian
+NumPy arrays that can be passed directly to SciPy `least_squares` or consumed
+by another estimator. See [Forward models](docs/forward-models.md) for the
+equations, parameter ordering, units, examples, and test strategy.
+
+## Orbit determination
+
+`dart.od.fit` runs bounded SciPy least squares around the Rust SGP4 or
+Cartesian full-state evaluator. A full-state fit can use a supplied GCRF prior
+or derive one from the selected source TLE. See [Orbit determination](docs/orbit-determination.md)
+for the input contract, fallback behavior, and canonical parameters.
+
+## Provider modules
+
+The complete API and use-case reference is in [DART IO](docs/io.md).
+
+- `dart.io.kogs`: KOGS authentication, typed reads, contact metadata, and
+  guarded scheduling mutations.
+- `dart.io.adx`: ADX clients, bounded raw queries, and canonical measurements.
+- `dart.io.orbital`: fail-closed absolute time-offset writes.
+- `dart.io.ctrl_config`: read-only ctrl-config access.
+- `dart.io.meos`: reviewed calibration data pending a live MEOS integration.
+- `dart.io.parquet`: canonical replay of recorded ADX measurements.
+- `dart.io.load`: asynchronous multi-provider workflows.
+
+Credentials are loaded only through provider helpers and are passed explicitly
+to orchestration functions. They are never stored in returned metadata.
+
+## Development
 
 ```bash
-uv sync                                   # installs deps + builds the Rust extension
-uv run pytest                             # python tests
-cargo test --manifest-path crates/dart_solver/Cargo.toml   # rust contract tests
+uv sync
+uv run pytest
+uv run ruff check dart/io tests
+uv run ty check dart/io
+cargo test --manifest-path crates/forward-models/Cargo.toml
 ```
 
-If the installed Rust extension predates these cache keys, rebuild it once with
-`uv sync --reinstall-package dart`. Subsequent `uv run` commands automatically
-rebuild the extension when the Rust manifest, lockfile, or sources change.
+See [the suite architecture](docs/dart-suite-architecture.md) for the target
+module boundaries. TDM, service, and control consumers are retained as
+migration work and are not part of the current IO/OD contracts.
 
 ## GPS orbit fitting and CCSDS OEM
 
@@ -69,3 +99,6 @@ GMAT over May 3–5, 2026 (noon UTC endpoints). It produces one-minute EME2000 O
 and independent withheld-GPS validation reports. See
 [the GMAT workflow](scripts/gmat/README.md) for runtime installation, preparation,
 resuming interrupted runs, and the output quality gates.
+
+The recorded FOREST-16 through FOREST-19 OEMs and their quality reports are in
+[the May 2026 results](reports/forest-gps/20260504/README.md).

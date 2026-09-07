@@ -1,0 +1,56 @@
+{
+  "release": "R2026a",
+  "files": {
+    "console": {
+      "path": ".tools/GMAT/R2026a/bin/GmatConsole-R2026a",
+      "sha256": "f7cf5b3188902353ed4245bb21c22c1afa0451efdd221b7e19f6a74dc7ed1d93"
+    },
+    "estimation_plugin": {
+      "path": ".tools/GMAT/R2026a/plugins/libGmatEstimation.so.R2026a",
+      "sha256": "7ad68d054db6acef3f6809f73e77b7e76e7952fa3bba2b27a0b0e2ca75be25ab"
+    },
+    "gravity": {
+      "path": ".tools/GMAT/R2026a/data/gravity/earth/JGM3.cof",
+      "sha256": "299b9ca1d8e8f1600fe7d4f341793f060724f6cbc4db969a39020b4ba3d5b379"
+    },
+    "space_weather": {
+      "path": ".tools/GMAT/R2026a/data/atmosphere/earth/SpaceWeather-All-v1.2.txt",
+      "sha256": "9993c1df41ab53481ace559ef3b3bc17149bca4d782bd2d920afd94ff527a15d"
+    },
+    "earth_orientation": {
+      "path": ".tools/GMAT/R2026a/data/planetary_coeff/eopc04_08.62-now",
+      "sha256": "52c95d6871066e892463328424ca34f5e9cedde92c747465a40f7cd0ecd86ed3"
+    },
+    "leap_seconds": {
+      "path": ".tools/GMAT/R2026a/data/time/tai-utc.dat",
+      "sha256": "3524e1ae34d67e858873a89e59983bbc5bd100221da898e796c1b36036a310c3"
+    },
+    "planetary_ephemeris": {
+      "path": ".tools/GMAT/R2026a/data/planetary_ephem/de/leDE1941.405",
+      "sha256": "f8695149bc54be449788f4d6007d1f6a7053f5be16eae60229dc89c661f6fe4d"
+    },
+    "nutation": {
+      "path": ".tools/GMAT/R2026a/data/planetary_coeff/NUTATION.DAT",
+      "sha256": "633423d201aaed4cf4bf49427f85c5c3ed0e6c6f394f68d5c369dac673e31566"
+    }
+  },
+  "config": {
+    "satellite": "FOREST-17",
+    "start": 1777809600.0,
+    "stop": 1777982400.0,
+    "cadence": 60,
+    "target_rms_m": 100
+  },
+  "input_rows": 5725,
+  "observations": 1937,
+  "withheld": 310,
+  "input_files": {
+    "FOREST-17-BESTXYZ-position.csv": "1ddf8281461869ed98e25161b3afc210889e51a021ed7d37c1302b407b8cf157",
+    "FOREST-17-BESTXYZ-time.csv": "ae6e61dedf053b2eddb4cedc6d6408c3d70f2695a803260750a51ef2e9948817",
+    "FOREST-17-BESTXYZ-velocity.csv": "fe433abb921a301f6fc9858a6282e98342739e4835b5ffec3e0fdefb5c9f4312"
+  },
+  "prepared_files": {
+    "observations.npz": "c9752425ac0bb0b5ac48e18d4a91083169f5b7d195aa335a17ee6c6fc8aefdfe",
+    "rejected.json": "13b551c16e7e26ac9665e90e348a8f2d2aacd1f97d0a9342372a844aa1df9471"
+  }
+}

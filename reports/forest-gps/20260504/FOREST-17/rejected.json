@@ -1,0 +1,177 @@
+[
+  {
+    "line": 268,
+    "packet_ms": "1777826031420",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 270,
+    "packet_ms": "1777826726438",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 291,
+    "packet_ms": "1777828174542",
+    "reason": "packet_latency"
+  },
+  {
+    "line": 354,
+    "packet_ms": "1777835228554",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 428,
+    "packet_ms": "1777841092624",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 453,
+    "packet_ms": "1777842909656",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 454,
+    "packet_ms": "1777843002641",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 455,
+    "packet_ms": "1777843011646",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 567,
+    "packet_ms": "1777852131770",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 598,
+    "packet_ms": "1777854111799",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 607,
+    "packet_ms": "1777855124802",
+    "reason": "orbital_radius"
+  },
+  {
+    "line": 679,
+    "packet_ms": "1777860128165",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 750,
+    "packet_ms": "1777865006226",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 875,
+    "packet_ms": "1777875131890",
+    "reason": "packet_latency"
+  },
+  {
+    "line": 900,
+    "packet_ms": "1777877901475",
+    "reason": "packet_latency"
+  },
+  {
+    "line": 1184,
+    "packet_ms": "1777914362522",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1249,
+    "packet_ms": "1777919300169",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1250,
+    "packet_ms": "1777919301172",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1256,
+    "packet_ms": "1777919662174",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1337,
+    "packet_ms": "1777926638558",
+    "reason": "packet_latency"
+  },
+  {
+    "line": 1352,
+    "packet_ms": "1777931842334",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1419,
+    "packet_ms": "1777936573382",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1497,
+    "packet_ms": "1777942581476",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1583,
+    "packet_ms": "1777949961561",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1620,
+    "packet_ms": "1777952421590",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1621,
+    "packet_ms": "1777952707604",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1623,
+    "packet_ms": "1777952942601",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1651,
+    "packet_ms": "1777955024629",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1775,
+    "packet_ms": "1777965482769",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1776,
+    "packet_ms": "1777965503767",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1796,
+    "packet_ms": "1777970579823",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1797,
+    "packet_ms": "1777970601823",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1815,
+    "packet_ms": "1777971721839",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1969,
+    "packet_ms": "1777982209230",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 3282,
+    "packet_ms": "1778088903253",
+    "reason": "missing_receiver_epoch"
+  }
+]

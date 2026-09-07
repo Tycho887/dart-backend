@@ -1,27 +1,43 @@
 [project]
 name = "dart"
-version = "0.1.0"
+version = "0.9.0"
 description = "Orbit determination engine: Python loaders -> Rust solver -> CCSDS TDM"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "azure-kusto-data>=6.0.4",
+    "fastapi>=0.116.0",
     "msgpack>=1.2.1",
     "numpy>=2.5.2",
     "polars>=1.43.2",
+    "prometheus-client>=0.22.0",
+    "psycopg[binary,pool]>=3.2.9",
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
+    "pyyaml>=6.0.2",
     "requests>=2.34.2",
     "satkit>=0.20.2",
+    "scipy>=1.18.0",
+    "uvicorn>=0.35.0",
     "uuid>=1.30",
 ]
 
+[project.scripts]
+dart-api = "dart.service.cli:api"
+dart-migrate = "dart.service.cli:migrate"
+dart-worker = "dart.service.cli:worker"
+
 [dependency-groups]
 dev = [
+    "httpx2>=0.1.0",
+    "matplotlib>=3.11.1",
     "maturin>=1.14.1",
     "pandas>=2.2",
     "pyarrow>=16",
     "pytest>=8",
+    "pytest-timeout>=2.4.0",
+    "ruff>=0.12.0",
+    "ty>=0.0.1",
 ]
 
 [build-system]
@@ -31,16 +47,29 @@ build-backend = "maturin"
 [tool.uv]
 cache-keys = [
     { file = "pyproject.toml" },
-    { file = "crates/dart_solver/Cargo.toml" },
-    { file = "crates/dart_solver/Cargo.lock" },
-    { file = "crates/dart_solver/src/**/*.rs" },
+    { file = "crates/forward-models/Cargo.toml" },
+    { file = "crates/forward-models/Cargo.lock" },
+    { file = "crates/forward-models/src/**/*.rs" },
 ]
 
 [tool.maturin]
-manifest-path = "crates/dart_solver/Cargo.toml"
-module-name = "dart_solver"
-features = ["pyo3/extension-module"]
+manifest-path = "crates/forward-models/Cargo.toml"
+module-name = "dart._forward_models"
+python-packages = ["dart"]
+features = ["extension-module"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.ruff.lint]
+# Keep the release gate focused on correctness, syntax, and import hygiene.
+# More opinionated rules can be adopted incrementally without blocking 0.9 on
+# unrelated legacy cleanup.
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# These modules deliberately check for the optional Rust extension before
+# importing code that depends on it.
+"tests/test_solver_e2e.py" = ["E402"]
+"tests/test_transport.py" = ["E402"]

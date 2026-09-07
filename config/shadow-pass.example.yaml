@@ -1,0 +1,15 @@
+# Copy to a deployment-owned path and review every identity before execution.
+target_antenna_id: "REQUIRED-SYSTEM-UUID"
+station_ids:
+  - "REQUIRED-STATION-UUID"
+mission_profile_id: "REQUIRED-MISSION-PROFILE-UUID"
+minimum_lead_s: 600
+search_window_s: 86400
+minimum_tracking_s: 120
+setup_margin_s: 60
+teardown_margin_s: 60
+request_timeout_s: 30
+audit_path: "var/shadow-pass-audit.jsonl"
+kogs_base_url: "https://mgmt.kogs.api.ksat.no/24.08"
+# Set true only after verifying the current booking, assignment, and cancel API.
+kogs_mutation_contract_confirmed: false

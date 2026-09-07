@@ -2,13 +2,23 @@
 
 The Python runner prepares native GMAT `GPS_PosVec` observations and readable
 GMAT scripts, runs batch orbit determination, and exports CCSDS OEM ephemerides.
-It does not require a Python GMAT binding. The existing Rust solver is unchanged.
+It does not require a Python GMAT binding. GMAT owns this experiment's numerical
+propagation and estimation; Python handles input normalization and orchestration.
+The BESTXYZ provider is `dart.io.gps`, the GMAT adapter is `dart.gmat`, and the
+restricted OEM reader/validator is `dart.oem`. Previous `dart.loaders.gps` and
+`dart.io.oem` imports remain available as compatibility aliases.
 
 ```bash
 uv run python scripts/smooth_gps.py prepare
 uv run python scripts/smooth_gps.py run
 uv run python scripts/smooth_gps.py validate
 ```
+
+The [May 4 results snapshot](../../reports/forest-gps/20260504/README.md) contains
+accepted products for FOREST-16 through 18 and a candidate for FOREST-19, which
+misses the 100 m target. For that default dataset, both `run` and an unfiltered
+`validate` return nonzero. Use `validate --satellites 16 17 18` to check the
+accepted products only.
 
 `run` also prepares missing runs and resumes completed estimation checkpoints.
 Satellites run sequentially. Use a new `--output-dir` when changing settings or

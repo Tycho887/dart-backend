@@ -25,6 +25,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+ctrl-config/
 
 # PyInstaller
 #   Usually these files are written by a python script from a template
@@ -222,3 +223,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Offline Monte Carlo runs include archived numerical data and native binaries.
+experiments/results/

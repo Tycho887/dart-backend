@@ -1,393 +1,584 @@
-"""KOGS API client and payload parsers (ported from lib/IO/kogs.py).
+"""Typed access to the KOGS management API.
 
-Each ``get_*`` hits a KOGS endpoint and returns the raw JSON payload; each
-``parse_*`` normalizes a payload into a dataclass of strings/floats. The
-loaders combine both into ``dart.schema`` transport structs.
+This module alone formats KOGS credentials and understands KOGS payloads.
 """
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import re
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Any, Protocol, Sequence
+
 import requests
-from dart.io.utils import _safe_float, _safe_str, _join_field, _join_list, _iso_to_unix
+import satkit as sk
 
-def generate_auth_header(auth: str) -> dict:
-    return {
-        'Authorization': auth,
-        'Accept': 'application/json'
-    }
+from .contact import ContactMetadata, EphemerisMetadata
 
-def validate(resp: requests.Response) -> dict:
-    """Raises HTTP Errors, if one occured. Otherwise, data is returned"""
-    resp.raise_for_status()
-    return resp.json()
+KOGS_BASE_URL = "https://mgmt.kogs.api.ksat.no/24.08"
+KOGS_REQUEST_TIMEOUT_SECONDS = 30.0
+_AUTH_PREFIX = "KSAT1-PLAIN "
 
-def get_contact(auth: str, contact_id: str) -> dict:
-    """https://ksat.stoplight.io/docs/internal-apis-1/b8a89c7f20ff1-get-contact"""
-    url = f'https://mgmt.kogs.api.ksat.no/24.08/contacts/{contact_id}'
-    return validate(requests.get(url, headers=generate_auth_header(auth)))
 
-def get_spacecraft(auth: str, spacecraft_id: str) -> dict:
-    """https://ksat.stoplight.io/docs/internal-apis-1/70211f511b112-get-spacecraft"""
-    url = f'https://mgmt.kogs.api.ksat.no/24.08/spacecrafts/{spacecraft_id}'
-    return validate(requests.get(url, headers=generate_auth_header(auth)))
+class KogsError(RuntimeError):
+    """KOGS returned invalid data or an unsafe operation was requested."""
 
-def get_station(auth: str, station_id: str) -> dict:
-    """https://ksat.stoplight.io/docs/internal-apis-1/cac2d50049631-get-station"""
-    url = f'https://mgmt.kogs.api.ksat.no/24.08/stations/{station_id}'
-    return validate(requests.get(url, headers=generate_auth_header(auth)))
 
-def get_antenna(auth: str, system_id: str) -> dict:
-    """https://ksat.stoplight.io/docs/internal-apis-1/0c3a140c61f03-find-system-antenna"""
-    url = f'https://mgmt.kogs.api.ksat.no/24.08/systems/antennas/{system_id}'
-    return validate(requests.get(url, headers=generate_auth_header(auth)))
+@dataclass(frozen=True, slots=True)
+class Contact:
+    id: str
+    spacecraft_id: str
+    system_id: str
+    station_id: str
+    mission_profile_id: str
+    ephemeris_id: str
+    start: dt.datetime
+    end: dt.datetime
+    state: str
+    external_ref: str = ""
 
-def get_TLE(auth: str, ephemeris_id: str) -> dict:
-    """https://ksat.stoplight.io/docs/internal-apis-1/294893d364844-locate-ephemeris-entry"""
-    url = f"https://mgmt.kogs.api.ksat.no/24.08/ephemeris/{ephemeris_id}"
-    return validate(requests.get(url, headers=generate_auth_header(auth)))
+    @property
+    def duration_s(self) -> float:
+        return (self.end - self.start).total_seconds()
 
-def get_ephemeris(auth: str, ephemeris_id: str) -> dict:
-    """https://ksat.stoplight.io/docs/internal-apis-1/831bff601c741-fetch-known-ephemeris"""
-    url = f"https://mgmt.kogs.api.ksat.no/24.08/ephemeris/{ephemeris_id}"
-    return validate(requests.get(url, headers=generate_auth_header(auth)))
 
-@dataclass
-class AntennaData:
-    antenna_id: Optional[str]
-    antenna_name: Optional[str]
-    station_id: Optional[str]
-    station_name: Optional[str]
-    latitude: Optional[float]
-    longitude: Optional[float]
-    altitude: Optional[float]
-    setup_duration: Optional[float]
-    teardown_duration: Optional[float]
-    operator_id: Optional[str]
-    ops_unit_id: Optional[str]
-    ops_unit_name: Optional[str]
-    lifecycle_state: Optional[str]
-    diameter: Optional[float]
-    bands_types: Optional[str]
-    bands_directions: Optional[str]
-    bands_polarizations: Optional[str]
-    partner: Optional[str]
+@dataclass(frozen=True, slots=True)
+class Antenna:
+    id: str
+    name: str
+    station_id: str
+    station_name: str
+    latitude: float
+    longitude: float
+    altitude: float
+    bands: tuple[str, ...]
 
-@dataclass
-class EphemerisData:
-    ephemeris_uuid: Optional[str]
-    spacecraft_uuid: Optional[str]
-    kind: Optional[str]
-    origin: Optional[str]
-    tenant_uuid: Optional[str]
-    epoch: Optional[str]
-    epoch_unix: Optional[float]
-    last_useable_at: Optional[str]
-    last_useable_at_unix: Optional[float]
-    submitted_at: Optional[str]
-    submitted_at_unix: Optional[float]
-    submitted_by: Optional[str]
-    inline_tle: Optional[str]
-    inline_omm: Optional[str]
-    inline_oem: Optional[str]
-    is_cui: Optional[str]
-    payload: Optional[str]
 
-@dataclass
-class SatelliteData:
-    id: Optional[str]
-    name: Optional[str]
-    satellite_catalog_number: Optional[float]
-    catalog_number_assignment: Optional[str]
-    lifecycle_state: Optional[str]
-    kind: Optional[str]
-    orbit: Optional[str]
-    norad_id: Optional[float]
+@dataclass(frozen=True, slots=True)
+class Spacecraft:
+    id: str
+    name: str
+    catalog: str
 
-@dataclass
-class ReservationData:
-    id: Optional[str]
-    state: Optional[str]
-    criticality: Optional[str]
-    signature_outcome: Optional[str]
-    signature_comment: Optional[str]
-    signature_contains_human_override: Optional[str]
-    signature_last_impacting_principal_kind: Optional[str]
-    created_at: Optional[str]
-    created_at_unix: Optional[float]
-    updated_at: Optional[str]
-    updated_at_unix: Optional[float]
-    setup_duration: Optional[float]
-    teardown_duration: Optional[float]
-    ephemeris_mode: Optional[str]
-    mission_profile_id: Optional[str]
-    spacecraft_id: Optional[str]
-    system_id: Optional[str]
-    station_id: Optional[str]
-    tenant_id: Optional[str]
-    start_time: Optional[str]
-    start_time_unix: Optional[float]
-    end_time: Optional[str]
-    end_time_unix: Optional[float]
-    reservation_id: Optional[str]
-    ephemeris_id: Optional[str]
-    external_ref: Optional[str]
-    properties_is_test: Optional[str]
-    properties_is_internal: Optional[str]
-    properties_cfes: Optional[str]
 
-def parse_response(resp: Dict[str, Any]) -> AntennaData:
-    antenna = resp.get("antenna", {}) or {}
-    expanded = resp.get("expanded", {}) or {}
+@dataclass(frozen=True, slots=True)
+class GroundStation:
+    id: str
+    name: str
+    latitude: float
+    longitude: float
+    altitude: float
 
-    # Basic antenna fields
-    antenna_id = _safe_str(antenna.get("id"))
-    antenna_name = _safe_str(antenna.get("name"))
-    station_id = _safe_str(antenna.get("station"))
-    operator_id = _safe_str(antenna.get("operator"))
-    ops_unit_id = _safe_str(antenna.get("ops_unit"))
-    lifecycle_state = _safe_str(antenna.get("lifecycle_state"))
-    diameter = _safe_float(antenna.get("diameter"))
-    setup_duration = _safe_float(antenna.get("setup_duration"))
-    teardown_duration = _safe_float(antenna.get("teardown_duration"))
-    partner = _safe_str(antenna.get("partner"))
 
-    # Location from antenna.location if present, otherwise try station location
-    lat = _safe_float(None)
-    lon = _safe_float(None)
-    alt = _safe_float(None)
-    ant_loc = antenna.get("location")
-    if isinstance(ant_loc, dict):
-        lat = _safe_float(ant_loc.get("latitude"))
-        lon = _safe_float(ant_loc.get("longitude"))
-        alt = _safe_float(ant_loc.get("altitude"))
+class BookingPlan(Protocol):
+    source: Contact
+    target_antenna_id: str
+    mission_profile_id: str
+    identity: str
 
-    # Find station name by matching id in expanded.stations
-    station_name = None
-    stations = expanded.get("stations") or []
-    if station_id and isinstance(stations, list):
-        for s in stations:
-            if _safe_str(s.get("id")) == station_id:
-                station_name = _safe_str(s.get("name"))
-                # if antenna location missing, use station location
-                if lat is None and isinstance(s.get("location"), dict):
-                    lat = _safe_float(s["location"].get("latitude"))
-                    lon = _safe_float(s["location"].get("longitude"))
-                    alt = _safe_float(s["location"].get("altitude"))
-                break
-    # fallback: if expanded.stations has at least one entry and no match, take first name
-    if station_name is None and stations:
-        first = stations[0]
-        station_name = _safe_str(first.get("name"))
 
-    # Find ops unit name by matching id in expanded.ops_units
-    ops_unit_name = None
-    ops_units = expanded.get("ops_units") or []
-    if ops_unit_id and isinstance(ops_units, list):
-        for o in ops_units:
-            if _safe_str(o.get("id")) == ops_unit_id:
-                ops_unit_name = _safe_str(o.get("name"))
-                break
-    if ops_unit_name is None and ops_units:
-        ops_unit_name = _safe_str(ops_units[0].get("name"))
+def api_key_from_env(variable: str = "KOGS_API_KEY") -> str:
+    """Load and validate the KOGS API key from one environment variable."""
 
-    # Bands: flatten into comma-separated strings
-    bands = antenna.get("bands") or []
-    bands_types = _join_field(bands, "type")
-    bands_directions = _join_field(bands, "direction")
-    bands_polarizations = _join_field(bands, "polarization")
+    value = os.getenv(variable, "")
+    if not value:
+        raise ValueError(f"{variable} is not configured")
+    _authorization(value)
+    return value
 
-    return AntennaData(
-        antenna_id=antenna_id,
-        antenna_name=antenna_name,
+
+def _authorization(api_key: str) -> str:
+    if not isinstance(api_key, str):
+        raise TypeError("KOGS API key must be a string")
+    if api_key != api_key.strip():
+        raise ValueError("KOGS API key must not contain surrounding whitespace")
+    if api_key.startswith(_AUTH_PREFIX):
+        token = api_key.removeprefix(_AUTH_PREFIX)
+    elif any(character.isspace() for character in api_key):
+        raise ValueError("unsupported KOGS authorization scheme")
+    else:
+        token = api_key
+    if not token or any(character.isspace() for character in token):
+        raise ValueError("KOGS API key must be one non-whitespace token")
+    if len(token) != 40:
+        raise ValueError("KOGS API key must contain exactly 40 characters")
+    if not token.isascii() or not token.isprintable():
+        raise ValueError("KOGS API key must contain printable ASCII characters")
+    return f"{_AUTH_PREFIX}{token}"
+
+
+def headers(api_key: str, *, json_content: bool = False) -> dict[str, str]:
+    result = {"Authorization": _authorization(api_key), "Accept": "application/json"}
+    if json_content:
+        result["Content-Type"] = "application/json"
+    return result
+
+
+def _request(
+    method: str,
+    path: str,
+    api_key: str,
+    *,
+    base_url: str = KOGS_BASE_URL,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+    params: dict[str, Any] | None = None,
+    json_body: dict[str, object] | None = None,
+) -> dict:
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    response = requests.request(
+        method,
+        f"{base_url.rstrip('/')}/{path.lstrip('/')}",
+        headers=headers(api_key, json_content=json_body is not None),
+        timeout=timeout_seconds,
+        params=params,
+        json=json_body,
+    )
+    response.raise_for_status()
+    try:
+        payload = response.json()
+    except requests.JSONDecodeError as exc:
+        raise KogsError("KOGS returned malformed JSON") from exc
+    if not isinstance(payload, dict):
+        raise KogsError("KOGS response must be an object")
+    return payload
+
+
+def _unwrap(payload: object, key: str) -> dict:
+    if not isinstance(payload, dict):
+        raise KogsError(f"KOGS {key} response is not an object")
+    value = payload.get(key, payload)
+    if not isinstance(value, dict):
+        raise KogsError(f"KOGS {key} response contains no {key}")
+    return value
+
+
+def _text(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+def _required_text(value: object, field: str) -> str:
+    result = _text(value)
+    if not result:
+        raise KogsError(f"KOGS response is missing {field}")
+    return result
+
+
+def _number(value: object, field: str) -> float:
+    try:
+        return float(str(value))
+    except (TypeError, ValueError) as exc:
+        raise KogsError(f"KOGS response has invalid {field}") from exc
+
+
+def _time(value: object, field: str, *, required: bool = True) -> dt.datetime | None:
+    if value is None and not required:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise KogsError(f"KOGS response has invalid {field}") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        parsed = parsed.replace(tzinfo=dt.UTC)
+    return parsed.astimezone(dt.UTC)
+
+
+def _contact(payload: object) -> Contact:
+    value = _unwrap(payload, "contact")
+    start = _time(value.get("start_time"), "start_time")
+    end = _time(value.get("end_time"), "end_time")
+    assert start is not None and end is not None
+    if end <= start:
+        raise KogsError("KOGS contact stop must be later than its start")
+    return Contact(
+        id=_required_text(value.get("id"), "contact id"),
+        spacecraft_id=_required_text(value.get("spacecraft_id"), "spacecraft_id"),
+        system_id=_required_text(value.get("system_id"), "system_id"),
+        station_id=_required_text(value.get("station_id"), "station_id"),
+        mission_profile_id=_text(value.get("mission_profile_id")) or "",
+        ephemeris_id=_required_text(value.get("ephemeris_id"), "ephemeris_id"),
+        start=start,
+        end=end,
+        state=_text(value.get("state")) or "",
+        external_ref=_text(value.get("external_ref")) or "",
+    )
+
+
+def _antenna(payload: object) -> Antenna:
+    value = _unwrap(payload, "antenna")
+    expanded = payload.get("expanded", {}) if isinstance(payload, dict) else {}
+    station_id = _required_text(value.get("station"), "antenna station")
+    station_name = "UNKNOWN"
+    location = value.get("location")
+    stations = expanded.get("stations", []) if isinstance(expanded, dict) else []
+    if not isinstance(location, dict):
+        location = {}
+    for station in stations if isinstance(stations, list) else []:
+        if isinstance(station, dict) and str(station.get("id")) == station_id:
+            station_name = _text(station.get("name")) or station_name
+            if not location and isinstance(station.get("location"), dict):
+                location = station["location"]
+            break
+    bands = value.get("bands", [])
+    band_names = tuple(
+        str(item["type"])
+        for item in bands
+        if isinstance(bands, list) and isinstance(item, dict) and item.get("type")
+    )
+    return Antenna(
+        id=_required_text(value.get("id"), "antenna id"),
+        name=_required_text(value.get("name"), "antenna name"),
         station_id=station_id,
         station_name=station_name,
-        latitude=lat,
-        longitude=lon,
-        altitude=alt,
-        setup_duration=setup_duration,
-        teardown_duration=teardown_duration,
-        operator_id=operator_id,
-        ops_unit_id=ops_unit_id,
-        ops_unit_name=ops_unit_name,
-        lifecycle_state=lifecycle_state,
-        diameter=diameter,
-        bands_types=bands_types,
-        bands_directions=bands_directions,
-        bands_polarizations=bands_polarizations,
-        partner=_safe_str(partner),
+        latitude=_number(location.get("latitude"), "antenna latitude"),
+        longitude=_number(location.get("longitude"), "antenna longitude"),
+        altitude=_number(location.get("altitude"), "antenna altitude"),
+        bands=band_names,
     )
 
 
-def parse_ephemeris(resp: Dict[str, Any]) -> EphemerisData:
-    # top-level simple fields
-    ephemeris_uuid = _safe_str(resp.get("ephemeris_uuid"))
-    spacecraft_uuid = _safe_str(resp.get("spacecraft_uuid"))
-    kind = _safe_str(resp.get("kind"))
-    origin = _safe_str(resp.get("origin"))
-    tenant_uuid = _safe_str(resp.get("tenant_uuid"))
-
-    # timestamps (keep original string and also provide unix float)
-    epoch = _safe_str(resp.get("epoch"))
-    epoch_unix = _iso_to_unix(epoch)
-
-    last_useable_at = _safe_str(resp.get("last_useable_at"))
-    last_useable_at_unix = _iso_to_unix(last_useable_at)
-
-    submitted_at = _safe_str(resp.get("submitted_at"))
-    submitted_at_unix = _iso_to_unix(submitted_at)
-
-    submitted_by = _safe_str(resp.get("submitted_by"))
-
-    # inline block (tle/omm/oem) — keep as strings
-    inline = resp.get("inline") or {}
-    inline_tle = _safe_str(inline.get("tle"))
-    inline_omm = _safe_str(inline.get("omm"))
-    inline_oem = _safe_str(inline.get("oem"))
-
-    # boolean -> string (to satisfy "str or float" requirement)
-    is_cui = _safe_str(resp.get("is_cui"))
-
-    # payload: if it's a dict/complex, stringify it; otherwise keep string/None
-    payload_raw = resp.get("payload")
-    if payload_raw is None:
-        payload = None
-    elif isinstance(payload_raw, (str, int, float, bool)):
-        payload = _safe_str(payload_raw)
-    else:
-        # convert complex payload to compact JSON-like string
-        try:
-            import json
-            payload = json.dumps(payload_raw, separators=(",", ":"), ensure_ascii=False)
-        except Exception:
-            payload = _safe_str(payload_raw)
-
-    return EphemerisData(
-        ephemeris_uuid=ephemeris_uuid,
-        spacecraft_uuid=spacecraft_uuid,
-        kind=kind,
-        origin=origin,
-        tenant_uuid=tenant_uuid,
-        epoch=epoch,
-        epoch_unix=epoch_unix,
-        last_useable_at=last_useable_at,
-        last_useable_at_unix=last_useable_at_unix,
-        submitted_at=submitted_at,
-        submitted_at_unix=submitted_at_unix,
-        submitted_by=submitted_by,
-        inline_tle=inline_tle,
-        inline_omm=inline_omm,
-        inline_oem=inline_oem,
-        is_cui=is_cui,
-        payload=payload,
+def _spacecraft(payload: object) -> Spacecraft:
+    value = _unwrap(payload, "spacecraft")
+    raw_catalog = value.get("satellite_catalog_number") or value.get("norad_id")
+    catalog_number = _number(raw_catalog, "spacecraft catalog ID")
+    if not catalog_number.is_integer():
+        raise KogsError("KOGS spacecraft catalog ID must be integral")
+    catalog = str(int(catalog_number))
+    if len(catalog) < 5:
+        catalog = catalog.zfill(5)
+    if len(catalog) not in {5, 9}:
+        raise KogsError("KOGS catalog ID must contain 5 or 9 digits")
+    return Spacecraft(
+        id=_required_text(value.get("id"), "spacecraft id"),
+        name=_required_text(value.get("name"), "spacecraft name"),
+        catalog=catalog,
     )
 
-def parse_satellite(resp: Dict[str, Any]) -> SatelliteData:
-    """
-    Parse a satellite API response dict into SatelliteData.
-    All numeric-like fields are converted to float when possible.
-    """
-    if not isinstance(resp, dict):
-        raise TypeError("resp must be a dict")
 
-    sid = _safe_str(resp.get("id"))
-    name = _safe_str(resp.get("name"))
-
-    # numeric fields: try to coerce to float
-    sat_cat_num = _safe_float(resp.get("satellite_catalog_number"))
-    norad = _safe_float(resp.get("norad_id"))
-
-    catalog_assignment = _safe_str(resp.get("catalog_number_assignment"))
-    lifecycle_state = _safe_str(resp.get("lifecycle_state"))
-    kind = _safe_str(resp.get("kind"))
-    orbit = _safe_str(resp.get("orbit"))
-
-    return SatelliteData(
-        id=sid,
-        name=name,
-        satellite_catalog_number=sat_cat_num,
-        catalog_number_assignment=catalog_assignment,
-        lifecycle_state=lifecycle_state,
-        kind=kind,
-        orbit=orbit,
-        norad_id=norad,
+def _station(payload: object) -> GroundStation:
+    value = _unwrap(payload, "station")
+    location = value.get("location")
+    if not isinstance(location, dict):
+        raise KogsError("KOGS station has no location")
+    return GroundStation(
+        id=_required_text(value.get("id"), "station id"),
+        name=_required_text(value.get("name"), "station name"),
+        latitude=_number(location.get("latitude"), "station latitude"),
+        longitude=_number(location.get("longitude"), "station longitude"),
+        altitude=_number(location.get("altitude"), "station altitude"),
     )
 
-def parse_reservation(resp: Dict[str, Any]) -> ReservationData:
-    if not isinstance(resp, dict):
-        raise TypeError("resp must be a dict")
 
-    rid = _safe_str(resp.get("id"))
-    state = _safe_str(resp.get("state"))
-    criticality = _safe_str(resp.get("criticality"))
-
-    signature = resp.get("signature") or {}
-    sig_outcome = _safe_str(signature.get("outcome"))
-    sig_comment = _safe_str(signature.get("comment"))
-    sig_contains_human_override = _safe_str(signature.get("contains_human_override"))
-    sig_last_kind = _safe_str(signature.get("last_impacting_principal_kind"))
-
-    created_at = _safe_str(resp.get("created_at"))
-    created_at_unix = _iso_to_unix(created_at)
-
-    updated_at = _safe_str(resp.get("updated_at"))
-    updated_at_unix = _iso_to_unix(updated_at)
-
-    setup_duration = _safe_float(resp.get("setup_duration"))
-    teardown_duration = _safe_float(resp.get("teardown_duration"))
-
-    ephemeris_props = resp.get("ephemeris_properties") or {}
-    ephemeris_mode = _safe_str(ephemeris_props.get("ephemeris_mode"))
-
-    mission_profile_id = _safe_str(resp.get("mission_profile_id"))
-    spacecraft_id = _safe_str(resp.get("spacecraft_id"))
-    system_id = _safe_str(resp.get("system_id"))
-    station_id = _safe_str(resp.get("station_id"))
-    tenant_id = _safe_str(resp.get("tenant_id"))
-
-    start_time = _safe_str(resp.get("start_time"))
-    start_time_unix = _iso_to_unix(start_time)
-
-    end_time = _safe_str(resp.get("end_time"))
-    end_time_unix = _iso_to_unix(end_time)
-
-    reservation_id = _safe_str(resp.get("reservation_id"))
-    ephemeris_id = _safe_str(resp.get("ephemeris_id"))
-    external_ref = _safe_str(resp.get("external_ref"))
-
-    properties = resp.get("properties") or {}
-    prop_is_test = _safe_str(properties.get("is_test"))
-    prop_is_internal = _safe_str(properties.get("is_internal"))
-    prop_cfes = _join_list(properties.get("cfes"))
-
-    data = ReservationData(
-        id=rid,
-        state=state,
-        criticality=criticality,
-        signature_outcome=sig_outcome,
-        signature_comment=sig_comment,
-        signature_contains_human_override=sig_contains_human_override,
-        signature_last_impacting_principal_kind=sig_last_kind,
-        created_at=created_at,
-        created_at_unix=created_at_unix,
-        updated_at=updated_at,
-        updated_at_unix=updated_at_unix,
-        setup_duration=setup_duration,
-        teardown_duration=teardown_duration,
-        ephemeris_mode=ephemeris_mode,
-        mission_profile_id=mission_profile_id,
-        spacecraft_id=spacecraft_id,
-        system_id=system_id,
-        station_id=station_id,
-        tenant_id=tenant_id,
-        start_time=start_time,
-        start_time_unix=start_time_unix,
-        end_time=end_time,
-        end_time_unix=end_time_unix,
-        reservation_id=reservation_id,
-        ephemeris_id=ephemeris_id,
-        external_ref=external_ref,
-        properties_is_test=prop_is_test,
-        properties_is_internal=prop_is_internal,
-        properties_cfes=prop_cfes,
+def _ephemeris(payload: object) -> EphemerisMetadata:
+    value = _unwrap(payload, "ephemeris")
+    inline = value.get("inline") or {}
+    if not isinstance(inline, dict):
+        raise KogsError("KOGS ephemeris inline field must be an object")
+    raw_payload = value.get("payload")
+    serialized_payload = None
+    if raw_payload is not None:
+        serialized_payload = (
+            raw_payload
+            if isinstance(raw_payload, str)
+            else json.dumps(raw_payload, separators=(",", ":"), ensure_ascii=False)
+        )
+    is_cui = value.get("is_cui")
+    return EphemerisMetadata(
+        ephemeris_id=_required_text(
+            value.get("ephemeris_uuid") or value.get("id"), "ephemeris id"
+        ),
+        spacecraft_id=_required_text(
+            value.get("spacecraft_uuid"), "ephemeris spacecraft"
+        ),
+        kind=_text(value.get("kind")) or "",
+        origin=_text(value.get("origin")),
+        tenant_id=_text(value.get("tenant_uuid")),
+        epoch=_time(value.get("epoch"), "ephemeris epoch", required=False),
+        last_usable_at=_time(
+            value.get("last_useable_at"), "last_useable_at", required=False
+        ),
+        submitted_at=_time(value.get("submitted_at"), "submitted_at", required=False),
+        submitted_by=_text(value.get("submitted_by")),
+        tle=_text(inline.get("tle")),
+        omm=_text(inline.get("omm")),
+        oem=_text(inline.get("oem")),
+        is_cui=is_cui if isinstance(is_cui, bool) else None,
+        payload=serialized_payload,
     )
 
-    return data
+
+def _ephemeris_identity(ephemeris: EphemerisMetadata) -> tuple[str, str | None]:
+    identities: list[tuple[str, str | None]] = []
+    if ephemeris.tle:
+        parsed = sk.TLE.from_lines(
+            [line for line in ephemeris.tle.splitlines() if line.strip()]
+        )
+        tle = parsed[0] if isinstance(parsed, list) else parsed
+        designator = str(tle.intl_desig).strip()
+        year = int(designator[:2])
+        full_year = 1900 + year if year >= 57 else 2000 + year
+        identities.append(
+            (f"{full_year}-{designator[2:5]}{designator[5:]}", str(tle.satnum))
+        )
+    for document in (ephemeris.omm, ephemeris.oem):
+        if not document:
+            continue
+        fields = dict(
+            re.findall(r"(?m)^\s*(OBJECT_ID|NORAD_CAT_ID)\s*=\s*([^\s]+)", document)
+        )
+        if "OBJECT_ID" in fields:
+            identities.append((fields["OBJECT_ID"], fields.get("NORAD_CAT_ID")))
+    if not identities:
+        raise KogsError("KOGS ephemeris contains no usable object identity")
+    cospar_values = {identity[0] for identity in identities}
+    catalogs = {identity[1] for identity in identities if identity[1]}
+    if len(cospar_values) != 1 or len(catalogs) > 1:
+        raise KogsError("KOGS ephemeris identities do not match")
+    return identities[0][0], next(iter(catalogs), None)
+
+
+def get_contact(
+    api_key: str,
+    contact_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> Contact:
+    return _contact(
+        _request(
+            "GET", f"contacts/{contact_id}", api_key, timeout_seconds=timeout_seconds
+        )
+    )
+
+
+def get_spacecraft(
+    api_key: str,
+    spacecraft_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> Spacecraft:
+    return _spacecraft(
+        _request(
+            "GET",
+            f"spacecrafts/{spacecraft_id}",
+            api_key,
+            timeout_seconds=timeout_seconds,
+        )
+    )
+
+
+def get_antenna(
+    api_key: str,
+    system_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> Antenna:
+    return _antenna(
+        _request(
+            "GET",
+            f"systems/antennas/{system_id}",
+            api_key,
+            timeout_seconds=timeout_seconds,
+        )
+    )
+
+
+def get_station(
+    api_key: str,
+    station_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> GroundStation:
+    return _station(
+        _request(
+            "GET", f"stations/{station_id}", api_key, timeout_seconds=timeout_seconds
+        )
+    )
+
+
+def get_ephemeris(
+    api_key: str,
+    ephemeris_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> EphemerisMetadata:
+    return _ephemeris(
+        _request(
+            "GET", f"ephemeris/{ephemeris_id}", api_key, timeout_seconds=timeout_seconds
+        )
+    )
+
+
+def load_contact_metadata(
+    api_key: str,
+    contact_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> ContactMetadata:
+    """Resolve and cross-check all KOGS metadata for one pass."""
+
+    contact = get_contact(api_key, contact_id, timeout_seconds=timeout_seconds)
+    antenna = get_antenna(api_key, contact.system_id, timeout_seconds=timeout_seconds)
+    spacecraft = get_spacecraft(
+        api_key, contact.spacecraft_id, timeout_seconds=timeout_seconds
+    )
+    ephemeris = get_ephemeris(
+        api_key, contact.ephemeris_id, timeout_seconds=timeout_seconds
+    )
+    if contact.id != contact_id:
+        raise KogsError("KOGS contact identity does not match the request")
+    if antenna.id != contact.system_id or antenna.station_id != contact.station_id:
+        raise KogsError("KOGS antenna identity does not match the contact")
+    if spacecraft.id != contact.spacecraft_id:
+        raise KogsError("KOGS spacecraft identity does not match the contact")
+    if ephemeris.spacecraft_id != contact.spacecraft_id:
+        raise KogsError("KOGS ephemeris spacecraft does not match the contact")
+    cospar, ephemeris_catalog = _ephemeris_identity(ephemeris)
+    if ephemeris_catalog and ephemeris_catalog != spacecraft.catalog:
+        raise KogsError("KOGS spacecraft and ephemeris catalog IDs do not match")
+    vector = sk.itrfcoord(
+        latitude_deg=antenna.latitude,
+        longitude_deg=antenna.longitude,
+        altitude=antenna.altitude,
+    ).vector
+    return ContactMetadata(
+        spacecraft_id=contact.spacecraft_id,
+        system_id=contact.system_id,
+        station_id=contact.station_id,
+        ephemeris_id=contact.ephemeris_id,
+        antenna=antenna.name,
+        location=antenna.station_name,
+        latitude=antenna.latitude,
+        longitude=antenna.longitude,
+        altitude=antenna.altitude,
+        ecef=(float(vector[0]), float(vector[1]), float(vector[2])),
+        spacecraft=spacecraft.name,
+        cospar=cospar,
+        catalog=spacecraft.catalog,
+        start=contact.start,
+        stop=contact.end,
+        contact_id=contact.id,
+        ephemeris=ephemeris,
+    )
+
+
+def validate_credentials(
+    api_key: str,
+    *,
+    base_url: str = KOGS_BASE_URL,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> None:
+    _request(
+        "GET",
+        "contacts",
+        api_key,
+        base_url=base_url,
+        timeout_seconds=timeout_seconds,
+        params={"limit": 1},
+    )
+
+
+def list_contacts(
+    api_key: str,
+    start: dt.datetime,
+    stop: dt.datetime,
+    *,
+    station_ids: Sequence[str] = (),
+    system_ids: Sequence[str] = (),
+    base_url: str = KOGS_BASE_URL,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> list[Contact]:
+    payload = _request(
+        "GET",
+        "contacts",
+        api_key,
+        base_url=base_url,
+        timeout_seconds=timeout_seconds,
+        params={
+            "start_time": _utc_text(start),
+            "end_time": _utc_text(stop),
+            "station_ids": list(station_ids),
+            "system_ids": list(system_ids),
+        },
+    )
+    values = payload.get("data")
+    if not isinstance(values, list):
+        raise KogsError("KOGS contacts response contains no data list")
+    return [_contact(value) for value in values]
+
+
+def book_shadow(
+    api_key: str,
+    plan: BookingPlan,
+    *,
+    mutation_contract_confirmed: bool = False,
+    base_url: str = KOGS_BASE_URL,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> Contact:
+    _require_mutation_contract(mutation_contract_confirmed)
+    return _contact(
+        _request(
+            "POST",
+            "contacts/shadow",
+            api_key,
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            json_body={
+                "source_contact_id": plan.source.id,
+                "system_id": plan.target_antenna_id,
+                "mission_profile_id": plan.mission_profile_id,
+                "external_ref": plan.identity,
+            },
+        )
+    )
+
+
+def assign_ephemeris(
+    api_key: str,
+    contact_id: str,
+    ephemeris_id: str,
+    *,
+    mutation_contract_confirmed: bool = False,
+    base_url: str = KOGS_BASE_URL,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> None:
+    _require_mutation_contract(mutation_contract_confirmed)
+    _request(
+        "PUT",
+        f"contacts/{contact_id}/ephemeris",
+        api_key,
+        base_url=base_url,
+        timeout_seconds=timeout_seconds,
+        json_body={"ephemeris_id": ephemeris_id, "mode": "manual"},
+    )
+
+
+def cancel_contact(
+    api_key: str,
+    contact_id: str,
+    *,
+    mutation_contract_confirmed: bool = False,
+    base_url: str = KOGS_BASE_URL,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> None:
+    _require_mutation_contract(mutation_contract_confirmed)
+    _request(
+        "POST",
+        f"contacts/{contact_id}/cancel",
+        api_key,
+        base_url=base_url,
+        timeout_seconds=timeout_seconds,
+        json_body={},
+    )
+
+
+def _require_mutation_contract(confirmed: bool) -> None:
+    if not confirmed:
+        raise KogsError("KOGS mutation contract has not been confirmed")
+
+
+def _utc_text(value: dt.datetime) -> str:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("timestamp must be timezone-aware")
+    return value.astimezone(dt.UTC).isoformat().replace("+00:00", "Z")

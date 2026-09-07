@@ -5,7 +5,7 @@ backed by ADX + KOGS). This demo runs fully offline with synthetic data to show 
 transport contract: dataclasses -> msgpack -> Rust -> msgpack -> dataclasses -> TDM.
 """
 
-from dart.io.tdm import write_result_tdm, write_tdm
+from dart.tdm.legacy import write_result_tdm, write_tdm
 from dart.schema import Observation, Sgp4Input, SolverOptions, Station, Tle
 from dart.solver import solve
 

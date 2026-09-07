@@ -19,8 +19,8 @@ from string import Template
 import numpy as np
 import satkit
 
-from dart.loaders.gps import GpsObservations, holdout_mask, load_bestxyz
-from dart.io.oem import Oem, validate_oem
+from dart.io.gps import GpsObservations, holdout_mask, load_bestxyz
+from dart.oem import Oem, validate_oem
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_NAMES = ("X", "Y", "Z", "VX", "VY", "VZ")
@@ -91,6 +91,31 @@ def _safe_path(path: Path) -> str:
     return value
 
 
+def _validate_weather(path: Path, config: FitConfig) -> None:
+    weather_days = set()
+    observed = False
+    for line in path.read_text().splitlines():
+        if line.strip() == "BEGIN OBSERVED":
+            observed = True
+        elif line.strip() == "END OBSERVED":
+            observed = False
+        elif observed and re.match(r"^\d{4}\s+\d{2}\s+\d{2}\s", line):
+            year, month, day = map(int, line.split()[:3])
+            weather_days.add(datetime(year, month, day, tzinfo=timezone.utc).timestamp())
+    # JR uses lagged solar/geomagnetic indices; require two preceding days too.
+    needed = np.arange(np.floor(config.start / 86400) * 86400 - 2 * 86400,
+                       np.floor(config.stop / 86400) * 86400 + 86400, 86400)
+    if any(day not in weather_days for day in needed):
+        raise ValueError("GMAT space weather lacks observed daily coverage; update with CelesTrak SW-All.txt")
+
+
+def _validate_eop(path: Path, config: FitConfig) -> None:
+    eop_mjd = [float(line.split()[3]) for line in path.read_text().splitlines()
+               if re.match(r"^\s*\d{4}\s+\d+\s+\d+\s+\d+", line)]
+    if not eop_mjd or min(eop_mjd) > config.start / 86400 + 40587 - 1 or max(eop_mjd) < config.stop / 86400 + 40587 + 1:
+        raise ValueError("GMAT Earth-orientation file does not cover the requested window")
+
+
 def runtime_manifest(gmat: Path, config: FitConfig) -> dict:
     """Require historical coverage, not a silent default or long-term forecast."""
     files = {
@@ -106,25 +131,8 @@ def runtime_manifest(gmat: Path, config: FitConfig) -> dict:
     for path in files.values():
         if not path.is_file():
             raise ValueError(f"missing GMAT R2026a runtime file: {path}")
-    weather_days = set()
-    observed = False
-    for line in files["space_weather"].read_text().splitlines():
-        if line.strip() == "BEGIN OBSERVED":
-            observed = True
-        elif line.strip() == "END OBSERVED":
-            observed = False
-        elif observed and re.match(r"^\d{4}\s+\d{2}\s+\d{2}\s", line):
-            year, month, day = map(int, line.split()[:3])
-            weather_days.add(datetime(year, month, day, tzinfo=timezone.utc).timestamp())
-    # JR uses lagged solar/geomagnetic indices; require two preceding days too.
-    needed = np.arange(np.floor(config.start / 86400) * 86400 - 2 * 86400,
-                       np.floor(config.stop / 86400) * 86400 + 86400, 86400)
-    if any(day not in weather_days for day in needed):
-        raise ValueError("GMAT space weather lacks observed daily coverage; update with CelesTrak SW-All.txt")
-    eop_mjd = [float(line.split()[3]) for line in files["earth_orientation"].read_text().splitlines()
-               if re.match(r"^\s*\d{4}\s+\d+\s+\d+\s+\d+", line)]
-    if not eop_mjd or min(eop_mjd) > config.start / 86400 + 40587 - 1 or max(eop_mjd) < config.stop / 86400 + 40587 + 1:
-        raise ValueError("GMAT Earth-orientation file does not cover the requested window")
+    _validate_weather(files["space_weather"], config)
+    _validate_eop(files["earth_orientation"], config)
     # Guard against mixing an older leap-second history with satkit's converter.
     leap_text = files["leap_seconds"].read_text()
     if "2017 JAN" not in leap_text or "37.0" not in leap_text:
@@ -264,9 +272,8 @@ def _stats(residual: np.ndarray) -> dict:
             "median": float(np.median(norm)), "p95": float(np.quantile(norm, 0.95)), "max": float(norm.max())}
 
 
-def assess_stage(directory: Path, config: FitConfig, data: GpsObservations) -> dict:
-    """Assess every preselected holdout, without clipping validation residuals."""
-    oem = validate_oem(directory / "candidate.oem", config.satellite, config.start, config.stop, config.cadence)
+def _direct_states(directory: Path, config: FitConfig) -> Oem:
+    """Read continuous EarthFixed/EME2000 propagation covering the fit window."""
     evaluated = np.loadtxt(directory / "evaluated_states.csv", delimiter=",", ndmin=2)
     if evaluated.ndim != 2 or evaluated.shape[1] != 13 or not np.isfinite(evaluated).all():
         raise ValueError("incomplete GMAT evaluation report")
@@ -275,7 +282,21 @@ def assess_stage(directory: Path, config: FitConfig, data: GpsObservations) -> d
     epochs, evaluated = epochs[keep], evaluated[keep]
     if (np.diff(epochs) <= 0).any() or np.diff(epochs).max() > 60.001 or epochs[0] > config.start + 1e-5 or epochs[-1] < config.stop:
         raise ValueError("direct propagation report has gaps or does not cover the window")
-    direct = Oem({}, {}, epochs, evaluated[:, 1:])
+    return Oem({}, {}, epochs, evaluated[:, 1:])
+
+
+def _fitted_state(directory: Path) -> np.ndarray:
+    state = np.loadtxt(directory / "fitted_state.csv", delimiter=",", ndmin=2)
+    if state.shape != (1, 9) or not np.isfinite(state).all():
+        raise ValueError("invalid fitted-state report")
+    return state[0]
+
+
+def assess_stage(directory: Path, config: FitConfig, data: GpsObservations) -> dict:
+    """Assess every preselected holdout, without clipping validation residuals."""
+    oem = validate_oem(directory / "candidate.oem", config.satellite, config.start, config.stop, config.cadence)
+    direct = _direct_states(directory, config)
+    epochs = direct.epochs
     at_gps = direct.interpolate(data.epoch)
     residual = (at_gps[:, :3] - data.position) * 1000
     v_residual = (at_gps[:, 3:6] - data.velocity) * 1000
@@ -284,14 +305,12 @@ def assess_stage(directory: Path, config: FitConfig, data: GpsObservations) -> d
     # including the 30 s midpoints between the OEM's 60 s output grid.
     inside = (epochs >= config.start) & (epochs <= config.stop)
     interpolated = oem.interpolate(epochs[inside])
-    interpolation_error = (interpolated[:, :3] - evaluated[inside, 7:10]) * 1000
-    interpolation_v_error = (interpolated[:, 3:] - evaluated[inside, 10:13]) * 1000
+    interpolation_error = (interpolated[:, :3] - direct.states[inside, 6:9]) * 1000
+    interpolation_v_error = (interpolated[:, 3:] - direct.states[inside, 9:12]) * 1000
     gps_oem_error = np.linalg.norm((oem.interpolate(data.epoch)[:, :3] - at_gps[:, 6:9]) * 1000, axis=1)
-    state = np.loadtxt(directory / "fitted_state.csv", delimiter=",", ndmin=2)
-    if state.shape != (1, 9) or not np.isfinite(state).all():
-        raise ValueError("invalid fitted-state report")
-    fit_epoch = (state[0, 0] + GMAT_MJD_OFFSET - 40587) * 86400
-    if abs(state[0, 8] - tai_mjd(fit_epoch)) * 86400 > 1e-5:
+    state = _fitted_state(directory)
+    fit_epoch = (state[0] + GMAT_MJD_OFFSET - 40587) * 86400
+    if abs(state[8] - tai_mjd(fit_epoch)) * 86400 > 1e-5:
         raise ValueError("satkit and GMAT disagree on UTC/TAI conversion")
     estimator = json.loads((directory / "estimator.json").read_text())
     computed = estimator["Iterations"][-1]["ComputedMeasurements"]
@@ -308,7 +327,7 @@ def assess_stage(directory: Path, config: FitConfig, data: GpsObservations) -> d
                              gps_oem_error[i]])
     interpolation = _stats(interpolation_error)
     validation = _stats(residual[held])
-    cd = float(state[0, 7])
+    cd = float(state[7])
     report = {
         "converged": converged, "iterations": len(estimator.get("Iterations", [])),
         "fit_observations": len(computed), "fit_observations_retained": len(retained),
@@ -338,14 +357,12 @@ def run_stage(directory: Path, gmat: Path, config: FitConfig, fit: GpsObservatio
             raise ValueError(f"fit checkpoint changed: {directory}")
     else:
         run_console(gmat, directory, timeout)
-        state = np.loadtxt(directory / "fitted_state.csv", delimiter=",", ndmin=2)
-        if state.shape != (1, 9) or not np.isfinite(state).all():
-            raise ValueError("GMAT did not produce a complete fitted state")
+        _fitted_state(directory)
         result = json.loads((directory / "estimator.json").read_text())
         if not result.get("Iterations") or "END OF REPORT" not in (directory / "estimator.txt").read_text():
             raise ValueError("GMAT did not finish the estimation report")
         save_json(checkpoint, {name: digest(directory / name) for name in files})
-    state = np.loadtxt(directory / "fitted_state.csv", delimiter=",", ndmin=2)[0]
+    state = _fitted_state(directory)
     write_script(directory, gmat, config, fit, evaluate, fitted=state)
     # Export must not modify the persisted fitted-state checkpoint.
     export_script = directory / "export.script"
