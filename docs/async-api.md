@@ -1,5 +1,8 @@
 # DART asynchronous processing API
 
+> Historical 0.9 service notes. The service has not yet been migrated to the
+> current `dart.io` interface.
+
 The v1 service accepts one contact UUID, stores a durable job in the `results`
 database, and lets a separate worker resolve KOGS metadata, load ADX telemetry,
 run a selected solver, and persist replayable artifacts. It never runs solver

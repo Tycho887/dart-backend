@@ -7,7 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
-from .adx import MEASUREMENT_COLUMNS
+from .measurement import canonical_measurements
 
 _ADX_NAMES = {
     "antenna1_tracking_epochOffset": "tracking_epoch_offset_s",
@@ -43,9 +43,7 @@ def read_measurements(source: str | Path) -> pl.DataFrame:
         if name in frame.columns
     }
     frame = frame.rename(aliases)
-    missing = set(MEASUREMENT_COLUMNS) - set(frame.columns)
-    if missing:
-        raise ValueError(
-            f"parquet measurements are missing columns: {', '.join(sorted(missing))}"
-        )
-    return frame.select(MEASUREMENT_COLUMNS).sort("timestamp")
+    try:
+        return canonical_measurements(frame)
+    except ValueError as exc:
+        raise ValueError(f"invalid parquet measurements: {exc}") from exc

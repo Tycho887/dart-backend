@@ -15,22 +15,9 @@ from azure.kusto.data import (
 from azure.kusto.data.helpers import dataframe_from_result_table
 
 from .contact import ContactMetadata
+from .measurement import MEASUREMENT_COLUMNS, canonical_measurements
 
 ADX_QUERY_TIMEOUT_SECONDS = 30.0
-
-MEASUREMENT_COLUMNS = (
-    "timestamp",
-    "contact_id",
-    "spacecraft_id",
-    "system_id",
-    "antenna_name",
-    "tracking_epoch_offset_s",
-    "azimuth_deg",
-    "elevation_deg",
-    "carrier_lock",
-    "ebn0",
-    "doppler_hz",
-)
 
 _ADX_MEASUREMENT_COLUMNS = (
     "timestamp",
@@ -100,7 +87,9 @@ def _properties(timeout_seconds: float) -> ClientRequestProperties:
 def _kusto_datetime(value: datetime) -> str:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("ADX bounds must be timezone-aware")
-    return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    return (
+        value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    )
 
 
 def _query(client: KustoClient, query: str, timeout_seconds: float) -> pl.DataFrame:
@@ -162,5 +151,7 @@ def fetch_measurements(
     )
     missing = set(_ADX_MEASUREMENT_COLUMNS) - set(frame.columns)
     if missing:
-        raise ValueError(f"ADX response is missing columns: {', '.join(sorted(missing))}")
-    return frame.rename(_CANONICAL_NAMES).select(MEASUREMENT_COLUMNS).sort("timestamp")
+        raise ValueError(
+            f"ADX response is missing columns: {', '.join(sorted(missing))}"
+        )
+    return canonical_measurements(frame.rename(_CANONICAL_NAMES))

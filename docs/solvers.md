@@ -1,5 +1,8 @@
 # Solver models and mathematics
 
+> Historical optimizer notes. These Python interfaces were removed during the
+> IO refactor and will be redesigned outside `dart.io`.
+
 DART currently exposes two working Doppler fit models and one reserved solver mode:
 
 | Backend | Import | What is fitted | Pass support | Current status |

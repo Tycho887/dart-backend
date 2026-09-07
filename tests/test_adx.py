@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pandas as pd
 
 from dart.io import adx
+from dart.io.measurement import MEASUREMENT_COLUMNS
 
 
 class Result:
@@ -21,7 +22,9 @@ class Client:
 def raw_frame():
     return pd.DataFrame(
         {
-            "timestamp": pd.to_datetime(["2026-01-01T00:00:02Z", "2026-01-01T00:00:01Z"]),
+            "timestamp": pd.to_datetime(
+                ["2026-01-01T00:00:02Z", "2026-01-01T00:00:01Z"]
+            ),
             "contact_id": ["contact-1", "contact-1"],
             "spacecraft_id": ["spacecraft-1", "spacecraft-1"],
             "system_id": ["system-1", "system-1"],
@@ -48,7 +51,9 @@ def test_fetch_measurements_is_bounded_canonical_and_unfiltered(monkeypatch):
 
     frame = adx.fetch_measurements(client, contact_metadata())
 
-    assert tuple(frame.columns) == adx.MEASUREMENT_COLUMNS
+    assert tuple(frame.columns) == MEASUREMENT_COLUMNS
+    assert frame.schema["timestamp"].time_zone == "UTC"
+    assert frame.schema["doppler_hz"].is_float()
     assert frame["doppler_hz"].to_list() == [100.0, 200.0]
     query = client.calls[0][1]
     assert "contact_id == 'contact-1'" in query

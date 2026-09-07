@@ -64,11 +64,17 @@ async def _measurements(
     if frame.is_empty():
         raise LoadError("ADX", contact.contact_id, "no measurements were returned")
     if set(frame["contact_id"].drop_nulls().unique()) != {contact.contact_id}:
-        raise LoadError("ADX", contact.contact_id, "measurement contact identity mismatch")
+        raise LoadError(
+            "ADX", contact.contact_id, "measurement contact identity mismatch"
+        )
     if set(frame["spacecraft_id"].drop_nulls().unique()) != {contact.spacecraft_id}:
-        raise LoadError("ADX", contact.contact_id, "measurement spacecraft identity mismatch")
+        raise LoadError(
+            "ADX", contact.contact_id, "measurement spacecraft identity mismatch"
+        )
     if set(frame["system_id"].drop_nulls().unique()) != {contact.system_id}:
-        raise LoadError("ADX", contact.contact_id, "measurement system identity mismatch")
+        raise LoadError(
+            "ADX", contact.contact_id, "measurement system identity mismatch"
+        )
     return frame
 
 
@@ -86,7 +92,10 @@ async def load_passes(
         raise ValueError("timeout_seconds must be positive")
     contacts = list(
         await asyncio.gather(
-            *(_metadata(kogs_api_key, contact_id, timeout_seconds) for contact_id in ids)
+            *(
+                _metadata(kogs_api_key, contact_id, timeout_seconds)
+                for contact_id in ids
+            )
         )
     )
     frames = await asyncio.gather(

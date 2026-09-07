@@ -11,14 +11,39 @@ from dart.io.contact import ContactMetadata, EphemerisMetadata
 def metadata(contact_id: str, start: str) -> ContactMetadata:
     start_time = datetime.fromisoformat(start.replace("Z", "+00:00"))
     ephemeris = EphemerisMetadata(
-        f"ephemeris-{contact_id}", "spacecraft-1", "TLE", "KOGS", None,
-        None, None, None, None, "line 1\nline 2", None, None, False, None,
+        f"ephemeris-{contact_id}",
+        "spacecraft-1",
+        "TLE",
+        "KOGS",
+        None,
+        None,
+        None,
+        None,
+        None,
+        "line 1\nline 2",
+        None,
+        None,
+        False,
+        None,
     )
     return ContactMetadata(
-        "spacecraft-1", "system-1", "station-1", ephemeris.ephemeris_id,
-        "SGS1", "Svalbard", 78.2, 15.4, 100.0, (1.0, 2.0, 3.0),
-        "TESTSAT", "2024-149A", "60543", start_time,
-        start_time + timedelta(minutes=5), contact_id, ephemeris,
+        "spacecraft-1",
+        "system-1",
+        "station-1",
+        ephemeris.ephemeris_id,
+        "SGS1",
+        "Svalbard",
+        78.2,
+        15.4,
+        100.0,
+        (1.0, 2.0, 3.0),
+        "TESTSAT",
+        "2024-149A",
+        "60543",
+        start_time,
+        start_time + timedelta(minutes=5),
+        contact_id,
+        ephemeris,
     )
 
 
@@ -57,7 +82,9 @@ def test_load_passes_preserves_metadata_order_and_sorts_measurements(monkeypatch
         "earlier": measurements(contacts["earlier"], 1),
     }
     monkeypatch.setattr(
-        load.kogs, "load_contact_metadata", lambda key, contact_id, **kwargs: contacts[contact_id]
+        load.kogs,
+        "load_contact_metadata",
+        lambda key, contact_id, **kwargs: contacts[contact_id],
     )
     monkeypatch.setattr(
         load.adx,
@@ -82,11 +109,30 @@ def test_load_passes_rejects_duplicate_ids():
 
 def test_load_passes_attributes_provider_failure(monkeypatch):
     monkeypatch.setattr(load.asyncio, "to_thread", directly)
+
     def fail(*args, **kwargs):
         raise TimeoutError("unavailable")
 
     monkeypatch.setattr(load.kogs, "load_contact_metadata", fail)
     with pytest.raises(load.LoadError, match="KOGS failed for contact contact-1"):
+        asyncio.run(
+            load.load_passes(["contact-1"], kogs_api_key="key", adx_client=object())
+        )
+
+
+def test_load_passes_rejects_empty_measurements(monkeypatch):
+    monkeypatch.setattr(load.asyncio, "to_thread", directly)
+    contact = metadata("contact-1", "2026-01-01T00:00:00Z")
+    monkeypatch.setattr(
+        load.kogs, "load_contact_metadata", lambda *args, **kwargs: contact
+    )
+    monkeypatch.setattr(
+        load.adx,
+        "fetch_measurements",
+        lambda *args, **kwargs: measurements(contact, 1).clear(),
+    )
+
+    with pytest.raises(load.LoadError, match="no measurements"):
         asyncio.run(
             load.load_passes(["contact-1"], kogs_api_key="key", adx_client=object())
         )

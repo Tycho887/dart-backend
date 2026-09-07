@@ -87,10 +87,6 @@ def get_link_frequency(
     return frequency
 
 
-def get_observed_frequency(
-    spacecraft_name: str, *, root: Path = _V2_ROOT
-) -> float:
+def get_observed_frequency(spacecraft_name: str, *, root: Path = _V2_ROOT) -> float:
     """Return the primary S-band downlink frequency for one spacecraft."""
-    return get_link_frequency(
-        spacecraft_name, OBSERVED_LINK_NAME, "down", root=root
-    )
+    return get_link_frequency(spacecraft_name, OBSERVED_LINK_NAME, "down", root=root)

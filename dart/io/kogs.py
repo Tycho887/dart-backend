@@ -63,6 +63,15 @@ class Spacecraft:
     catalog: str
 
 
+@dataclass(frozen=True, slots=True)
+class GroundStation:
+    id: str
+    name: str
+    latitude: float
+    longitude: float
+    altitude: float
+
+
 class BookingPlan(Protocol):
     source: Contact
     target_antenna_id: str
@@ -248,6 +257,20 @@ def _spacecraft(payload: object) -> Spacecraft:
     )
 
 
+def _station(payload: object) -> GroundStation:
+    value = _unwrap(payload, "station")
+    location = value.get("location")
+    if not isinstance(location, dict):
+        raise KogsError("KOGS station has no location")
+    return GroundStation(
+        id=_required_text(value.get("id"), "station id"),
+        name=_required_text(value.get("name"), "station name"),
+        latitude=_number(location.get("latitude"), "station latitude"),
+        longitude=_number(location.get("longitude"), "station longitude"),
+        altitude=_number(location.get("altitude"), "station altitude"),
+    )
+
+
 def _ephemeris(payload: object) -> EphemerisMetadata:
     value = _unwrap(payload, "ephemeris")
     inline = value.get("inline") or {}
@@ -256,20 +279,26 @@ def _ephemeris(payload: object) -> EphemerisMetadata:
     raw_payload = value.get("payload")
     serialized_payload = None
     if raw_payload is not None:
-        serialized_payload = raw_payload if isinstance(raw_payload, str) else json.dumps(
-            raw_payload, separators=(",", ":"), ensure_ascii=False
+        serialized_payload = (
+            raw_payload
+            if isinstance(raw_payload, str)
+            else json.dumps(raw_payload, separators=(",", ":"), ensure_ascii=False)
         )
     is_cui = value.get("is_cui")
     return EphemerisMetadata(
         ephemeris_id=_required_text(
             value.get("ephemeris_uuid") or value.get("id"), "ephemeris id"
         ),
-        spacecraft_id=_required_text(value.get("spacecraft_uuid"), "ephemeris spacecraft"),
+        spacecraft_id=_required_text(
+            value.get("spacecraft_uuid"), "ephemeris spacecraft"
+        ),
         kind=_text(value.get("kind")) or "",
         origin=_text(value.get("origin")),
         tenant_id=_text(value.get("tenant_uuid")),
         epoch=_time(value.get("epoch"), "ephemeris epoch", required=False),
-        last_usable_at=_time(value.get("last_useable_at"), "last_useable_at", required=False),
+        last_usable_at=_time(
+            value.get("last_useable_at"), "last_useable_at", required=False
+        ),
         submitted_at=_time(value.get("submitted_at"), "submitted_at", required=False),
         submitted_by=_text(value.get("submitted_by")),
         tle=_text(inline.get("tle")),
@@ -290,13 +319,15 @@ def _ephemeris_identity(ephemeris: EphemerisMetadata) -> tuple[str, str | None]:
         designator = str(tle.intl_desig).strip()
         year = int(designator[:2])
         full_year = 1900 + year if year >= 57 else 2000 + year
-        identities.append((f"{full_year}-{designator[2:5]}{designator[5:]}", str(tle.satnum)))
+        identities.append(
+            (f"{full_year}-{designator[2:5]}{designator[5:]}", str(tle.satnum))
+        )
     for document in (ephemeris.omm, ephemeris.oem):
         if not document:
             continue
-        fields = dict(re.findall(
-            r"(?m)^\s*(OBJECT_ID|NORAD_CAT_ID)\s*=\s*([^\s]+)", document
-        ))
+        fields = dict(
+            re.findall(r"(?m)^\s*(OBJECT_ID|NORAD_CAT_ID)\s*=\s*([^\s]+)", document)
+        )
         if "OBJECT_ID" in fields:
             identities.append((fields["OBJECT_ID"], fields.get("NORAD_CAT_ID")))
     if not identities:
@@ -308,29 +339,93 @@ def _ephemeris_identity(ephemeris: EphemerisMetadata) -> tuple[str, str | None]:
     return identities[0][0], next(iter(catalogs), None)
 
 
-def get_contact(api_key: str, contact_id: str, *, timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS) -> Contact:
-    return _contact(_request("GET", f"contacts/{contact_id}", api_key, timeout_seconds=timeout_seconds))
+def get_contact(
+    api_key: str,
+    contact_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> Contact:
+    return _contact(
+        _request(
+            "GET", f"contacts/{contact_id}", api_key, timeout_seconds=timeout_seconds
+        )
+    )
 
 
-def get_spacecraft(api_key: str, spacecraft_id: str, *, timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS) -> Spacecraft:
-    return _spacecraft(_request("GET", f"spacecrafts/{spacecraft_id}", api_key, timeout_seconds=timeout_seconds))
+def get_spacecraft(
+    api_key: str,
+    spacecraft_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> Spacecraft:
+    return _spacecraft(
+        _request(
+            "GET",
+            f"spacecrafts/{spacecraft_id}",
+            api_key,
+            timeout_seconds=timeout_seconds,
+        )
+    )
 
 
-def get_antenna(api_key: str, system_id: str, *, timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS) -> Antenna:
-    return _antenna(_request("GET", f"systems/antennas/{system_id}", api_key, timeout_seconds=timeout_seconds))
+def get_antenna(
+    api_key: str,
+    system_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> Antenna:
+    return _antenna(
+        _request(
+            "GET",
+            f"systems/antennas/{system_id}",
+            api_key,
+            timeout_seconds=timeout_seconds,
+        )
+    )
 
 
-def get_ephemeris(api_key: str, ephemeris_id: str, *, timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS) -> EphemerisMetadata:
-    return _ephemeris(_request("GET", f"ephemeris/{ephemeris_id}", api_key, timeout_seconds=timeout_seconds))
+def get_station(
+    api_key: str,
+    station_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> GroundStation:
+    return _station(
+        _request(
+            "GET", f"stations/{station_id}", api_key, timeout_seconds=timeout_seconds
+        )
+    )
 
 
-def load_contact_metadata(api_key: str, contact_id: str, *, timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS) -> ContactMetadata:
+def get_ephemeris(
+    api_key: str,
+    ephemeris_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> EphemerisMetadata:
+    return _ephemeris(
+        _request(
+            "GET", f"ephemeris/{ephemeris_id}", api_key, timeout_seconds=timeout_seconds
+        )
+    )
+
+
+def load_contact_metadata(
+    api_key: str,
+    contact_id: str,
+    *,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> ContactMetadata:
     """Resolve and cross-check all KOGS metadata for one pass."""
 
     contact = get_contact(api_key, contact_id, timeout_seconds=timeout_seconds)
     antenna = get_antenna(api_key, contact.system_id, timeout_seconds=timeout_seconds)
-    spacecraft = get_spacecraft(api_key, contact.spacecraft_id, timeout_seconds=timeout_seconds)
-    ephemeris = get_ephemeris(api_key, contact.ephemeris_id, timeout_seconds=timeout_seconds)
+    spacecraft = get_spacecraft(
+        api_key, contact.spacecraft_id, timeout_seconds=timeout_seconds
+    )
+    ephemeris = get_ephemeris(
+        api_key, contact.ephemeris_id, timeout_seconds=timeout_seconds
+    )
     if contact.id != contact_id:
         raise KogsError("KOGS contact identity does not match the request")
     if antenna.id != contact.system_id or antenna.station_id != contact.station_id:
@@ -368,8 +463,20 @@ def load_contact_metadata(api_key: str, contact_id: str, *, timeout_seconds: flo
     )
 
 
-def validate_credentials(api_key: str, *, base_url: str = KOGS_BASE_URL, timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS) -> None:
-    _request("GET", "contacts", api_key, base_url=base_url, timeout_seconds=timeout_seconds, params={"limit": 1})
+def validate_credentials(
+    api_key: str,
+    *,
+    base_url: str = KOGS_BASE_URL,
+    timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
+) -> None:
+    _request(
+        "GET",
+        "contacts",
+        api_key,
+        base_url=base_url,
+        timeout_seconds=timeout_seconds,
+        params={"limit": 1},
+    )
 
 
 def list_contacts(
@@ -383,8 +490,17 @@ def list_contacts(
     timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
 ) -> list[Contact]:
     payload = _request(
-        "GET", "contacts", api_key, base_url=base_url, timeout_seconds=timeout_seconds,
-        params={"start_time": _utc_text(start), "end_time": _utc_text(stop), "station_ids": list(station_ids), "system_ids": list(system_ids)},
+        "GET",
+        "contacts",
+        api_key,
+        base_url=base_url,
+        timeout_seconds=timeout_seconds,
+        params={
+            "start_time": _utc_text(start),
+            "end_time": _utc_text(stop),
+            "station_ids": list(station_ids),
+            "system_ids": list(system_ids),
+        },
     )
     values = payload.get("data")
     if not isinstance(values, list):
@@ -401,10 +517,21 @@ def book_shadow(
     timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
 ) -> Contact:
     _require_mutation_contract(mutation_contract_confirmed)
-    return _contact(_request(
-        "POST", "contacts/shadow", api_key, base_url=base_url, timeout_seconds=timeout_seconds,
-        json_body={"source_contact_id": plan.source.id, "system_id": plan.target_antenna_id, "mission_profile_id": plan.mission_profile_id, "external_ref": plan.identity},
-    ))
+    return _contact(
+        _request(
+            "POST",
+            "contacts/shadow",
+            api_key,
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            json_body={
+                "source_contact_id": plan.source.id,
+                "system_id": plan.target_antenna_id,
+                "mission_profile_id": plan.mission_profile_id,
+                "external_ref": plan.identity,
+            },
+        )
+    )
 
 
 def assign_ephemeris(
@@ -417,7 +544,14 @@ def assign_ephemeris(
     timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
 ) -> None:
     _require_mutation_contract(mutation_contract_confirmed)
-    _request("PUT", f"contacts/{contact_id}/ephemeris", api_key, base_url=base_url, timeout_seconds=timeout_seconds, json_body={"ephemeris_id": ephemeris_id, "mode": "manual"})
+    _request(
+        "PUT",
+        f"contacts/{contact_id}/ephemeris",
+        api_key,
+        base_url=base_url,
+        timeout_seconds=timeout_seconds,
+        json_body={"ephemeris_id": ephemeris_id, "mode": "manual"},
+    )
 
 
 def cancel_contact(
@@ -429,7 +563,14 @@ def cancel_contact(
     timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
 ) -> None:
     _require_mutation_contract(mutation_contract_confirmed)
-    _request("POST", f"contacts/{contact_id}/cancel", api_key, base_url=base_url, timeout_seconds=timeout_seconds, json_body={})
+    _request(
+        "POST",
+        f"contacts/{contact_id}/cancel",
+        api_key,
+        base_url=base_url,
+        timeout_seconds=timeout_seconds,
+        json_body={},
+    )
 
 
 def _require_mutation_contract(confirmed: bool) -> None:

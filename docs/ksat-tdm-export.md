@@ -1,5 +1,8 @@
 # KSAT TRACK and ANGLE export
 
+> Historical 0.9 integration notes. The TDM consumer has not yet been migrated
+> to the current `dart.io` interface.
+
 DART can write KSAT-profile CCSDS 503.0-B-2 `TRACK` mode-4 and `ANGLE` AZEL
 files. Range modes 1 and 3 remain unavailable until an authoritative raw
 round-trip delay source is selected; carrier-phase mode 2 is not defined by
