@@ -243,7 +243,25 @@ def full_state_states_gcrf(
     )
 
 
+def transform_states(
+    states: ArrayLike,
+    epochs: Sequence[sk.time],
+    from_frame: str,
+    to_frame: str = "GCRF",
+) -> FloatArray:
+    """Transform (N, 6) SI states with Rust satkit, including velocity terms."""
+    values = np.asarray(states, dtype=np.float64)
+    if values.ndim != 2 or values.shape[1] != 6:
+        raise ValueError("states must have shape (N, 6)")
+    return np.asarray(
+        _native.transform_states(
+            values.tolist(), [_unix_seconds(t) for t in epochs], from_frame, to_frame
+        ), dtype=np.float64,
+    )
+
+
 __all__ = [
+    "transform_states",
     "ForwardModelEvaluation",
     "evaluate_full_state",
     "evaluate_full_state_augmented",

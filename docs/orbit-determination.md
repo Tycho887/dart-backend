@@ -86,8 +86,17 @@ The result contains configured names, roles, final values, loss, final
 unmodified whitened residuals and matching Jacobian columns, robust cost,
 optimality, success/status/message, and function/Jacobian evaluation counts.
 Covariance and covariance rank intentionally remain `None`
-until DART adopts a reviewed uncertainty method. Corrected-TLE and OEM
-materialization also remain separate future product APIs.
+until DART adopts a reviewed uncertainty method. `resolve_solution(prior, result)`
+materializes a separate typed orbit from the exact fit prior and successful
+named corrections; `resolve_prior(prior, model)` materializes the baseline.
+`dart.orbit.propagate` samples either through the Rust numerical core and
+`dart.io.oem.write_oem` serializes the resulting state history. Corrected-TLE
+text serialization remains a future product API.
+
+The selected fit ephemeris must belong to the observed spacecraft; it may
+differ from the ephemeris originally associated with each contact. Original
+contact metadata remains unchanged. Live experiments always require an
+explicit initial ephemeris ID; see [live-data experiments](live-data-experiments.md).
 
 An unsuccessful optimizer exit returns an `OptimizerOutput` with
 `success=False`. Invalid contracts, source-identity mismatches, invalid TLEs,

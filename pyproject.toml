@@ -5,10 +5,12 @@ description = "Orbit determination engine: Python loaders -> Rust solver -> CCSD
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "astropy>=5.0.8",
     "azure-kusto-data>=6.0.4",
     "fastapi>=0.116.0",
     "msgpack>=1.2.1",
     "numpy>=2.5.2",
+    "oem>=0.4.5,<0.5",
     "polars>=1.43.2",
     "prometheus-client>=0.22.0",
     "psycopg[binary,pool]>=3.2.9",
@@ -61,6 +63,7 @@ features = ["extension-module"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = ["live_data: explicitly enabled KOGS/ADX orbit accuracy experiments"]
 
 [tool.ruff.lint]
 # Keep the release gate focused on correctness, syntax, and import hygiene.

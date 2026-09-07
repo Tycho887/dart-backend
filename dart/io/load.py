@@ -51,6 +51,7 @@ async def _measurements(
     client: KustoClient,
     contact: ContactMetadata,
     timeout_seconds: float,
+    allow_empty: bool = False,
 ) -> pl.DataFrame:
     try:
         frame = await asyncio.to_thread(
@@ -61,6 +62,8 @@ async def _measurements(
         )
     except Exception as exc:
         raise LoadError("ADX", contact.contact_id, str(exc)) from exc
+    if frame.is_empty() and allow_empty:
+        return frame
     if frame.is_empty():
         raise LoadError("ADX", contact.contact_id, "no measurements were returned")
     if set(frame["contact_id"].drop_nulls().unique()) != {contact.contact_id}:
@@ -84,8 +87,13 @@ async def load_passes(
     kogs_api_key: str,
     adx_client: KustoClient,
     timeout_seconds: float = 30.0,
+    allow_empty: bool = False,
 ) -> tuple[list[ContactMetadata], pl.DataFrame]:
-    """Load complete metadata and unfiltered measurements for several passes."""
+    """Load complete metadata and unfiltered measurements for several passes.
+
+    Explicitly allow empty deliveries when building an experiment inventory;
+    provider failures still raise. The default requires data for every pass.
+    """
 
     ids = _contact_ids(contact_ids)
     if timeout_seconds <= 0:
@@ -99,7 +107,10 @@ async def load_passes(
         )
     )
     frames = await asyncio.gather(
-        *(_measurements(adx_client, contact, timeout_seconds) for contact in contacts)
+        *(
+            _measurements(adx_client, contact, timeout_seconds, allow_empty)
+            for contact in contacts
+        )
     )
     return contacts, pl.concat(frames, how="vertical").sort("timestamp")
 

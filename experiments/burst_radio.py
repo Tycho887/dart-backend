@@ -29,6 +29,7 @@ from dart.forward_models import (
 )
 from dart.io import EphemerisMetadata
 from dart.od import OptimizerContext, OrbitModel, ParameterSpec, PriorStateData, fit
+from dart.od.profiles import ORBIT_BOUNDS, ORBIT_SCALES
 from tests.cross_model_validation import ORBIT_NAMES, diagnostics
 
 from .burst_radio_data import (
@@ -323,16 +324,8 @@ def optimizer(case: Case) -> OptimizerContext:
         "six_bstar": names + ("bstar",),
         "hifi": names,
     }
-    scales = (
-        (1e4, 1e4, 1e4, 10, 10, 10)
-        if model == OrbitModel.FULL_STATE
-        else (0.001, 0.001, 0.001, 0.001, 0.001, 0.1)
-    )
-    bounds = (
-        (1e6, 1e6, 1e6, 1000, 1000, 1000)
-        if model == OrbitModel.FULL_STATE
-        else (0.2, 0.1, 0.1, 0.1, 0.1, 30)
-    )
+    scales = ORBIT_SCALES[model]
+    bounds = ORBIT_BOUNDS[model]
     specs = {
         name: (scale, bound)
         for name, scale, bound in zip(names, scales, bounds, strict=True)

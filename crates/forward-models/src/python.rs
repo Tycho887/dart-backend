@@ -221,6 +221,7 @@ fn tle_state_gcrf(
 
 #[pymodule]
 fn _forward_models(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(transform_states, module)?)?;
     module.add_function(wrap_pyfunction!(evaluate_sgp4, module)?)?;
     module.add_function(wrap_pyfunction!(evaluate_sgp4_augmented, module)?)?;
     module.add_function(wrap_pyfunction!(evaluate_full_state, module)?)?;
@@ -229,6 +230,27 @@ fn _forward_models(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(sgp4_states_gcrf, module)?)?;
     module.add_function(wrap_pyfunction!(full_state_states_gcrf, module)?)?;
     Ok(())
+}
+
+#[pyfunction]
+fn transform_states(
+    py: Python<'_>,
+    states: Vec<Vec<f64>>,
+    epochs_unix: Vec<f64>,
+    from_frame: String,
+    to_frame: String,
+) -> PyResult<Vec<Vec<f64>>> {
+    py.allow_threads(move || {
+        let times = trajectory_times(&epochs_unix)?;
+        let from = from_frame
+            .parse()
+            .map_err(|_| invalid_input("unknown source frame"))?;
+        let to = to_frame
+            .parse()
+            .map_err(|_| invalid_input("unknown target frame"))?;
+        crate::transform_cartesian_states(&states, &times, from, to)
+    })
+    .map_err(python_error)
 }
 
 fn trajectory_times(epochs: &[f64]) -> FmResult<Vec<Instant>> {

@@ -105,6 +105,8 @@ def test_public_contract() -> None:
         "PriorStateData",
         "compute_consider_covariance",
         "fit",
+        "resolve_prior",
+        "resolve_solution",
     ]
     assert [field.name for field in fields(PriorStateData)] == [
         "observations",

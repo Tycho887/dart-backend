@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from collections.abc import Callable
 
@@ -16,6 +18,7 @@ from dart.forward_models import (
     evaluate_sgp4_augmented,
     tle_state_gcrf,
 )
+from dart.orbit import CartesianOrbit, OrbitSolution, Sgp4Orbit
 
 from .cca import compute_consider_covariance
 from .schema import (
@@ -51,12 +54,23 @@ FloatArray = NDArray[np.float64]
 Evaluator = Callable[[FloatArray], ForwardModelEvaluation]
 
 
+def _source_tle_lines(raw: str) -> list[str]:
+    """Guard fixed-width inputs before satkit's unchecked Python line dispatch."""
+    lines = [line.rstrip() for line in raw.splitlines() if line.strip()]
+    if len(lines) not in (2, 3):
+        raise ValueError("source ephemeris must contain exactly one TLE")
+    for number, line in enumerate(lines[-2:], start=1):
+        if len(line) != 69 or not line.isascii() or not line.startswith(f"{number} "):
+            raise ValueError("source ephemeris contains an invalid fixed-width TLE")
+    return lines
+
+
 def _canonical_tle(data: PriorStateData) -> tuple[str, str]:
     raw = data.ephemeris.tle
     if raw is None or not raw.strip():
         raise ValueError("source ephemeris does not contain a TLE")
     try:
-        parsed = sk.TLE.from_lines([line for line in raw.splitlines() if line.strip()])
+        parsed = sk.TLE.from_lines(_source_tle_lines(raw))
     except Exception as exc:
         raise ValueError("source ephemeris contains an invalid TLE") from exc
     if isinstance(parsed, list):
@@ -151,8 +165,69 @@ def _validate_data(data: PriorStateData) -> None:
     for contact in data.observations.contacts.values():
         if contact.spacecraft_id != data.ephemeris.spacecraft_id:
             raise ValueError("observation and source-ephemeris spacecraft IDs differ")
-        if contact.ephemeris_id != data.ephemeris.ephemeris_id:
-            raise ValueError("observation and source ephemeris IDs differ")
+        # A deliberately selected fit prior may differ from the ephemeris
+        # originally used to track any individual contact.
+
+
+def _materialize_orbit(
+    data: PriorStateData, model: OrbitModel, values: dict[str, float]
+) -> OrbitSolution:
+    _validate_data(data)
+    object_ids = {contact.cospar for contact in data.observations.contacts.values()}
+    if len(object_ids) != 1 or not next(iter(object_ids)).strip():
+        raise ValueError("orbit products require one explicit contact COSPAR identity")
+    object_id = next(iter(object_ids))
+    lines = _canonical_tle(data)
+    identity = json.dumps(
+        [
+            model,
+            data.ephemeris.ephemeris_id,
+            lines,
+            data.epoch.as_unixtime(),
+            values,
+            None
+            if data.nominal_state_gcrf_si is None
+            else data.nominal_state_gcrf_si.tolist(),
+        ],
+        sort_keys=True,
+        allow_nan=False,
+    )
+    solution_id = hashlib.sha256(identity.encode()).hexdigest()
+    if model == OrbitModel.SGP4:
+        offsets = tuple(values.get(name, 0.0) for name in _SGP4_PARAMETER_NAMES)
+        return Sgp4Orbit(object_id, data.ephemeris, solution_id, lines, offsets)
+    if model != OrbitModel.FULL_STATE:
+        raise ValueError(f"unsupported orbit model: {model}")
+    nominal, _ = _full_state(data, lines)
+    correction = np.array(
+        [values.get(name, 0.0) for name in _FULL_STATE_PARAMETER_NAMES]
+    )
+    state = tuple(float(value) for value in nominal + correction)
+    return CartesianOrbit(object_id, data.ephemeris, solution_id, data.epoch, state)
+
+
+def resolve_prior(data: PriorStateData, model: OrbitModel) -> OrbitSolution:
+    """Materialize the selected uncorrected prior for baseline evaluation."""
+    return _materialize_orbit(data, model, {})
+
+
+def resolve_solution(data: PriorStateData, output: OptimizerOutput) -> OrbitSolution:
+    """Combine a successful fit's named corrections with its original prior.
+
+    Callers must retain the exact PriorStateData used by fit; OptimizerOutput
+    contains corrections, not a standalone orbit or its source ephemeris.
+    """
+    if not output.success:
+        raise ValueError("cannot publish an orbit from an unsuccessful fit")
+    if len(set(output.parameter_names)) != len(output.parameter_names):
+        raise ValueError("fit parameter names must be unique")
+    if not np.all(np.isfinite(output.parameters)):
+        raise ValueError("fit parameters must be finite")
+    values = dict(zip(output.parameter_names, output.parameters.tolist(), strict=True))
+    unknown = values.keys() - set(_canonical_parameter_names(data, output.model_kind))
+    if unknown:
+        raise ValueError(f"unknown fit parameters: {sorted(unknown)}")
+    return _materialize_orbit(data, output.model_kind, values)
 
 
 def _full_state(
@@ -334,4 +409,6 @@ __all__ = [
     "PriorStateData",
     "compute_consider_covariance",
     "fit",
+    "resolve_prior",
+    "resolve_solution",
 ]

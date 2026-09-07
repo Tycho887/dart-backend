@@ -28,6 +28,37 @@ use std::fmt;
 
 mod python;
 
+/// Transform finite Cartesian SI states using satkit, including frame velocity.
+/// Epoch order and repetitions are preserved; orbit-dependent frames fail.
+pub fn transform_cartesian_states(
+    states: &[Vec<f64>],
+    times: &[Instant],
+    from: Frame,
+    to: Frame,
+) -> FmResult<Vec<Vec<f64>>> {
+    if states.is_empty() || states.len() != times.len() {
+        return Err(ForwardModelError::InvalidInput(
+            "states and epochs must have matching nonempty lengths".into(),
+        ));
+    }
+    states
+        .iter()
+        .zip(times)
+        .map(|(state, time)| {
+            if state.len() != 6 || !state.iter().all(|value| value.is_finite()) {
+                return Err(ForwardModelError::InvalidInput(
+                    "state must contain six finite values".into(),
+                ));
+            }
+            let position = Vector3::from_array([state[0], state[1], state[2]]);
+            let velocity = Vector3::from_array([state[3], state[4], state[5]]);
+            let (r, v) = transform_state(from, to, time, &position, &velocity)
+                .map_err(|error| ForwardModelError::InvalidInput(error.to_string()))?;
+            Ok(r.as_slice().iter().chain(v.as_slice()).copied().collect())
+        })
+        .collect()
+}
+
 /// Errors returned by validated forward-model entry points.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ForwardModelError {
@@ -1360,6 +1391,29 @@ mod tests {
     use super::*;
     use numeris::vector;
     use satkit::Duration;
+
+    #[test]
+    fn cartesian_frames_include_velocity_and_preserve_order() {
+        let t0 = Instant::from_unixtime(1777766400.0);
+        let t1 = Instant::from_unixtime(1777766410.0);
+        let times = [t1, t0, t1];
+        let fixed = vec![vec![6378137.0, 0.0, 0.0, 0.0, 0.0, 0.0]; 3];
+        let inertial =
+            transform_cartesian_states(&fixed, &times, Frame::ITRF, Frame::GCRF).unwrap();
+        assert_eq!(inertial[0], inertial[2]);
+        let speed = inertial[0][3..].iter().map(|v| v * v).sum::<f64>().sqrt();
+        assert!(speed > 450.0 && speed < 480.0);
+        let restored =
+            transform_cartesian_states(&inertial, &times, Frame::GCRF, Frame::ITRF).unwrap();
+        for (actual, expected) in restored.iter().flatten().zip(fixed.iter().flatten()) {
+            assert!((actual - expected).abs() < 1e-7);
+        }
+        assert!(transform_cartesian_states(&fixed, &[], Frame::ITRF, Frame::GCRF).is_err());
+        assert!(
+            transform_cartesian_states(&[vec![f64::NAN; 6]], &[t0], Frame::ITRF, Frame::GCRF)
+                .is_err()
+        );
+    }
     use satkit::sgp4::sgp4;
 
     fn generate_mock_vectors() -> (Vector3<f64>, Vector3<f64>, Vector3<f64>, Vector3<f64>) {
