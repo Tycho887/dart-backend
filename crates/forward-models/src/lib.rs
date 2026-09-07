@@ -26,6 +26,8 @@ use satkit::sgp4::{GravConst, OpsMode, SGP4Error, sgp4_full};
 use satkit::{Frame, ITRFCoord, Instant, TLE};
 use std::fmt;
 
+mod python;
+
 /// Errors returned by validated forward-model entry points.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ForwardModelError {

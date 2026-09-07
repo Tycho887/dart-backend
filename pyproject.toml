@@ -46,16 +46,16 @@ build-backend = "maturin"
 [tool.uv]
 cache-keys = [
     { file = "pyproject.toml" },
-    { file = "crates/dart_solver/Cargo.toml" },
-    { file = "crates/dart_solver/Cargo.lock" },
-    { file = "crates/dart_solver/src/**/*.rs" },
+    { file = "crates/forward-models/Cargo.toml" },
+    { file = "crates/forward-models/Cargo.lock" },
+    { file = "crates/forward-models/src/**/*.rs" },
 ]
 
 [tool.maturin]
-manifest-path = "crates/dart_solver/Cargo.toml"
-module-name = "dart_solver"
+manifest-path = "crates/forward-models/Cargo.toml"
+module-name = "dart._forward_models"
 python-packages = ["dart"]
-features = ["pyo3/extension-module"]
+features = ["extension-module"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

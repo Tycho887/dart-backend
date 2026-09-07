@@ -3,6 +3,15 @@ name = "forward-models"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "_forward_models"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+extension-module = ["pyo3/extension-module"]
+
 [dependencies]
 satkit = "0.21.2"
 numeris = "0.5"
+pyo3 = { version = "0.23.5", features = ["abi3-py39"] }
