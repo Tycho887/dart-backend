@@ -48,6 +48,8 @@ arguments.
 
 ## Provider modules
 
+The complete API and use-case reference is in [DART IO](docs/io.md).
+
 - `dart.io.kogs`: KOGS authentication, typed reads, contact metadata, and
   guarded scheduling mutations.
 - `dart.io.adx`: ADX clients, bounded raw queries, and canonical measurements.

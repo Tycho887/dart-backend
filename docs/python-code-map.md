@@ -2,7 +2,8 @@
 
 The supported Python surface currently centers on `dart.io`. It acquires and
 normalizes data without choosing an orbit model, optimizer, product writer, or
-controller.
+controller. See [DART IO](io.md) for the complete public API reference and
+usage examples.
 
 ```text
 KOGS metadata ─┐
