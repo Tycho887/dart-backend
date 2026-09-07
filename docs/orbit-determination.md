@@ -104,3 +104,97 @@ unconsidered covariance, consider covariance, estimated-to-consider
 sensitivity, and one-sigma perturbation matrix. Robust-loss outputs are
 rejected because their final Jacobian does not define the classical linear
 consider analysis used here.
+
+## Synthetic cross-model validation
+
+Run the deterministic numerical regression suite with:
+
+```bash
+uv run pytest -q tests/test_cross_model_validation.py tests/test_forward_models.py tests/test_od.py tests/test_cca.py
+cargo test --manifest-path crates/forward-models/Cargo.toml
+```
+
+`tests/cross_model_validation.py` generates Doppler with one Rust-backed model
+and fits it through `dart.od.fit` with the other. Same-model controls distinguish
+model mismatch from inversion errors. No live services, credentials, controller,
+or antenna are involved.
+
+The fixtures are synthetic TLEs serialized by satkit from the existing ISS
+fixture, with these modified elements and zero B* and mean-motion derivatives:
+
+| Regime | Mean motion (rev/day) | Inclination (degrees) | Eccentricity |
+| --- | --- | --- | --- |
+| LEO | 15.5 | 51.6 | 0.001 |
+| MEO | 2.0 | 55.0 | 0.01 |
+| GEO | 1.0027 | 0.1 | 0.001 |
+
+These are controlled numerical geometries, not real visibility-selected
+contacts. Two fixed receivers sample 400 MHz Doppler at 40 epochs from 60 seconds
+after the state epoch through one orbital period. Every fourth epoch is held
+out for both receivers. Separated-pass cases use windows at 10–30% and 70–90%
+of the period, with distinct biases and deliberately non-lexical contact names.
+Full-state propagation uses the production default force settings.
+
+The helper preserves clean Doppler, noise, injected parameters, observation
+metadata, and the GCRF truth state. Baseline noise is independent Gaussian noise
+with sigma 0.1 Hz and seed 42. Noiseless controls omit the noise realization but
+retain positive observation variances for whitening. Timing, frequency, and
+pass-bias cases inject 0.35 s, 100 kHz, and +8/-5 Hz respectively. Orbit fits
+start with a 0.2-degree SGP4 longitude error or Cartesian position/velocity
+errors of `[1000, -800, 600]` m / `[1, -0.8, 0.5]` m/s. The true orbit is the
+unmodified synthetic TLE or its GCRF epoch state, independently retained from
+these initial errors.
+
+Cross-model regressions require finite, bounded fits and objective reduction.
+SGP4 fitted to full-state truth must also improve held-out clean predictions;
+full-state fitted to SGP4 truth is judged primarily on convergence. Noiseless
+same-model controls require prediction RMS below `1e-5 Hz` and scaled parameter
+error below `1e-3` when the scaled Jacobian condition number is below `1e4`.
+Noisy same-model controls use a three-sigma prediction limit: a GEO prior can
+already predict below the noise floor, so further fitting need not improve it.
+
+Additional regressions cover non-unit varying variances, nuisance-parameter
+recovery, robust loss with outliers, evaluation-budget exhaustion, restrictive
+bounds, repeated-epoch rank deficiency, and consider covariance on actual
+cross-model fits. The covariance oracle uses augmented linear least squares
+with matching priors, independently of the production normal-equation formula.
+
+### Optional sweep
+
+```bash
+# All regimes, both generators and fitters, seeds 0–4 (1,230 fits).
+uv run python tests/cross_model_validation.py --sweep --output /tmp/cross-model.json
+
+# One seed across all regimes (246 fits).
+uv run python tests/cross_model_validation.py --sweep --seeds 0 --output /tmp/cross-model-seed0.json
+
+# Small command-line smoke check.
+uv run python tests/cross_model_validation.py --sweep --regime LEO --seeds 0 --limit 2 --output /tmp/cross-model-smoke.json
+```
+
+The sweep varies one factor at a time: noise at 0.1/1/5 Hz, initial errors at
+0.1/1/10 times baseline, short arcs, one receiver, parameter subsets, and all
+five supported losses. Outlier comparisons inject +30 sigma into every eleventh
+sample. B* estimation is included only for SGP4. Augmented cases coestimate
+orbit, timing, frequency, and bias; some configurations are deliberately weakly
+observable and need not converge within the 100-evaluation budget. The complete
+sweep is opt-in and can take considerably longer than the regression suite.
+
+The JSON report checkpoints each completed case, retaining its full configuration
+and seed. Metrics include optimizer termination, objective values, training and
+clean held-out RMS in Hz, bound hits, scaled Jacobian singular values and rank,
+and available truth errors. A null condition number denotes rank deficiency.
+Cartesian epoch-state errors are reported for full-state fits; SGP4 parameter
+errors are reported only against SGP4 truth, since opposite-model parameters
+are not interchangeable. The shared-state model-mismatch RMS compares the two
+trajectories initialized at the same known physical epoch state. Exceptions are
+recorded with type and message and do not stop the sweep. Unexpected exceptions
+in the regression suite fail normally.
+
+Optimizer success, observability, and physical accuracy are separate quantities.
+In particular, GEO can terminate successfully with a poorly conditioned
+Jacobian, and a bound-limited fit can still report success. Consider covariance
+does not cover systematic model mismatch. Both propagators share parts of the
+numerical core, so cross-model checks complement the existing independent sign,
+unit, frame, and derivative tests rather than establishing external physical
+accuracy.
