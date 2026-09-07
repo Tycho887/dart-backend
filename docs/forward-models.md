@@ -59,17 +59,31 @@ standard deviation. Pass-bias Jacobian columns are one-hot before whitening.
 WGS-72 SGP4 implementation in improved mode. TEME states are converted to
 GCRF before evaluating station-relative Doppler.
 
-The parameter vector has length `3 + context.num_passes`:
+The orbit correction is applied in SGP4-specific mean-equinoctial coordinates:
+
+\[
+f=e\cos(\Omega+\omega),\quad g=e\sin(\Omega+\omega),\quad
+h=\tan(i/2)\cos\Omega,\quad k=\tan(i/2)\sin\Omega,
+\]
+
+\[
+\lambda=\Omega+\omega+M.
+\]
+
+These are mean TLE elements; they are not the semilatus-rectum/true-longitude
+modified equinoctial coordinates. The parameter vector has length
+`7 + context.num_passes`:
 
 | Column | Unit | Meaning |
 | --- | --- | --- |
 | 0 | rev/day | TLE mean-motion offset |
-| 1 | degree | TLE mean-anomaly offset |
-| 2 | dimensionless | TLE B* offset |
-| 3 onward | Hz | One constant Doppler bias per pass |
+| 1–4 | dimensionless | Mean-equinoctial `f`, `g`, `h`, `k` offsets |
+| 5 | degree | Mean-longitude offset |
+| 6 | dimensionless | TLE B* offset |
+| 7 onward | Hz | One constant Doppler bias per pass |
 
 The Doppler sensitivity to Cartesian state is analytic. Sensitivities of the
-propagated Cartesian state to the three TLE parameters use centered finite
+propagated Cartesian state to the seven SGP4 parameters use centered finite
 differences, after which the chain rule produces the objective Jacobian.
 
 `evaluate_sgp4_augmented` preserves that entry point and inserts global
@@ -134,8 +148,10 @@ from dart.forward_models import evaluate_sgp4
 
 # `context` is a validated dart.io.ForwardModelContext.
 # `tle_lines` is exactly (line_1, line_2).
-x0 = np.zeros(3 + context.num_passes)
-x_scale = np.array([1e-3, 0.1, 1e-5, *([10.0] * context.num_passes)])
+x0 = np.zeros(7 + context.num_passes)
+x_scale = np.array(
+    [1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 0.1, 1e-5, *([10.0] * context.num_passes)]
+)
 
 
 def evaluate(x: np.ndarray):
@@ -171,8 +187,8 @@ NumPy arrays. For `N` observations and `P` passes, shapes are:
 
 | Function | Residual shape | Jacobian shape |
 | --- | --- | --- |
-| `evaluate_sgp4` | `(N,)` | `(N, 3 + P)` |
-| `evaluate_sgp4_augmented` | `(N,)` | `(N, 5 + P)` |
+| `evaluate_sgp4` | `(N,)` | `(N, 7 + P)` |
+| `evaluate_sgp4_augmented` | `(N,)` | `(N, 9 + P)` |
 | `evaluate_full_state` | `(N,)` | `(N, 6 + P)` |
 | `evaluate_full_state_augmented` | `(N,)` | `(N, 8 + P)` |
 

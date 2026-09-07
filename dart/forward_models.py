@@ -49,9 +49,13 @@ def _native_inputs(context: ForwardModelContext) -> _NativeInputs:
             (receiver.latitude_deg, receiver.longitude_deg, receiver.altitude)
             for receiver in context.receivers
         ],
-        epochs_unix=[observation.time.as_unixtime() for observation in context.observations],
+        epochs_unix=[
+            observation.time.as_unixtime() for observation in context.observations
+        ],
         observed_hz=[observation.observed[0] for observation in context.observations],
-        variances_hz2=[observation.noise_cov[0][0] for observation in context.observations],
+        variances_hz2=[
+            observation.noise_cov[0][0] for observation in context.observations
+        ],
         receiver_ids=[observation.receiver_id for observation in context.observations],
         pass_indices=[observation.pass_index for observation in context.observations],
         center_frequency_hz=context.center_frequency_hz,
@@ -59,7 +63,9 @@ def _native_inputs(context: ForwardModelContext) -> _NativeInputs:
     )
 
 
-def _evaluation(result: tuple[list[float], list[list[float]]]) -> ForwardModelEvaluation:
+def _evaluation(
+    result: tuple[list[float], list[list[float]]],
+) -> ForwardModelEvaluation:
     residuals, jacobian = result
     return ForwardModelEvaluation(
         residuals=np.ascontiguousarray(residuals, dtype=np.float64),
@@ -87,8 +93,9 @@ def evaluate_sgp4(
 ) -> ForwardModelEvaluation:
     """Evaluate the SGP4 Doppler objective and its analytic outer Jacobian.
 
-    ``x`` is ordered as mean-motion offset (rev/day), mean-anomaly offset
-    (degrees), B* offset, followed by one Doppler bias (Hz) per pass.
+    ``x`` is ordered as mean-motion offset (rev/day), equinoctial f, g, h, k,
+    mean-longitude offset (degrees), B* offset, followed by one Doppler bias
+    (Hz) per pass.
     """
 
     inputs = _native_inputs(context)
@@ -111,7 +118,7 @@ def evaluate_sgp4_augmented(
 ) -> ForwardModelEvaluation:
     """Evaluate SGP4 with global time/frequency offsets and pass biases.
 
-    ``x`` is ordered as three SGP4 offsets, time offset (s), center-frequency
+    ``x`` is ordered as seven SGP4 offsets, time offset (s), center-frequency
     offset (Hz), then one Doppler bias (Hz) per pass.
     """
 

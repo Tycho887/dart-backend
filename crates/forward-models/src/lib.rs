@@ -805,27 +805,188 @@ pub fn hifi_evaluate_augmented(
 pub enum Sgp4Param {
     /// Mean motion offset (rev/day).
     MeanMotion,
-    /// Mean anomaly offset (degrees).
-    MeanAnomaly,
+    /// Mean eccentricity-vector x component offset.
+    EquinoctialF,
+    /// Mean eccentricity-vector y component offset.
+    EquinoctialG,
+    /// Mean inclination-vector x component offset.
+    EquinoctialH,
+    /// Mean inclination-vector y component offset.
+    EquinoctialK,
+    /// Mean longitude offset (degrees).
+    MeanLongitude,
     /// B* drag term offset.
     Bstar,
 }
 
 /// Active SGP4 parameter set, in estimation-vector order.
-pub const SGP4_PARAMS: [Sgp4Param; 3] = [
+pub const SGP4_PARAMS: [Sgp4Param; 7] = [
     Sgp4Param::MeanMotion,
-    Sgp4Param::MeanAnomaly,
+    Sgp4Param::EquinoctialF,
+    Sgp4Param::EquinoctialG,
+    Sgp4Param::EquinoctialH,
+    Sgp4Param::EquinoctialK,
+    Sgp4Param::MeanLongitude,
     Sgp4Param::Bstar,
 ];
 
 /// Per-parameter floors for the finite-difference step, in TLE units
-/// (rev/day, deg, bstar): h_j = FD_REL_STEP * max(|value_j|, scale_j).
-const SGP4_PARAM_SCALES: [f64; 3] = [1.0, 1.0, 1e-4];
+/// (rev/day, dimensionless, degrees, bstar):
+/// h_j = FD_REL_STEP * max(|value_j|, scale_j).
+const SGP4_PARAM_SCALES: [f64; 7] = [1.0, 1e-3, 1e-3, 1e-3, 1e-3, 1.0, 1e-4];
 const FD_REL_STEP: f64 = 1e-6;
+
+#[derive(Clone, Copy, Debug)]
+struct MeanEquinoctialElements {
+    mean_motion_rev_per_day: f64,
+    f: f64,
+    g: f64,
+    h: f64,
+    k: f64,
+    mean_longitude_deg: f64,
+}
+
+impl MeanEquinoctialElements {
+    fn from_tle(tle: &TLE) -> FmResult<Self> {
+        validate_classical_tle(tle)?;
+        let longitude_of_perigee = (tle.raan + tle.arg_of_perigee).to_radians();
+        let half_inclination_tangent = (0.5 * tle.inclination.to_radians()).tan();
+        let elements = Self {
+            mean_motion_rev_per_day: tle.mean_motion,
+            f: tle.eccen * longitude_of_perigee.cos(),
+            g: tle.eccen * longitude_of_perigee.sin(),
+            h: half_inclination_tangent * tle.raan.to_radians().cos(),
+            k: half_inclination_tangent * tle.raan.to_radians().sin(),
+            mean_longitude_deg: normalize_degrees(tle.raan + tle.arg_of_perigee + tle.mean_anomaly),
+        };
+        elements.validate()?;
+        Ok(elements)
+    }
+
+    fn with_offsets(self, offsets: &[f64]) -> FmResult<Self> {
+        let corrected = Self {
+            mean_motion_rev_per_day: self.mean_motion_rev_per_day + offsets[0],
+            f: self.f + offsets[1],
+            g: self.g + offsets[2],
+            h: self.h + offsets[3],
+            k: self.k + offsets[4],
+            mean_longitude_deg: self.mean_longitude_deg + offsets[5],
+        };
+        corrected.validate()?;
+        Ok(corrected)
+    }
+
+    fn validate(self) -> FmResult<()> {
+        let values = [
+            self.mean_motion_rev_per_day,
+            self.f,
+            self.g,
+            self.h,
+            self.k,
+            self.mean_longitude_deg,
+        ];
+        if !values.iter().all(|value| value.is_finite()) {
+            return Err(ForwardModelError::InvalidInput(
+                "mean equinoctial elements must be finite".to_string(),
+            ));
+        }
+        if self.mean_motion_rev_per_day <= 0.0 {
+            return Err(ForwardModelError::InvalidInput(
+                "corrected TLE mean motion must be positive".to_string(),
+            ));
+        }
+        if self.f.hypot(self.g) >= 1.0 {
+            return Err(ForwardModelError::InvalidInput(
+                "corrected TLE eccentricity must be below one".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn classical_elements(self) -> FmResult<[f64; 5]> {
+        self.validate()?;
+        let eccentricity = self.f.hypot(self.g);
+        let raan = self.k.atan2(self.h).to_degrees();
+        let longitude_of_perigee = self.g.atan2(self.f).to_degrees();
+        let inclination = 2.0 * self.h.hypot(self.k).atan().to_degrees();
+        let argument_of_perigee = longitude_of_perigee - raan;
+        let mean_anomaly = self.mean_longitude_deg - longitude_of_perigee;
+        let converted = [
+            eccentricity,
+            inclination,
+            raan,
+            argument_of_perigee,
+            mean_anomaly,
+        ];
+        if !converted.iter().all(|value| value.is_finite()) || inclination >= 180.0 {
+            return Err(ForwardModelError::InvalidInput(
+                "mean equinoctial elements convert to invalid classical elements".to_string(),
+            ));
+        }
+        Ok([
+            eccentricity,
+            inclination,
+            normalize_degrees(raan),
+            normalize_degrees(argument_of_perigee),
+            normalize_degrees(mean_anomaly),
+        ])
+    }
+
+    fn values_with_bstar(self, bstar: f64) -> [f64; 7] {
+        [
+            self.mean_motion_rev_per_day,
+            self.f,
+            self.g,
+            self.h,
+            self.k,
+            self.mean_longitude_deg,
+            bstar,
+        ]
+    }
+}
+
+fn normalize_degrees(angle: f64) -> f64 {
+    angle.rem_euclid(360.0)
+}
+
+fn validate_classical_tle(tle: &TLE) -> FmResult<()> {
+    let elements = [
+        tle.mean_motion,
+        tle.mean_motion_dot,
+        tle.mean_motion_dot_dot,
+        tle.bstar,
+        tle.inclination,
+        tle.raan,
+        tle.eccen,
+        tle.arg_of_perigee,
+        tle.mean_anomaly,
+    ];
+    if !elements.iter().all(|value| value.is_finite()) {
+        return Err(ForwardModelError::InvalidInput(
+            "TLE elements must be finite".to_string(),
+        ));
+    }
+    if tle.mean_motion <= 0.0 {
+        return Err(ForwardModelError::InvalidInput(
+            "TLE mean motion must be positive".to_string(),
+        ));
+    }
+    if !(0.0..1.0).contains(&tle.eccen) {
+        return Err(ForwardModelError::InvalidInput(
+            "TLE eccentricity must be in [0, 1)".to_string(),
+        ));
+    }
+    if !(0.0..180.0).contains(&tle.inclination) {
+        return Err(ForwardModelError::InvalidInput(
+            "TLE inclination must be in [0, 180) degrees".to_string(),
+        ));
+    }
+    Ok(())
+}
 
 /// SGP4 propagation to GCRF Cartesian states (meters, m/s) at `times`.
 pub fn propagate_sgp4_gcrf(tle: &TLE, times: &[Instant]) -> FmResult<Vec<Vector6<f64>>> {
-    let mut fresh_tle = tle_with_offset(tle, &[0.0; SGP4_PARAMS.len()])?;
+    let mut fresh_tle = fresh_tle(tle)?;
     let out = sgp4_full(&mut fresh_tle, times, GravConst::WGS72, OpsMode::IMPROVED)
         .map_err(|error| ForwardModelError::Propagation(error.to_string()))?;
 
@@ -853,7 +1014,8 @@ pub fn propagate_sgp4_gcrf(tle: &TLE, times: &[Instant]) -> FmResult<Vec<Vector6
 }
 
 /// Returns a TLE equal to `base` plus element `offsets` in `SGP4_PARAMS`
-/// order ([d_mean_motion rev/day, d_mean_anomaly deg, d_bstar]).
+/// order ([d_mean_motion rev/day, d_f, d_g, d_h, d_k, d_mean_longitude deg,
+/// d_bstar]).
 ///
 /// `TLE` caches its SGP4 `SatRec` in a `pub(crate)` field, and mutating the
 /// public element fields does not invalidate it. Copying the public fields
@@ -866,6 +1028,43 @@ fn tle_with_offset(base: &TLE, offsets: &[f64]) -> FmResult<TLE> {
             offsets.len()
         )));
     }
+    let corrected_bstar = base.bstar + offsets[6];
+    if offsets[..6].iter().all(|offset| *offset == 0.0) {
+        let mut tle = fresh_tle(base)?;
+        tle.bstar = corrected_bstar;
+        validate_classical_tle(&tle)?;
+        return Ok(tle);
+    }
+    let corrected = MeanEquinoctialElements::from_tle(base)?.with_offsets(offsets)?;
+    tle_from_mean_equinoctial(base, corrected, corrected_bstar)
+}
+
+fn tle_from_mean_equinoctial(
+    base: &TLE,
+    elements: MeanEquinoctialElements,
+    bstar: f64,
+) -> FmResult<TLE> {
+    let [
+        eccentricity,
+        inclination,
+        raan,
+        argument_of_perigee,
+        mean_anomaly,
+    ] = elements.classical_elements()?;
+    let mut tle = fresh_tle(base)?;
+    tle.bstar = bstar;
+    tle.inclination = inclination;
+    tle.raan = raan;
+    tle.eccen = eccentricity;
+    tle.arg_of_perigee = argument_of_perigee;
+    tle.mean_anomaly = mean_anomaly;
+    tle.mean_motion = elements.mean_motion_rev_per_day;
+    validate_classical_tle(&tle)?;
+    Ok(tle)
+}
+
+fn fresh_tle(base: &TLE) -> FmResult<TLE> {
+    validate_classical_tle(base)?;
     let mut tle = TLE::new();
     tle.name = base.name.clone();
     tle.intl_desig = base.intl_desig.clone();
@@ -876,49 +1075,16 @@ fn tle_with_offset(base: &TLE, offsets: &[f64]) -> FmResult<TLE> {
     tle.epoch = base.epoch;
     tle.mean_motion_dot = base.mean_motion_dot;
     tle.mean_motion_dot_dot = base.mean_motion_dot_dot;
-    tle.bstar = base.bstar + offsets[2];
+    tle.bstar = base.bstar;
     tle.ephem_type = base.ephem_type;
     tle.element_num = base.element_num;
     tle.inclination = base.inclination;
     tle.raan = base.raan;
     tle.eccen = base.eccen;
     tle.arg_of_perigee = base.arg_of_perigee;
-    tle.mean_anomaly = base.mean_anomaly + offsets[1];
-    tle.mean_motion = base.mean_motion + offsets[0];
+    tle.mean_anomaly = base.mean_anomaly;
+    tle.mean_motion = base.mean_motion;
     tle.rev_num = base.rev_num;
-    let remaining_elements = [
-        tle.mean_motion_dot,
-        tle.mean_motion_dot_dot,
-        tle.inclination,
-        tle.raan,
-        tle.eccen,
-        tle.arg_of_perigee,
-    ];
-    if !remaining_elements.iter().all(|value| value.is_finite()) {
-        return Err(ForwardModelError::InvalidInput(
-            "TLE elements must be finite".to_string(),
-        ));
-    }
-    if !tle.mean_motion.is_finite() || tle.mean_motion <= 0.0 {
-        return Err(ForwardModelError::InvalidInput(
-            "corrected TLE mean motion must be finite and positive".to_string(),
-        ));
-    }
-    if !tle.mean_anomaly.is_finite() || !tle.bstar.is_finite() {
-        return Err(ForwardModelError::InvalidInput(
-            "corrected TLE elements must be finite".to_string(),
-        ));
-    }
-    if !(0.0..1.0).contains(&tle.eccen) {
-        return Err(ForwardModelError::InvalidInput(
-            "TLE eccentricity must be in [0, 1)".to_string(),
-        ));
-    }
-    if !(0.0..=180.0).contains(&tle.inclination) {
-        return Err(ForwardModelError::InvalidInput(
-            "TLE inclination must be in [0, 180] degrees".to_string(),
-        ));
-    }
     Ok(tle)
 }
 
@@ -945,11 +1111,8 @@ fn sgp4_states_and_sensitivities(
 ) -> FmResult<Sgp4Propagation> {
     let corrected = tle_with_offset(base, offsets)?;
     let states = propagate_sgp4_gcrf(&corrected, times)?;
-    let parameter_values = [
-        corrected.mean_motion,
-        corrected.mean_anomaly,
-        corrected.bstar,
-    ];
+    let parameter_values =
+        MeanEquinoctialElements::from_tle(&corrected)?.values_with_bstar(corrected.bstar);
     let mut sensitivities = (0..times.len())
         .map(|_| DynMatrix::<f64>::zeros(6, SGP4_PARAMS.len()))
         .collect::<Vec<_>>();
@@ -1028,7 +1191,7 @@ pub fn evaluate_objective(
 
 /// Low-fidelity SGP4 batch evaluation.
 ///
-/// `x` contains the three [`SGP4_PARAMS`] offsets followed by one bias in Hz
+/// `x` contains the seven [`SGP4_PARAMS`] offsets followed by one bias in Hz
 /// for each configured pass. Every observation uses its selected receiver.
 pub fn lofi_evaluate(
     engine: &EstimationEngine,
@@ -1091,7 +1254,7 @@ pub fn lofi_evaluate(
 
 /// SGP4 objective augmented with global epoch and carrier-frequency offsets.
 ///
-/// `x` is `[SGP4 offsets (3) | time offset (s) | center-frequency offset
+/// `x` is `[SGP4 offsets (7) | time offset (s) | center-frequency offset
 /// (Hz) | pass biases (Hz)]`. The time derivative uses a centered, model-owned
 /// 1 ms difference of the complete Doppler observable.
 pub fn lofi_evaluate_augmented(
@@ -1562,6 +1725,84 @@ mod tests {
         assert!(propagate_sgp4_gcrf(&tle, &[tle.epoch]).is_err());
     }
 
+    fn angle_difference_degrees(left: f64, right: f64) -> f64 {
+        (left - right + 180.0).rem_euclid(360.0) - 180.0
+    }
+
+    #[test]
+    fn test_mean_equinoctial_round_trips_representative_tles() {
+        let mut circular = mock_tle();
+        circular.eccen = 0.0;
+        circular.arg_of_perigee = 359.9;
+        let mut equatorial = mock_tle();
+        equatorial.inclination = 0.0;
+        equatorial.raan = 359.8;
+        let mut near_wrap = mock_tle();
+        near_wrap.raan = 359.9;
+        near_wrap.arg_of_perigee = 0.2;
+        near_wrap.mean_anomaly = 359.95;
+
+        for source in [circular, equatorial, mock_tle(), near_wrap] {
+            let expected = MeanEquinoctialElements::from_tle(&source).unwrap();
+            let converted = tle_from_mean_equinoctial(&source, expected, source.bstar).unwrap();
+            let actual = MeanEquinoctialElements::from_tle(&converted).unwrap();
+            assert!((0.0..360.0).contains(&converted.raan));
+            assert!((0.0..360.0).contains(&converted.arg_of_perigee));
+            assert!((0.0..360.0).contains(&converted.mean_anomaly));
+            assert!(
+                (actual.mean_motion_rev_per_day - expected.mean_motion_rev_per_day).abs() < 1e-14
+            );
+            assert!((actual.f - expected.f).abs() < 1e-14);
+            assert!((actual.g - expected.g).abs() < 1e-14);
+            assert!((actual.h - expected.h).abs() < 1e-14);
+            assert!((actual.k - expected.k).abs() < 1e-14);
+            assert!(
+                angle_difference_degrees(actual.mean_longitude_deg, expected.mean_longitude_deg)
+                    .abs()
+                    < 1e-12
+            );
+        }
+    }
+
+    #[test]
+    fn test_equinoctial_offsets_validate_and_preserve_tle_metadata() {
+        let source = mock_tle();
+        let mut offsets = [0.0; 7];
+        offsets[6] = 2.5e-5;
+        let corrected = tle_with_offset(&source, &offsets).unwrap();
+        assert_eq!(corrected.name, source.name);
+        assert_eq!(corrected.intl_desig, source.intl_desig);
+        assert_eq!(corrected.sat_num, source.sat_num);
+        assert_eq!(corrected.desig_year, source.desig_year);
+        assert_eq!(corrected.desig_launch, source.desig_launch);
+        assert_eq!(corrected.desig_piece, source.desig_piece);
+        assert_eq!(corrected.epoch, source.epoch);
+        assert_eq!(corrected.mean_motion_dot, source.mean_motion_dot);
+        assert_eq!(corrected.mean_motion_dot_dot, source.mean_motion_dot_dot);
+        assert_eq!(corrected.ephem_type, source.ephem_type);
+        assert_eq!(corrected.element_num, source.element_num);
+        assert_eq!(corrected.rev_num, source.rev_num);
+        assert_eq!(corrected.bstar, source.bstar + offsets[6]);
+
+        offsets = [0.0; 7];
+        offsets[0] = -source.mean_motion;
+        assert!(tle_with_offset(&source, &offsets).is_err());
+
+        let source_elements = MeanEquinoctialElements::from_tle(&source).unwrap();
+        offsets = [0.0; 7];
+        offsets[1] = 1.0 - source_elements.f;
+        assert!(tle_with_offset(&source, &offsets).is_err());
+
+        offsets = [0.0; 7];
+        offsets[3] = f64::MAX;
+        offsets[4] = f64::MAX;
+        assert!(tle_with_offset(&source, &offsets).is_err());
+
+        offsets = [0.0; 7];
+        offsets[2] = f64::NAN;
+        assert!(tle_with_offset(&source, &offsets).is_err());
+    }
+
     #[test]
     fn test_sgp4_uses_fresh_wgs72_state() {
         let time = mock_tle().epoch + Duration::from_seconds(600.0);
@@ -1642,14 +1883,19 @@ mod tests {
                 ..mock_observation(time, 1)
             },
         ];
-        let result =
-            lofi_evaluate(&engine, &[0.0, 0.0, 0.0, 10.0, -20.0], &tle, &observations).unwrap();
+        let result = lofi_evaluate(
+            &engine,
+            &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0, -20.0],
+            &tle,
+            &observations,
+        )
+        .unwrap();
 
         assert_ne!(result.residuals[0] - 10.0, result.residuals[1] + 20.0);
-        assert_eq!(result.residual_jacobian[(0, 3)], 1.0);
-        assert_eq!(result.residual_jacobian[(0, 4)], 0.0);
-        assert_eq!(result.residual_jacobian[(1, 3)], 0.0);
-        assert_eq!(result.residual_jacobian[(1, 4)], 1.0);
+        assert_eq!(result.residual_jacobian[(0, 7)], 1.0);
+        assert_eq!(result.residual_jacobian[(0, 8)], 0.0);
+        assert_eq!(result.residual_jacobian[(1, 7)], 0.0);
+        assert_eq!(result.residual_jacobian[(1, 8)], 1.0);
     }
 
     #[test]
@@ -1658,9 +1904,9 @@ mod tests {
         let time = tle.epoch + Duration::from_seconds(900.0);
         let engine = mock_engine(1);
         let observations = [mock_observation(time, 0)];
-        let x = [0.0, 0.0, 0.0, 2.0];
+        let x = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0];
         let evaluation = lofi_evaluate(&engine, &x, &tle, &observations).unwrap();
-        let outer_steps = [1e-5, 1e-4, 1e-8, 1e-4];
+        let outer_steps = [1e-5, 1e-7, 1e-7, 1e-7, 1e-7, 1e-4, 1e-8, 1e-4];
 
         for parameter in 0..x.len() {
             let (mut plus, mut minus) = (x, x);
@@ -1675,7 +1921,7 @@ mod tests {
             let finite_difference =
                 (plus_residual - minus_residual) / (2.0 * outer_steps[parameter]);
             let analytic = evaluation.residual_jacobian[(0, parameter)];
-            let relative_tolerance = if parameter == 2 { 5e-3 } else { 2e-3 };
+            let relative_tolerance = if parameter == 6 { 5e-3 } else { 2e-3 };
             let tolerance =
                 relative_tolerance * finite_difference.abs().max(analytic.abs()).max(1e-6);
             assert!(
@@ -1693,10 +1939,10 @@ mod tests {
             0,
         )];
         let engine = mock_engine(1);
-        let x = [0.0, 0.0, 0.0, 0.2, 1.0e5, 2.0];
+        let x = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 1.0e5, 2.0];
         let evaluation = lofi_evaluate_augmented(&engine, &x, &tle, &observation).unwrap();
 
-        for (parameter, step, tolerance) in [(3, 1e-2, 3e-4), (4, 1e2, 1e-7)] {
+        for (parameter, step, tolerance) in [(7, 1e-2, 3e-4), (8, 1e2, 1e-7)] {
             let (mut plus, mut minus) = (x, x);
             plus[parameter] += step;
             minus[parameter] -= step;
@@ -1819,7 +2065,7 @@ mod tests {
             .collect();
         let doppler = vec![0.0; 5];
         let station = ITRFCoord::from_geodetic_deg(63.0, 10.0, 0.0);
-        let x = [0.0, 0.0, 0.0];
+        let x = [0.0; 7];
 
         let (residuals, jacobian) =
             evaluate_objective(&x, &tle, &times, &doppler, &station, 400.0e6).unwrap();

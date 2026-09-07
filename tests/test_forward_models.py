@@ -59,7 +59,9 @@ def context(
 
 
 def synthetic_problem(
-    evaluator: Callable[[NDArray[np.float64], ForwardModelContext], ForwardModelEvaluation],
+    evaluator: Callable[
+        [NDArray[np.float64], ForwardModelContext], ForwardModelEvaluation
+    ],
     target: NDArray[np.float64],
     epochs_unix: list[float],
     receiver_ids: list[int],
@@ -95,7 +97,7 @@ def sgp4_problem() -> tuple[
     epoch = tle.epoch.as_unixtime()
     epochs = [epoch + 60.0 * index for index in range(1, 41)]
     receiver_ids = [index % 2 for index in range(len(epochs))]
-    target = np.array([2e-4, 0.05, 1e-5, 8.0])
+    target = np.array([2e-4, 0.0, 0.0, 0.0, 0.0, 0.05, 0.0, 8.0])
 
     def evaluate(x: NDArray[np.float64], model_context: ForwardModelContext):
         return evaluate_sgp4(x, ISS_TLE, model_context)
@@ -128,7 +130,11 @@ def full_state_problem() -> tuple[
         # B* sensitivity is itself computed by an inner finite difference and
         # is small near the start of this arc, so the cross-language check uses
         # a looser relative tolerance than the direct Rust kernel tests.
-        ("sgp4_problem", np.array([1e-5, 1e-4, 1e-8, 1e-4]), 7e-2),
+        (
+            "sgp4_problem",
+            np.array([1e-5, 1e-7, 1e-7, 1e-7, 1e-7, 1e-4, 1e-8, 1e-4]),
+            7e-2,
+        ),
         (
             "full_state_problem",
             np.array([1.0, 1.0, 1.0, 1e-3, 1e-3, 1e-3, 1e-3]),
@@ -152,13 +158,26 @@ def test_python_jacobian_matches_residual_finite_difference(
     assert result.jacobian.dtype == np.float64
     assert result.residuals.flags.c_contiguous
     assert result.jacobian.flags.c_contiguous
-    np.testing.assert_allclose(result.jacobian, numerical, rtol=relative_tolerance, atol=1e-7)
+    np.testing.assert_allclose(
+        result.jacobian, numerical, rtol=relative_tolerance, atol=1e-7
+    )
+
+
+def test_sgp4_finite_difference_columns_are_step_stable(sgp4_problem) -> None:
+    evaluate, target = sgp4_problem
+    steps = np.array([1e-5, 1e-7, 1e-7, 1e-7, 1e-7, 1e-4, 1e-8, 1e-4])
+
+    half_step = central_difference(evaluate, target, 0.5 * steps)
+    double_step = central_difference(evaluate, target, 2.0 * steps)
+
+    np.testing.assert_allclose(
+        half_step[:, :7], double_step[:, :7], rtol=0.1, atol=1e-5
+    )
 
 
 @pytest.mark.parametrize(
     ("fixture_name", "scale"),
     [
-        ("sgp4_problem", np.array([1e-3, 0.1, 1e-5, 10.0])),
         (
             "full_state_problem",
             np.array([100.0, 100.0, 100.0, 0.1, 0.1, 0.1, 10.0]),
@@ -172,7 +191,7 @@ def test_scipy_least_squares_recovers_synthetic_correction(
 ) -> None:
     evaluate, target = request.getfixturevalue(fixture_name)
     initial = np.zeros_like(target)
-    initial_cost = np.sum(evaluate(initial).residuals**2)
+    initial_cost = np.sum(evaluate(initial).residuals ** 2)
     solution = least_squares(
         lambda x: evaluate(x).residuals,
         initial,
@@ -190,17 +209,62 @@ def test_scipy_least_squares_recovers_synthetic_correction(
     assert np.max(scaled_error) < 1e-4
 
 
+def test_scipy_recovers_observable_sgp4_subset(sgp4_problem) -> None:
+    evaluate, target = sgp4_problem
+    selected = np.array([0, 5, 7])
+
+    def evaluate_subset(x: NDArray[np.float64]) -> ForwardModelEvaluation:
+        canonical = np.zeros(8)
+        canonical[selected] = x
+        result = evaluate(canonical)
+        return ForwardModelEvaluation(result.residuals, result.jacobian[:, selected])
+
+    expected = target[selected]
+    solution = least_squares(
+        lambda x: evaluate_subset(x).residuals,
+        np.zeros(3),
+        jac=lambda x: evaluate_subset(x).jacobian,
+        x_scale=np.array([1e-3, 0.1, 10.0]),
+        max_nfev=100,
+    )
+
+    assert solution.success
+    np.testing.assert_allclose(solution.x, expected, rtol=1e-4, atol=1e-7)
+
+
 def test_binding_rejects_invalid_model_inputs(sgp4_problem) -> None:
     evaluate, _ = sgp4_problem
-    with pytest.raises(ValueError, match="expected 4 finite low-fidelity parameters"):
-        evaluate(np.zeros(3))
+    with pytest.raises(ValueError, match="expected 8 finite low-fidelity parameters"):
+        evaluate(np.zeros(7))
 
     epoch = sk.time.from_unixtime(1_700_000_000.0)
     model_context = context([epoch.as_unixtime()], np.zeros(1), [0])
     with pytest.raises(ValueError, match="failed to parse TLE"):
-        evaluate_sgp4(np.zeros(4), ("invalid", "invalid"), model_context)
+        evaluate_sgp4(np.zeros(8), ("invalid", "invalid"), model_context)
     with pytest.raises(ValueError, match="nominal GCRF state must contain six values"):
         evaluate_full_state(np.zeros(7), np.zeros(5), epoch, model_context)
+
+    invalid = np.zeros(8)
+    invalid[0] = -100.0
+    with pytest.raises(ValueError, match="mean motion must be positive"):
+        evaluate(invalid)
+    invalid = np.zeros(8)
+    invalid[1] = 2.0
+    with pytest.raises(ValueError, match="eccentricity must be below one"):
+        evaluate(invalid)
+    invalid = np.zeros(8)
+    invalid[2] = np.nan
+    with pytest.raises(ValueError, match="finite low-fidelity parameters"):
+        evaluate(invalid)
+
+
+def test_sgp4_bstar_is_an_independent_correction(sgp4_problem) -> None:
+    evaluate, _ = sgp4_problem
+    baseline = evaluate(np.zeros(8))
+    corrected = np.zeros(8)
+    corrected[6] = 1e-3
+
+    assert np.max(np.abs(evaluate(corrected).residuals - baseline.residuals)) > 1e-6
 
 
 def test_tle_state_gcrf_returns_si_state_at_satkit_epoch() -> None:
@@ -228,25 +292,30 @@ def test_augmented_sgp4_columns_and_zero_compatibility() -> None:
     assert isinstance(tle, sk.TLE)
     epochs = [tle.epoch.as_unixtime() + 60.0 * index for index in range(1, 8)]
     model_context = context(epochs, np.zeros(len(epochs)), [0] * len(epochs))
-    augmented = np.array([2e-4, 0.05, 1e-5, 0.2, 1e5, 8.0])
+    orbit = np.array([2e-4, 2e-5, -1e-5, 2e-5, -1e-5, 0.05, 1e-5])
+    augmented = np.concatenate((orbit, [0.2, 1e5, 8.0]))
 
     def evaluate(x: NDArray[np.float64]) -> ForwardModelEvaluation:
         return evaluate_sgp4_augmented(x, ISS_TLE, model_context)
 
     result = evaluate(augmented)
     numerical = central_difference(
-        evaluate, augmented, np.array([1e-5, 1e-4, 1e-8, 1e-2, 1e2, 1e-3])
+        evaluate,
+        augmented,
+        np.array([1e-5, 1e-7, 1e-7, 1e-7, 1e-7, 1e-4, 1e-8, 1e-2, 1e2, 1e-3]),
     )
-    np.testing.assert_allclose(result.jacobian[:, 3], numerical[:, 3], rtol=3e-4)
-    np.testing.assert_allclose(result.jacobian[:, 4], numerical[:, 4], rtol=1e-7)
+    np.testing.assert_allclose(result.jacobian[:, 7], numerical[:, 7], rtol=3e-4)
+    np.testing.assert_allclose(result.jacobian[:, 8], numerical[:, 8], rtol=1e-7)
 
-    legacy = evaluate_sgp4(np.array([2e-4, 0.05, 1e-5, 8.0]), ISS_TLE, model_context)
+    legacy = evaluate_sgp4(np.concatenate((orbit, [8.0])), ISS_TLE, model_context)
     zero_augmented = evaluate_sgp4_augmented(
-        np.array([2e-4, 0.05, 1e-5, 0.0, 0.0, 8.0]), ISS_TLE, model_context
+        np.concatenate((orbit, [0.0, 0.0, 8.0])), ISS_TLE, model_context
     )
     np.testing.assert_allclose(zero_augmented.residuals, legacy.residuals, atol=1e-10)
     np.testing.assert_allclose(
-        zero_augmented.jacobian[:, [0, 1, 2, 5]], legacy.jacobian, atol=1e-10
+        zero_augmented.jacobian[:, [0, 1, 2, 3, 4, 5, 6, 9]],
+        legacy.jacobian,
+        atol=1e-10,
     )
 
 
@@ -309,21 +378,21 @@ def test_augmented_sgp4_retains_per_pass_biases() -> None:
         contact_to_pass_idx={"pass-a": 0, "pass-b": 1},
         observations=observations,
     )
-    unbiased = evaluate_sgp4_augmented(np.zeros(7), ISS_TLE, model_context)
+    unbiased = evaluate_sgp4_augmented(np.zeros(11), ISS_TLE, model_context)
     biased = evaluate_sgp4_augmented(
-        np.array([0.0, 0.0, 0.0, 0.0, 0.0, 10.0, -20.0]),
+        np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0, -20.0]),
         ISS_TLE,
         model_context,
     )
 
     np.testing.assert_allclose(biased.residuals - unbiased.residuals, [10.0, -20.0])
-    np.testing.assert_array_equal(biased.jacobian[:, 5:], np.eye(2))
+    np.testing.assert_array_equal(biased.jacobian[:, 9:], np.eye(2))
 
 
 @pytest.mark.parametrize(
     ("evaluator", "x"),
     [
-        (lambda x, c: evaluate_sgp4_augmented(x, ISS_TLE, c), np.zeros(6)),
+        (lambda x, c: evaluate_sgp4_augmented(x, ISS_TLE, c), np.zeros(10)),
         (
             lambda x, c: evaluate_full_state_augmented(
                 x,
@@ -341,5 +410,7 @@ def test_augmented_models_reject_nonpositive_effective_frequency(evaluator, x) -
     frequency_index = len(x) - 2
     x[frequency_index] = -CENTER_FREQUENCY_HZ
 
-    with pytest.raises(ValueError, match="center frequency must be finite and positive"):
+    with pytest.raises(
+        ValueError, match="center frequency must be finite and positive"
+    ):
         evaluator(x, model_context)

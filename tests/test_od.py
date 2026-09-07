@@ -161,12 +161,12 @@ def test_sgp4_fit_recovers_synthetic_parameters() -> None:
     assert isinstance(tle, sk.TLE)
     epochs = [tle.epoch.as_unixtime() + 60.0 * index for index in range(1, 31)]
     empty = context(epochs, np.zeros(len(epochs)))
-    target = np.array([2e-4, 0.05, 1e-5, 8.0])
+    target = np.array([2e-4, 0.0, 0.0, 0.0, 0.0, 0.05, 1e-5, 8.0])
     observed = evaluate_sgp4(target, ISS_TLE, empty).residuals
     data = PriorStateData(context(epochs, observed), ephemeris(), tle.epoch)
     names = (
         "mean_motion_rev_per_day",
-        "mean_anomaly_deg",
+        "mean_longitude_deg",
         "bstar",
         "pass_bias_hz:contact-a",
     )
@@ -187,7 +187,9 @@ def test_sgp4_fit_recovers_synthetic_parameters() -> None:
     assert result.model_kind == OrbitModel.SGP4
     assert result.prior_source == PriorSource.TLE
     assert result.parameter_names == names
-    np.testing.assert_allclose(result.parameters, target, rtol=1e-4, atol=1e-7)
+    np.testing.assert_allclose(
+        result.parameters, target[[0, 5, 6, 7]], rtol=1e-4, atol=1e-7
+    )
     assert result.covariance is None
     assert result.covariance_rank is None
 
@@ -232,7 +234,9 @@ def test_full_state_fit_falls_back_to_tle_state() -> None:
     epochs = [epoch.as_unixtime() + 60.0 * step for step in range(1, 10)]
     nominal = tle_state_gcrf(ISS_TLE, epoch)
     empty = context(epochs, np.zeros(len(epochs)))
-    observed = evaluate_full_state_augmented(np.zeros(9), nominal, epoch, empty).residuals
+    observed = evaluate_full_state_augmented(
+        np.zeros(9), nominal, epoch, empty
+    ).residuals
     data = PriorStateData(context(epochs, observed), ephemeris(), epoch)
     names = (
         "position_x_m",
@@ -260,7 +264,7 @@ def test_sgp4_pure_time_offset_fit() -> None:
     assert isinstance(tle, sk.TLE)
     epochs = [tle.epoch.as_unixtime() + 60.0 * index for index in range(1, 31)]
     empty = context(epochs, np.zeros(len(epochs)))
-    target = np.array([0.0, 0.0, 0.0, 0.35, 0.0, 0.0])
+    target = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.35, 0.0, 0.0])
     observed = evaluate_sgp4_augmented(target, ISS_TLE, empty).residuals
     data = PriorStateData(context(epochs, observed), ephemeris(), tle.epoch)
     optimizer = OptimizerContext(
@@ -284,7 +288,7 @@ def test_sgp4_frequency_only_fit() -> None:
     assert isinstance(tle, sk.TLE)
     epochs = [tle.epoch.as_unixtime() + 60.0 * index for index in range(1, 31)]
     empty = context(epochs, np.zeros(len(epochs)))
-    target = np.array([0.0, 0.0, 0.0, 0.0, 2e5, 0.0])
+    target = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2e5, 0.0])
     observed = evaluate_sgp4_augmented(target, ISS_TLE, empty).residuals
     data = PriorStateData(context(epochs, observed), ephemeris(), tle.epoch)
     optimizer = OptimizerContext(
@@ -306,7 +310,7 @@ def test_sgp4_coestimates_orbit_time_and_frequency() -> None:
     assert isinstance(tle, sk.TLE)
     epochs = [tle.epoch.as_unixtime() + 60.0 * index for index in range(1, 31)]
     empty = context(epochs, np.zeros(len(epochs)))
-    canonical_target = np.array([2e-4, 0.0, 0.0, 0.2, 1e5, 0.0])
+    canonical_target = np.array([2e-4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 1e5, 0.0])
     observed = evaluate_sgp4_augmented(canonical_target, ISS_TLE, empty).residuals
     data = PriorStateData(context(epochs, observed), ephemeris(), tle.epoch)
     names = (
@@ -338,23 +342,67 @@ def test_rank_deficient_parameter_combinations_are_not_rejected() -> None:
     optimizer = OptimizerContext(
         OrbitModel.SGP4,
         specs(
-            ("center_frequency_offset_hz", "pass_bias_hz:contact-a"),
-            np.array([1e5, 10.0]),
+            (
+                "mean_motion_rev_per_day",
+                "equinoctial_f",
+                "equinoctial_g",
+                "equinoctial_h",
+                "equinoctial_k",
+                "mean_longitude_deg",
+            ),
+            np.array([1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 0.1]),
         ),
         max_evaluations=2,
     )
 
     result = fit(data, optimizer)
 
-    assert result.jacobian.shape == (1, 2)
+    assert result.jacobian.shape == (1, 6)
     assert result.covariance_rank is None
+
+
+def test_all_equinoctial_roles_preserve_order_and_cca_selection() -> None:
+    tle = sk.TLE.from_lines(list(ISS_TLE))
+    assert isinstance(tle, sk.TLE)
+    epochs = [tle.epoch.as_unixtime() + 60.0 * index for index in range(1, 8)]
+    empty = context(epochs, np.zeros(len(epochs)))
+    observed = evaluate_sgp4_augmented(np.zeros(10), ISS_TLE, empty).residuals
+    data = PriorStateData(context(epochs, observed), ephemeris(), tle.epoch)
+    parameters = (
+        ParameterSpec("equinoctial_f", 0.0, -0.01, 0.01, 1e-3, ParameterRole.FIXED),
+        ParameterSpec(
+            "mean_motion_rev_per_day", 0.0, -0.01, 0.01, 1e-3, ParameterRole.ESTIMATE
+        ),
+        ParameterSpec("equinoctial_k", 0.0, -0.01, 0.01, 1e-3, ParameterRole.CONSIDER),
+        ParameterSpec("equinoctial_g", 0.0, -0.01, 0.01, 1e-3, ParameterRole.ESTIMATE),
+        ParameterSpec("mean_longitude_deg", 0.0, -1.0, 1.0, 0.1, ParameterRole.FIXED),
+        ParameterSpec("equinoctial_h", 0.0, -0.01, 0.01, 1e-3, ParameterRole.CONSIDER),
+    )
+
+    result = fit(data, OptimizerContext(OrbitModel.SGP4, parameters))
+    direct = evaluate_sgp4_augmented(np.zeros(10), ISS_TLE, data.observations)
+
+    assert result.parameter_names == tuple(parameter.name for parameter in parameters)
+    np.testing.assert_allclose(result.jacobian, direct.jacobian[:, [1, 0, 4, 2, 5, 3]])
+    unconsidered, _, sensitivity, _ = od.compute_consider_covariance(
+        result, np.eye(2), np.eye(2)
+    )
+    h_estimated = result.jacobian[:, [1, 3]]
+    h_consider = result.jacobian[:, [2, 5]]
+    expected_unconsidered = np.linalg.inv(h_estimated.T @ h_estimated + np.eye(2))
+    np.testing.assert_allclose(unconsidered, expected_unconsidered)
+    np.testing.assert_allclose(
+        sensitivity, -expected_unconsidered @ h_estimated.T @ h_consider
+    )
 
 
 def test_roles_hold_values_and_preserve_configured_column_order() -> None:
     tle = sk.TLE.from_lines(list(ISS_TLE))
     assert isinstance(tle, sk.TLE)
     epochs = [tle.epoch.as_unixtime() + 60.0 * index for index in range(1, 8)]
-    data = PriorStateData(context(epochs, np.zeros(len(epochs))), ephemeris(), tle.epoch)
+    data = PriorStateData(
+        context(epochs, np.zeros(len(epochs))), ephemeris(), tle.epoch
+    )
     parameters = (
         ParameterSpec(
             "pass_bias_hz:contact-a", 3.0, -10.0, 10.0, 1.0, ParameterRole.FIXED
@@ -377,9 +425,11 @@ def test_roles_hold_values_and_preserve_configured_column_order() -> None:
     assert result.parameter_roles == (ParameterRole.FIXED, ParameterRole.CONSIDER)
     np.testing.assert_array_equal(result.parameters, [3.0, 20.0])
     direct = evaluate_sgp4_augmented(
-        np.array([0.0, 0.0, 0.0, 0.0, 20.0, 3.0]), ISS_TLE, data.observations
+        np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 20.0, 3.0]),
+        ISS_TLE,
+        data.observations,
     )
-    np.testing.assert_allclose(result.jacobian, direct.jacobian[:, [5, 4]])
+    np.testing.assert_allclose(result.jacobian, direct.jacobian[:, [9, 8]])
 
 
 def test_fit_rejects_invalid_contracts() -> None:
@@ -391,10 +441,15 @@ def test_fit_rejects_invalid_contracts() -> None:
     )
     with pytest.raises(ValueError, match="unsupported optimizer parameters"):
         fit(PriorStateData(observations, ephemeris(), epoch), optimizer)
+    with pytest.raises(ValueError, match="unsupported optimizer parameters"):
+        fit(
+            PriorStateData(observations, ephemeris(), epoch),
+            OptimizerContext(OrbitModel.SGP4, specs(("mean_anomaly_deg",), np.ones(1))),
+        )
 
     names = (
         "mean_motion_rev_per_day",
-        "mean_anomaly_deg",
+        "mean_longitude_deg",
         "bstar",
         "pass_bias_hz:contact-a",
     )

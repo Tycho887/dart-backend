@@ -58,7 +58,7 @@ the caller's desired result-column order:
 
 | Model | Ordered parameter names | Units |
 | --- | --- | --- |
-| `SGP4` | `mean_motion_rev_per_day`, `mean_anomaly_deg`, `bstar`, `time_offset_s`, `center_frequency_offset_hz`, then `pass_bias_hz:<contact_id>` | rev/day, degree, dimensionless, s, Hz, Hz |
+| `SGP4` | `mean_motion_rev_per_day`, `equinoctial_f`, `equinoctial_g`, `equinoctial_h`, `equinoctial_k`, `mean_longitude_deg`, `bstar`, `time_offset_s`, `center_frequency_offset_hz`, then `pass_bias_hz:<contact_id>` | rev/day, dimensionless, dimensionless, dimensionless, dimensionless, degree, dimensionless, s, Hz, Hz |
 | `FULL_STATE` | `position_x_m`, `position_y_m`, `position_z_m`, `velocity_x_m_s`, `velocity_y_m_s`, `velocity_z_m_s`, `time_offset_s`, `center_frequency_offset_hz`, then `pass_bias_hz:<contact_id>` | m, m, m, m/s, m/s, m/s, s, Hz, Hz |
 
 Pass-bias order follows the contiguous pass indices in
@@ -68,6 +68,11 @@ remain at their initial values, while only estimated parameters enter SciPy.
 The time offset shifts the complete measurement epoch, including spacecraft
 propagation and station geometry. Time and center-frequency offsets are global;
 Doppler biases remain pass-specific.
+
+The SGP4 orbit coordinates are additive corrections to the source TLE's mean
+elements. They use `f = e cos(Ω + ω)`, `g = e sin(Ω + ω)`,
+`h = tan(i/2) cos Ω`, `k = tan(i/2) sin Ω`, and mean longitude
+`λ = Ω + ω + M`. B* remains a separate optional nuisance parameter.
 
 ## Optimization and results
 

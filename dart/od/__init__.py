@@ -30,7 +30,11 @@ from .schema import (
 
 _SGP4_PARAMETER_NAMES = (
     "mean_motion_rev_per_day",
-    "mean_anomaly_deg",
+    "equinoctial_f",
+    "equinoctial_g",
+    "equinoctial_h",
+    "equinoctial_k",
+    "mean_longitude_deg",
     "bstar",
 )
 _FULL_STATE_PARAMETER_NAMES = (
@@ -93,9 +97,16 @@ def _validate_parameter(parameter: ParameterSpec) -> None:
     if not all(math.isfinite(value) for value in values):
         raise ValueError(f"parameter {parameter.name!r} values must be finite")
     if parameter.lower_bound >= parameter.upper_bound:
-        raise ValueError(f"parameter {parameter.name!r} lower bound must be below its upper bound")
-    if parameter.lower_bound > parameter.initial or parameter.initial > parameter.upper_bound:
-        raise ValueError(f"parameter {parameter.name!r} initial value is outside its bounds")
+        raise ValueError(
+            f"parameter {parameter.name!r} lower bound must be below its upper bound"
+        )
+    if (
+        parameter.lower_bound > parameter.initial
+        or parameter.initial > parameter.upper_bound
+    ):
+        raise ValueError(
+            f"parameter {parameter.name!r} initial value is outside its bounds"
+        )
     if parameter.scale <= 0:
         raise ValueError(f"parameter {parameter.name!r} scale must be positive")
 
@@ -126,7 +137,9 @@ def _validate_optimizer(
         optimizer.gtol,
     )
     if not all(math.isfinite(value) and value > 0 for value in settings):
-        raise ValueError("loss scale and optimizer tolerances must be finite and positive")
+        raise ValueError(
+            "loss scale and optimizer tolerances must be finite and positive"
+        )
     if optimizer.max_evaluations <= 0:
         raise ValueError("max_evaluations must be positive")
 
@@ -227,10 +240,13 @@ def fit(data: PriorStateData, optimizer: OptimizerContext) -> OptimizerOutput:
         [canonical_indices[parameter.name] for parameter in parameters], dtype=np.intp
     )
     estimated_parameters = tuple(
-        parameter for parameter in parameters if parameter.role == ParameterRole.ESTIMATE
+        parameter
+        for parameter in parameters
+        if parameter.role == ParameterRole.ESTIMATE
     )
     estimated_indices = np.array(
-        [canonical_indices[parameter.name] for parameter in estimated_parameters], dtype=np.intp
+        [canonical_indices[parameter.name] for parameter in estimated_parameters],
+        dtype=np.intp,
     )
     canonical_initial = np.zeros(len(canonical_names), dtype=np.float64)
     for parameter, index in zip(parameters, configured_indices, strict=True):
