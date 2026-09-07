@@ -19,8 +19,8 @@ from dart.io.kogs import (
     parse_reservation,
     parse_response,
 )
-from dart.loaders.common import observations_from_frame, tle_epoch_unix
-from dart.schema import (
+from dart.io.common import observations_from_frame, tle_epoch_unix
+from dart.io.schema import (
     FitParameter,
     Sgp4FitOptions,
     Sgp4Input,

@@ -61,7 +61,7 @@ class ForwardObservation:
     All numerical fields use standard SI units (Hz for Doppler, meters for Range).
     """
     time: sk.instant
-    observed: list[f64] = field(default_factory=list)
+    observed: list[float] = field(default_factory=list)
     noise_cov: list[list[float]] = field(default_factory=list)
     receiver_id: int = 0
     pass_index: int = 0
