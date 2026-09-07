@@ -78,7 +78,7 @@ class ContactMetadata:
 class ForwardObservation:
     """One model-independent observation in native SI units."""
 
-    time: sk.instant
+    time: sk.time
     observed: list[float] = field(default_factory=list)
     noise_cov: list[list[float]] = field(default_factory=list)
     receiver_id: int = 0
@@ -89,7 +89,7 @@ class ForwardObservation:
     @classmethod
     def from_scalar(
         cls,
-        time: sk.instant | dt.datetime | float,
+        time: sk.time | dt.datetime | float,
         value: float,
         variance: float,
         receiver_id: int = 0,
@@ -114,15 +114,15 @@ class ForwardObservation:
         )
 
     @staticmethod
-    def _coerce_instant(time: sk.instant | dt.datetime | float) -> sk.instant:
-        if isinstance(time, sk.instant):
+    def _coerce_instant(time: sk.time | dt.datetime | float) -> sk.time:
+        if isinstance(time, sk.time):
             return time
         if isinstance(time, dt.datetime):
             if time.tzinfo is None or time.utcoffset() is None:
                 raise ValueError("observation datetime must be timezone-aware")
-            return sk.instant.from_datetime(time)
+            return sk.time.from_datetime(time)
         if isinstance(time, (int, float)):
-            return sk.instant.from_unixtime(float(time))
+            return sk.time.from_unixtime(float(time))
         raise TypeError(f"unsupported time type: {type(time)}")
 
 
@@ -161,7 +161,7 @@ class ForwardModelContext:
 
     def add_observation(
         self,
-        time: sk.instant | dt.datetime | float,
+        time: sk.time | dt.datetime | float,
         value: float,
         variance: float,
         system_id: str,

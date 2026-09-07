@@ -1,19 +1,21 @@
-"""Public interface for contact resolution and forward-model observation ingestion."""
+"""Typed provider access and model-independent pass loading."""
 
 from .contact import (
-    BatchEvaluationResult,
     ContactMetadata,
+    EphemerisMetadata,
     ForwardModelContext,
     ForwardObservation,
     MeasurementKind,
-    load_contact_metadata,
 )
+from .load import LoadError, load_forward_context, load_passes
 
 __all__ = [
-    "BatchEvaluationResult",
     "ContactMetadata",
+    "EphemerisMetadata",
     "ForwardModelContext",
     "ForwardObservation",
+    "LoadError",
     "MeasurementKind",
-    "load_contact_metadata",
+    "load_forward_context",
+    "load_passes",
 ]

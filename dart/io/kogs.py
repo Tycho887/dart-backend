@@ -10,7 +10,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Any, Protocol, Sequence
 
 import requests
 import satkit as sk
@@ -114,7 +114,7 @@ def _request(
     *,
     base_url: str = KOGS_BASE_URL,
     timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
-    params: dict[str, object] | None = None,
+    params: dict[str, Any] | None = None,
     json_body: dict[str, object] | None = None,
 ) -> dict:
     if timeout_seconds <= 0:
@@ -159,7 +159,7 @@ def _required_text(value: object, field: str) -> str:
 
 def _number(value: object, field: str) -> float:
     try:
-        return float(value)
+        return float(str(value))
     except (TypeError, ValueError) as exc:
         raise KogsError(f"KOGS response has invalid {field}") from exc
 
@@ -283,7 +283,10 @@ def _ephemeris(payload: object) -> EphemerisMetadata:
 def _ephemeris_identity(ephemeris: EphemerisMetadata) -> tuple[str, str | None]:
     identities: list[tuple[str, str | None]] = []
     if ephemeris.tle:
-        tle = sk.TLE.from_lines([line for line in ephemeris.tle.splitlines() if line.strip()])
+        parsed = sk.TLE.from_lines(
+            [line for line in ephemeris.tle.splitlines() if line.strip()]
+        )
+        tle = parsed[0] if isinstance(parsed, list) else parsed
         designator = str(tle.intl_desig).strip()
         year = int(designator[:2])
         full_year = 1900 + year if year >= 57 else 2000 + year
@@ -354,7 +357,7 @@ def load_contact_metadata(api_key: str, contact_id: str, *, timeout_seconds: flo
         latitude=antenna.latitude,
         longitude=antenna.longitude,
         altitude=antenna.altitude,
-        ecef=tuple(float(component) for component in vector),
+        ecef=(float(vector[0]), float(vector[1]), float(vector[2])),
         spacecraft=spacecraft.name,
         cospar=cospar,
         catalog=spacecraft.catalog,
