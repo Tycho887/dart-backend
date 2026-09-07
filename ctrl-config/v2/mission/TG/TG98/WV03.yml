@@ -1,9 +1,0 @@
----
-offload:
-  build: native  # null | native | legacy
-  profile: WV3_TG98 # Used if native offload is enabled
-  mode: run # run | dry
-
-post: []
-
-services: {}

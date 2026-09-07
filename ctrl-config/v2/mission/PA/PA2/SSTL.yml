@@ -1,9 +1,0 @@
----
-config: SSTL
-
-services:
-  zodiac_cortex:
-    tags:
-      - SU
-
-    carrier_frequency: 2059000000

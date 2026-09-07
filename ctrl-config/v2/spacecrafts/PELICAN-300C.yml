@@ -1,6 +1,0 @@
-links:
-  ka_band_downlink_p1_1:
-    direction: down
-    frequency: 26500000000
-    polarization: RHCP
-    # bandwidth: 1500

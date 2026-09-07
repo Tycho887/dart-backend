@@ -1,9 +1,0 @@
----
-acu_config: FLOCK
-kind: minimal
-  
-services:
-  custom_backend:
-    tags:
-      - SD
-      - SU
