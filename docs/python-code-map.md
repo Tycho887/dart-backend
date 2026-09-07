@@ -1,9 +1,10 @@
 # Python IO code map
 
-The supported Python surface currently centers on `dart.io`. It acquires and
-normalizes data without choosing an orbit model, optimizer, product writer, or
-controller. See [DART IO](io.md) for the complete public API reference and
-usage examples.
+The supported Python surface begins with `dart.io` for acquisition and
+normalization, then passes model-independent contexts to
+`dart.forward_models` and `dart.od`. See [DART IO](io.md) for provider APIs,
+[Forward models](forward-models.md) for numerical evaluation, and
+[Orbit determination](orbit-determination.md) for fitting.
 
 ```text
 KOGS metadata ─┐
@@ -11,6 +12,9 @@ KOGS metadata ─┐
 ADX telemetry ─┘                                      │
                                                       └─► ForwardModelContext
 recorded Parquet ── dart.io.parquet ──► canonical Polars frame
+
+ForwardModelContext ── dart.forward_models ──► Rust residuals + Jacobian
+ForwardModelContext + EphemerisMetadata ── dart.od ──► OptimizerOutput
 ```
 
 ## Package responsibilities
@@ -26,6 +30,8 @@ recorded Parquet ── dart.io.parquet ──► canonical Polars frame
 | `dart/io/orbital.py` | Orbital contract validation and absolute offset writes. |
 | `dart/io/ctrl_config.py` | Read-only spacecraft and system configuration. |
 | `dart/io/meos.py` | Reviewed calibration lookup pending a live MEOS API. |
+| `dart/forward_models.py` | Typed adapter for Rust SGP4 and full-state residual/Jacobian evaluation. |
+| `dart/od/` | Prior resolution, optimizer validation, and SGP4/full-state least-squares fitting. |
 
 Provider functions remain synchronous because the KOGS/Orbital clients and
 ADX SDK are synchronous. `load.py` moves independent blocking calls to worker

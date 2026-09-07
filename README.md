@@ -2,8 +2,9 @@
 
 DART is being reorganized into independent modules for passive-RF data
 access, forward models, orbit determination, standards products, and antenna
-control. The current stable Python surface is `dart.io`: a typed,
-model-independent boundary around external data providers.
+control. The supported Python surfaces are `dart.io`, a typed boundary around
+external data providers; `dart.forward_models`, the adapter to the Rust
+numerical core; and `dart.od`, the batch orbit-determination interface.
 
 ## IO quick start
 
@@ -46,6 +47,21 @@ For callers of the shared forward-model interface,
 `ForwardModelContext` using explicit center-frequency and Doppler-variance
 arguments.
 
+## Forward models
+
+`dart.forward_models` exposes the authoritative Rust SGP4 and Cartesian
+full-state Doppler models to Python. Both return whitened residual and Jacobian
+NumPy arrays that can be passed directly to SciPy `least_squares` or consumed
+by another estimator. See [Forward models](docs/forward-models.md) for the
+equations, parameter ordering, units, examples, and test strategy.
+
+## Orbit determination
+
+`dart.od.fit` runs bounded SciPy least squares around the Rust SGP4 or
+Cartesian full-state evaluator. A full-state fit can use a supplied GCRF prior
+or derive one from the selected source TLE. See [Orbit determination](docs/orbit-determination.md)
+for the input contract, fallback behavior, and canonical parameters.
+
 ## Provider modules
 
 The complete API and use-case reference is in [DART IO](docs/io.md).
@@ -69,8 +85,9 @@ uv sync
 uv run pytest
 uv run ruff check dart/io tests
 uv run ty check dart/io
+cargo test --manifest-path crates/forward-models/Cargo.toml
 ```
 
 See [the suite architecture](docs/dart-suite-architecture.md) for the target
-module boundaries. Optimizer, TDM, service, and control consumers are retained
-as migration work and are not part of the current IO contract.
+module boundaries. TDM, service, and control consumers are retained as
+migration work and are not part of the current IO/OD contracts.

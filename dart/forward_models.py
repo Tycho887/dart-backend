@@ -7,7 +7,6 @@ estimation loop without duplicating the numerical model in Python.
 
 from __future__ import annotations
 
-import datetime as dt
 from dataclasses import dataclass
 from importlib import import_module
 from typing import TypeAlias
@@ -75,14 +74,10 @@ def _parameter_vector(x: ArrayLike) -> list[float]:
     return values.tolist()
 
 
-def _unix_seconds(value: sk.time | dt.datetime | float) -> float:
-    if isinstance(value, sk.time):
-        return float(value.as_unixtime())
-    if isinstance(value, dt.datetime):
-        if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError("epoch datetime must be timezone-aware")
-        return float(value.timestamp())
-    return float(value)
+def _unix_seconds(value: sk.time) -> float:
+    if not isinstance(value, sk.time):
+        raise TypeError("epoch must be a satkit.time")
+    return float(value.as_unixtime())
 
 
 def evaluate_sgp4(
@@ -109,10 +104,34 @@ def evaluate_sgp4(
     )
 
 
+def evaluate_sgp4_augmented(
+    x: ArrayLike,
+    tle_lines: tuple[str, str],
+    context: ForwardModelContext,
+) -> ForwardModelEvaluation:
+    """Evaluate SGP4 with global time/frequency offsets and pass biases.
+
+    ``x`` is ordered as three SGP4 offsets, time offset (s), center-frequency
+    offset (Hz), then one Doppler bias (Hz) per pass.
+    """
+
+    inputs = _native_inputs(context)
+    if len(tle_lines) != 2:
+        raise ValueError("tle_lines must contain line 1 and line 2")
+    return _evaluation(
+        _native.evaluate_sgp4_augmented(
+            _parameter_vector(x),
+            tle_lines[0],
+            tle_lines[1],
+            inputs,
+        )
+    )
+
+
 def evaluate_full_state(
     x: ArrayLike,
     nominal_state_gcrf_si: ArrayLike,
-    epoch: sk.time | dt.datetime | float,
+    epoch: sk.time,
     context: ForwardModelContext,
 ) -> ForwardModelEvaluation:
     """Evaluate the propagated Cartesian Doppler objective and Jacobian.
@@ -134,4 +153,51 @@ def evaluate_full_state(
     )
 
 
-__all__ = ["ForwardModelEvaluation", "evaluate_full_state", "evaluate_sgp4"]
+def evaluate_full_state_augmented(
+    x: ArrayLike,
+    nominal_state_gcrf_si: ArrayLike,
+    epoch: sk.time,
+    context: ForwardModelContext,
+) -> ForwardModelEvaluation:
+    """Evaluate full-state Doppler with global time/frequency offsets.
+
+    ``x`` is ordered as six Cartesian corrections, time offset (s),
+    center-frequency offset (Hz), then one Doppler bias (Hz) per pass.
+    """
+
+    inputs = _native_inputs(context)
+    nominal = _parameter_vector(nominal_state_gcrf_si)
+    return _evaluation(
+        _native.evaluate_full_state_augmented(
+            _parameter_vector(x),
+            nominal,
+            _unix_seconds(epoch),
+            inputs,
+        )
+    )
+
+
+def tle_state_gcrf(
+    tle_lines: tuple[str, str],
+    epoch: sk.time,
+) -> FloatArray:
+    """Propagate a TLE into a six-component GCRF state in SI units."""
+
+    if len(tle_lines) != 2:
+        raise ValueError("tle_lines must contain line 1 and line 2")
+    state = _native.tle_state_gcrf(
+        tle_lines[0],
+        tle_lines[1],
+        _unix_seconds(epoch),
+    )
+    return np.ascontiguousarray(state, dtype=np.float64)
+
+
+__all__ = [
+    "ForwardModelEvaluation",
+    "evaluate_full_state",
+    "evaluate_full_state_augmented",
+    "evaluate_sgp4",
+    "evaluate_sgp4_augmented",
+    "tle_state_gcrf",
+]

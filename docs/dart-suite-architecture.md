@@ -105,12 +105,14 @@ behavior:
   adaptation, service and controller orchestration, configuration, antenna
   adapters, persistence, CLI tools, and CCSDS product construction.
 
-The core should expose deterministic, batch-oriented, data-only operations
-through the existing MessagePack boundary. A prediction request eventually
-needs to support a source ephemeris or full state, station/observation epochs,
-the relevant correction parameters, and requested observables. A prediction
-result should return only typed values such as propagated states, range,
-range-rate, pointing, and Doppler with declared frames and units.
+The core exposes deterministic, batch-oriented, data-only residual and
+Jacobian operations through the PyO3-backed `dart.forward_models` API. The
+current interface supports a source TLE or nominal GCRF full state, indexed
+stations and passes, observation epochs, Doppler covariance, and correction
+parameters. See [Forward models](forward-models.md) for its implemented
+contract. Future wire/service prediction contracts may add propagated states,
+range, range-rate, and pointing without moving their numerical definitions out
+of Rust.
 
 Use satkit rather than building a new SGP4 implementation, high-precision
 integrator, force model, frame library, or STM propagator. Use nalgebra for
@@ -120,11 +122,10 @@ maintained CCSDS library against the required profile and validation needs.
 
 Python reference implementations may coexist temporarily while behavior moves
 to the core. They should become parity oracles or be removed after migration;
-they must not remain an independently evolving production model. In
-particular, the in-progress `dart/forward_models.py`,
-`dart/mean_element_model.py`, and `dart/utils.py` modules are refactor
-candidates and need review and parity testing before they are treated as the
-production architecture.
+they must not remain an independently evolving production model.
+`dart.forward_models` is now the typed adapter to the Rust authority and does
+not implement propagation or measurement equations itself. Remaining legacy
+Python model and utility modules are migration candidates.
 
 ## Proposed UKF and controller contracts
 

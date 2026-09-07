@@ -6,7 +6,8 @@
 
 use crate::{
     BatchEvaluationResult, EstimationEngine, FmResult, ForwardModelError, MeasurementKind,
-    ObservationRecord, hifi_evaluate, lofi_evaluate,
+    ObservationRecord, hifi_evaluate, hifi_evaluate_augmented, lofi_evaluate,
+    lofi_evaluate_augmented, propagate_sgp4_gcrf,
 };
 use numeris::{DynMatrix, DynVector, Vector6};
 use pyo3::exceptions::PyValueError;
@@ -115,6 +116,23 @@ fn evaluate_sgp4(
 }
 
 #[pyfunction]
+fn evaluate_sgp4_augmented(
+    py: Python<'_>,
+    x: Vec<f64>,
+    line1: String,
+    line2: String,
+    inputs: PythonInputs,
+) -> PyResult<PythonEvaluation> {
+    py.allow_threads(move || {
+        let inputs = build_inputs(inputs)?;
+        let tle = TLE::load_2line(&line1, &line2)
+            .map_err(|error| invalid_input(format!("failed to parse TLE: {error}")))?;
+        lofi_evaluate_augmented(&inputs.engine, &x, &tle, &inputs.observations).map(python_result)
+    })
+    .map_err(python_error)
+}
+
+#[pyfunction]
 fn evaluate_full_state(
     py: Python<'_>,
     x: Vec<f64>,
@@ -148,9 +166,65 @@ fn evaluate_full_state(
     .map_err(python_error)
 }
 
+#[pyfunction]
+fn evaluate_full_state_augmented(
+    py: Python<'_>,
+    x: Vec<f64>,
+    nominal_state_gcrf_si: Vec<f64>,
+    epoch_unix: f64,
+    inputs: PythonInputs,
+) -> PyResult<PythonEvaluation> {
+    py.allow_threads(move || {
+        if nominal_state_gcrf_si.len() != 6 {
+            return Err(invalid_input("nominal GCRF state must contain six values"));
+        }
+        let inputs = build_inputs(inputs)?;
+        let nominal = Vector6::from_array([
+            nominal_state_gcrf_si[0],
+            nominal_state_gcrf_si[1],
+            nominal_state_gcrf_si[2],
+            nominal_state_gcrf_si[3],
+            nominal_state_gcrf_si[4],
+            nominal_state_gcrf_si[5],
+        ]);
+        hifi_evaluate_augmented(
+            &inputs.engine,
+            &x,
+            &nominal,
+            &Instant::from_unixtime(epoch_unix),
+            &inputs.observations,
+            &PropSettings::default(),
+        )
+        .map(python_result)
+    })
+    .map_err(python_error)
+}
+
+#[pyfunction]
+fn tle_state_gcrf(
+    py: Python<'_>,
+    line1: String,
+    line2: String,
+    epoch_unix: f64,
+) -> PyResult<Vec<f64>> {
+    py.allow_threads(move || -> FmResult<Vec<f64>> {
+        let tle = TLE::load_2line(&line1, &line2)
+            .map_err(|error| invalid_input(format!("failed to parse TLE: {error}")))?;
+        let state = propagate_sgp4_gcrf(&tle, &[Instant::from_unixtime(epoch_unix)])?
+            .into_iter()
+            .next()
+            .ok_or_else(|| invalid_input("SGP4 returned no state"))?;
+        Ok(state.as_slice().to_vec())
+    })
+    .map_err(python_error)
+}
+
 #[pymodule]
 fn _forward_models(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(evaluate_sgp4, module)?)?;
+    module.add_function(wrap_pyfunction!(evaluate_sgp4_augmented, module)?)?;
     module.add_function(wrap_pyfunction!(evaluate_full_state, module)?)?;
+    module.add_function(wrap_pyfunction!(evaluate_full_state_augmented, module)?)?;
+    module.add_function(wrap_pyfunction!(tle_state_gcrf, module)?)?;
     Ok(())
 }
