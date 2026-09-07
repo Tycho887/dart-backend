@@ -61,3 +61,11 @@ cargo test --manifest-path crates/dart_solver/Cargo.toml   # rust contract tests
 If the installed Rust extension predates these cache keys, rebuild it once with
 `uv sync --reinstall-package dart`. Subsequent `uv run` commands automatically
 rebuild the extension when the Rust manifest, lockfile, or sources change.
+
+## GPS orbit fitting and CCSDS OEM
+
+`uv run python scripts/smooth_gps.py run` fits the FOREST GPS observations with
+GMAT over May 3–5, 2026 (noon UTC endpoints). It produces one-minute EME2000 OEMs
+and independent withheld-GPS validation reports. See
+[the GMAT workflow](scripts/gmat/README.md) for runtime installation, preparation,
+resuming interrupted runs, and the output quality gates.
