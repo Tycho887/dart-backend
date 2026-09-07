@@ -6,6 +6,15 @@ returns the residual vector and matching Jacobian required by batch optimizers,
 filters, controllers, and diagnostic tools. It does not choose bounds, losses,
 initial guesses, convergence criteria, or control policy.
 
+Trajectory diagnostics use `sgp4_states_gcrf(orbit_offsets, tle_lines, epochs)`
+and `full_state_states_gcrf(state_gcrf_si, epoch, epochs)`. Both return contiguous
+`(N, 6)` GCRF states in metres and metres/second. Epochs are `satkit.time`
+objects; requested order and repeated epochs are preserved. Empty or nonfinite
+inputs fail, and full-state propagation rejects epochs before the initial state.
+The SGP4 offsets are the same seven mean-equinoctial/B* offsets used by its
+Doppler evaluator. Full-state trajectories reuse its Rust propagation settings.
+The offline [burst-radio study](burst-radio-experiment.md) uses these APIs.
+
 ```text
 ForwardModelContext + model-specific state
                     │

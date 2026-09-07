@@ -414,3 +414,91 @@ def test_augmented_models_reject_nonpositive_effective_frequency(evaluator, x) -
         ValueError, match="center frequency must be finite and positive"
     ):
         evaluator(x, model_context)
+
+
+@pytest.mark.parametrize(
+    "offsets", [np.zeros(7), np.array([1e-4, 1e-5, -1e-5, 1e-5, 0, 0.1, 1e-6])]
+)
+def test_sgp4_trajectory_order_units_and_doppler_parity(offsets) -> None:
+    from dart.forward_models import sgp4_states_gcrf
+
+    tle = sk.TLE.from_lines(list(ISS_TLE))
+    assert isinstance(tle, sk.TLE)
+    epoch = tle.epoch.as_unixtime()
+    unix = [epoch + 120, epoch, epoch + 60, epoch + 120]
+    epochs = [sk.time.from_unixtime(t) for t in unix]
+    states = sgp4_states_gcrf(offsets, ISS_TLE, epochs)
+    assert states.shape == (4, 6) and states.flags.c_contiguous
+    np.testing.assert_array_equal(states[0], states[3])
+    for index, time in enumerate(epochs):
+        np.testing.assert_allclose(
+            states[index], sgp4_states_gcrf(offsets, ISS_TLE, [time])[0], atol=1e-7
+        )
+    if not np.any(offsets):
+        np.testing.assert_array_equal(states[1], tle_state_gcrf(ISS_TLE, tle.epoch))
+    # Independent Doppler projection via satkit's ITRF/GCRF state operation.
+    model = context(unix, np.zeros(4), [0] * 4)
+    expected = evaluate_sgp4(np.r_[offsets, 0], ISS_TLE, model).residuals
+    actual = []
+    for state, time in zip(states, epochs, strict=True):
+        station_position = sk.frametransform.qitrf2gcrf(time) * STATIONS[0].vector
+        # Same rotating-station velocity convention verified in existing kernels.
+        omega = sk.frametransform.qitrf2gcrf(time) * np.array(
+            [0, 0, 7.29211514670698e-5]
+        )
+        station_velocity = np.cross(omega, station_position)
+        delta = state[:3] - station_position
+        rate = np.dot(delta, state[3:] - station_velocity) / np.linalg.norm(delta)
+        actual.append(-400e6 / 299792458 * rate)
+    np.testing.assert_allclose(actual, expected, atol=0.01)
+
+
+def test_hifi_trajectory_order_epoch_and_doppler_parity() -> None:
+    from dart.forward_models import full_state_states_gcrf
+
+    epoch = sk.time(2025, 1, 1)
+    state = np.array([7e6, 0, 0, 0, 7500, 200.0])
+    unix = epoch.as_unixtime() + np.array([120, 0, 60, 120.0])
+    epochs = [sk.time.from_unixtime(float(t)) for t in unix]
+    result = full_state_states_gcrf(state, epoch, epochs)
+    np.testing.assert_allclose(result[1], state, rtol=0, atol=1e-9)
+    np.testing.assert_array_equal(result[0], result[3])
+    # Restart the same model at each returned state; its immediate measurement
+    # must match propagation from the original epoch (including Doppler sign).
+    batch = evaluate_full_state(
+        np.zeros(7), state, epoch, context(unix.tolist(), np.zeros(4), [0] * 4)
+    )
+    for index, time in enumerate(epochs):
+        single = evaluate_full_state(
+            np.zeros(7), result[index], time, context([unix[index]], np.zeros(1), [0])
+        )
+        np.testing.assert_allclose(
+            single.residuals[0], batch.residuals[index], atol=1e-8
+        )
+    assert 6e6 < np.linalg.norm(result[0, :3]) < 8e6
+    assert 7000 < np.linalg.norm(result[0, 3:]) < 8000
+
+
+def test_trajectory_rejects_invalid_inputs() -> None:
+    from dart.forward_models import full_state_states_gcrf, sgp4_states_gcrf
+
+    epoch = sk.time(2025, 1, 1)
+    for offsets in ([0] * 6, [np.nan] * 7, [[0] * 7]):
+        with pytest.raises(ValueError):
+            sgp4_states_gcrf(offsets, ISS_TLE, [epoch])
+    with pytest.raises(ValueError):
+        sgp4_states_gcrf(np.zeros(7), ("bad", "bad"), [epoch])
+    with pytest.raises(ValueError):
+        sgp4_states_gcrf(np.zeros(7), ISS_TLE, [])
+    for state in ([0] * 5, [np.inf] * 6):
+        with pytest.raises(ValueError):
+            full_state_states_gcrf(state, epoch, [epoch])
+    with pytest.raises(ValueError, match="precedes"):
+        full_state_states_gcrf([7e6, 0, 0, 0, 7500, 0], epoch, [sk.time(2024, 12, 31)])
+    with pytest.raises(TypeError):
+        sgp4_states_gcrf(np.zeros(7), ISS_TLE, cast(Any, [1735689600.0]))
+    # Validate finite epochs at the raw extension boundary before constructing Instant.
+    from dart.forward_models import _native
+
+    with pytest.raises(ValueError, match="finite"):
+        _native.sgp4_states_gcrf([0.0] * 7, *ISS_TLE, [float("nan")])

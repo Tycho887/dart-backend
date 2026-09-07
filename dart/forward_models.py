@@ -7,6 +7,7 @@ estimation loop without duplicating the numerical model in Python.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import import_module
 from typing import TypeAlias
@@ -200,6 +201,48 @@ def tle_state_gcrf(
     return np.ascontiguousarray(state, dtype=np.float64)
 
 
+def sgp4_states_gcrf(
+    orbit_offsets: ArrayLike,
+    tle_lines: tuple[str, str],
+    epochs: Sequence[sk.time],
+) -> FloatArray:
+    """Return (N, 6) GCRF states in m and m/s in requested epoch order.
+
+    The seven offsets use the same mean-equinoctial/B* convention as
+    :func:`evaluate_sgp4`. Repeated epochs are preserved; empty inputs fail.
+    """
+    if len(tle_lines) != 2:
+        raise ValueError("tle_lines must contain line 1 and line 2")
+    return np.ascontiguousarray(
+        _native.sgp4_states_gcrf(
+            _parameter_vector(orbit_offsets),
+            *tle_lines,
+            [_unix_seconds(epoch) for epoch in epochs],
+        ),
+        dtype=np.float64,
+    )
+
+
+def full_state_states_gcrf(
+    state_gcrf_si: ArrayLike,
+    epoch: sk.time,
+    epochs: Sequence[sk.time],
+) -> FloatArray:
+    """Return (N, 6) hifi GCRF states in m and m/s, preserving epoch order.
+
+    Uses the same Rust satkit propagation settings as evaluate_full_state.
+    Epochs must be nonempty and must not precede the initial-state epoch.
+    """
+    return np.ascontiguousarray(
+        _native.full_state_states_gcrf(
+            _parameter_vector(state_gcrf_si),
+            _unix_seconds(epoch),
+            [_unix_seconds(value) for value in epochs],
+        ),
+        dtype=np.float64,
+    )
+
+
 __all__ = [
     "ForwardModelEvaluation",
     "evaluate_full_state",
@@ -207,4 +250,6 @@ __all__ = [
     "evaluate_sgp4",
     "evaluate_sgp4_augmented",
     "tle_state_gcrf",
+    "sgp4_states_gcrf",
+    "full_state_states_gcrf",
 ]

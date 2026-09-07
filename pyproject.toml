@@ -30,6 +30,7 @@ dart-worker = "dart.service.cli:worker"
 [dependency-groups]
 dev = [
     "httpx2>=0.1.0",
+    "matplotlib>=3.11.1",
     "maturin>=1.14.1",
     "pandas>=2.2",
     "pyarrow>=16",

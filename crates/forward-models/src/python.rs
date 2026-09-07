@@ -7,7 +7,7 @@
 use crate::{
     BatchEvaluationResult, EstimationEngine, FmResult, ForwardModelError, MeasurementKind,
     ObservationRecord, hifi_evaluate, hifi_evaluate_augmented, lofi_evaluate,
-    lofi_evaluate_augmented, propagate_sgp4_gcrf,
+    lofi_evaluate_augmented, propagate_arc, propagate_sgp4_gcrf, tle_with_offset,
 };
 use numeris::{DynMatrix, DynVector, Vector6};
 use pyo3::exceptions::PyValueError;
@@ -226,5 +226,76 @@ fn _forward_models(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(evaluate_full_state, module)?)?;
     module.add_function(wrap_pyfunction!(evaluate_full_state_augmented, module)?)?;
     module.add_function(wrap_pyfunction!(tle_state_gcrf, module)?)?;
+    module.add_function(wrap_pyfunction!(sgp4_states_gcrf, module)?)?;
+    module.add_function(wrap_pyfunction!(full_state_states_gcrf, module)?)?;
     Ok(())
+}
+
+fn trajectory_times(epochs: &[f64]) -> FmResult<Vec<Instant>> {
+    if epochs.is_empty() || epochs.iter().any(|value| !value.is_finite()) {
+        return Err(invalid_input(
+            "trajectory epochs must be nonempty and finite",
+        ));
+    }
+    Ok(epochs
+        .iter()
+        .map(|value| Instant::from_unixtime(*value))
+        .collect())
+}
+
+#[pyfunction]
+fn sgp4_states_gcrf(
+    py: Python<'_>,
+    offsets: Vec<f64>,
+    line1: String,
+    line2: String,
+    epochs_unix: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    py.allow_threads(move || {
+        let times = trajectory_times(&epochs_unix)?;
+        let tle = TLE::load_2line(&line1, &line2)
+            .map_err(|error| invalid_input(format!("failed to parse TLE: {error}")))?;
+        let corrected = tle_with_offset(&tle, &offsets)?;
+        let states = propagate_sgp4_gcrf(&corrected, &times)?;
+        Ok(states
+            .iter()
+            .map(|state| state.as_slice().to_vec())
+            .collect())
+    })
+    .map_err(python_error)
+}
+
+#[pyfunction]
+fn full_state_states_gcrf(
+    py: Python<'_>,
+    state: Vec<f64>,
+    epoch_unix: f64,
+    epochs_unix: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    py.allow_threads(move || {
+        let state: [f64; 6] = state
+            .try_into()
+            .map_err(|_| invalid_input("GCRF state must contain six values"))?;
+        if !epoch_unix.is_finite() {
+            return Err(invalid_input("initial epoch must be finite"));
+        }
+        let times = trajectory_times(&epochs_unix)?;
+        let mut nodes = times.clone();
+        nodes.sort();
+        nodes.dedup();
+        let arc = propagate_arc(
+            &Vector6::from_array(state),
+            &Instant::from_unixtime(epoch_unix),
+            &nodes,
+            &PropSettings::default(),
+        )?;
+        times
+            .iter()
+            .map(|time| {
+                let (state, _) = arc.evaluate_at(time)?;
+                Ok(state.as_slice().to_vec())
+            })
+            .collect()
+    })
+    .map_err(python_error)
 }
