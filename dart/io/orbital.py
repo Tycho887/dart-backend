@@ -1,4 +1,4 @@
-"""Fail-closed HTTP transport for confirmed Orbital offset contracts."""
+"""Fail-closed access to an antenna's Orbital offset API."""
 
 from __future__ import annotations
 
@@ -8,14 +8,12 @@ from typing import Literal
 
 import requests
 
-from dart.controller.controller import OffsetWrite, WriteAcknowledgement
+
+class OrbitalError(RuntimeError):
+    """An Orbital write was rejected or could not be interpreted."""
 
 
-class OrbitalTransportError(RuntimeError):
-    """The write outcome was rejected or could not be interpreted."""
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class OrbitalContract:
     base_url: str
     endpoint_path: str
@@ -47,42 +45,50 @@ class OrbitalContract:
             raise ValueError("Orbital acknowledgement contract is incomplete")
 
 
-class RequestsOrbitalWriter:
-    """Write one absolute offset and validate a correlated acknowledgement."""
+@dataclass(frozen=True, slots=True)
+class OffsetAcknowledgement:
+    command_id: str
+    acknowledged_at: datetime
+    accepted: bool
+    detail: str
 
-    def __init__(self, contract: OrbitalContract) -> None:
-        contract.validate()
-        self._contract = contract
 
-    def write_offset(self, request: OffsetWrite) -> WriteAcknowledgement:
-        contract = self._contract
-        headers = {
+def write_offset(
+    contract: OrbitalContract,
+    command_id: str,
+    target_offset_s: float,
+) -> OffsetAcknowledgement:
+    """Write one absolute offset and validate the correlated acknowledgement."""
+
+    contract.validate()
+    if not command_id:
+        raise ValueError("command_id is required")
+    response = requests.post(
+        f"{contract.base_url.rstrip('/')}{contract.endpoint_path}",
+        headers={
             "Accept": "application/json",
             "Content-Type": "text/plain",
-            contract.idempotency_header: request.command_id,
-        }
-        response = requests.post(
-            f"{contract.base_url.rstrip('/')}{contract.endpoint_path}",
-            headers=headers,
-            data=format(contract.sign * request.requested_offset_s, ".17g"),
-            timeout=(contract.connect_timeout_s, contract.read_timeout_s),
-        )
-        response.raise_for_status()
-        try:
-            payload = response.json()
-        except requests.JSONDecodeError as exc:
-            raise OrbitalTransportError("Orbital acknowledgement is not JSON") from exc
-        if not isinstance(payload, dict):
-            raise OrbitalTransportError("Orbital acknowledgement must be an object")
-        accepted = str(payload.get(contract.acknowledgement_field, "")) == (
-            contract.acknowledgement_value
-        )
-        response_command_id = str(payload.get(contract.command_id_field, ""))
-        if response_command_id != request.command_id:
-            raise OrbitalTransportError("Orbital acknowledgement is not correlated")
-        return WriteAcknowledgement(
-            command_id=response_command_id,
-            acknowledged_at=datetime.now(UTC),
-            accepted=accepted,
-            detail=str(payload),
-        )
+            contract.idempotency_header: command_id,
+        },
+        data=format(contract.sign * target_offset_s, ".17g"),
+        timeout=(contract.connect_timeout_s, contract.read_timeout_s),
+    )
+    response.raise_for_status()
+    try:
+        payload = response.json()
+    except requests.JSONDecodeError as exc:
+        raise OrbitalError("Orbital acknowledgement is not JSON") from exc
+    if not isinstance(payload, dict):
+        raise OrbitalError("Orbital acknowledgement must be an object")
+    response_command_id = str(payload.get(contract.command_id_field, ""))
+    if response_command_id != command_id:
+        raise OrbitalError("Orbital acknowledgement is not correlated")
+    accepted = str(payload.get(contract.acknowledgement_field, "")) == (
+        contract.acknowledgement_value
+    )
+    return OffsetAcknowledgement(
+        command_id=response_command_id,
+        acknowledged_at=datetime.now(UTC),
+        accepted=accepted,
+        detail=str(payload),
+    )
