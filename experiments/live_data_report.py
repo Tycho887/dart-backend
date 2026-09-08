@@ -21,6 +21,7 @@ from dart.io import ContactMetadata, EphemerisMetadata
 from dart.io.doppler import ContactSelection
 from dart.io.oem import OemEphemeris, OemMetadata, write_oem
 from dart.od import OptimizerContext, OptimizerOutput, ParameterRole
+from experiments.references import ReferenceMetadata
 
 if TYPE_CHECKING:
     from experiments.live_data import ExperimentResult, ExperimentSettings, WindowScore
@@ -86,12 +87,21 @@ def save_inventory(
     counts: tuple[ContactSelection, ...],
     settings: ExperimentSettings,
     reference: OemEphemeris,
+    reference_metadata: ReferenceMetadata | None = None,
 ) -> None:
     save_json(directory / "initial-ephemeris.json", prior)
     save_json(directory / "contacts.json", contacts)
     frame.write_parquet(directory / "raw-measurements.parquet")
     reference_name = "reference-source" + "".join(reference.path.suffixes)
     (directory / reference_name).write_bytes(reference.raw)
+    if reference_metadata is not None:
+        quality_raw = reference_metadata.quality_report.read_bytes()
+        if (
+            hashlib.sha256(quality_raw).hexdigest()
+            != reference_metadata.quality_report_sha256
+        ):
+            raise ValueError("reference quality report changed after loading")
+        (directory / "reference-quality.json").write_bytes(quality_raw)
     native_file = import_module("dart._forward_models").__file__
     if native_file is None:
         raise RuntimeError("numerical extension has no file for provenance hashing")
@@ -104,6 +114,10 @@ def save_inventory(
         "reference_source": str(reference.path),
         "reference_artifact": reference_name,
         "reference_sha256": reference.sha256,
+        "reference_metadata": reference_metadata,
+        "reference_quality_artifact": (
+            "reference-quality.json" if reference_metadata is not None else None
+        ),
         "numerical_core_sha256": hashlib.sha256(native_path.read_bytes()).hexdigest(),
         "settings": settings,
         "selection": counts,
@@ -183,6 +197,7 @@ def save_result(directory: Path, result: ExperimentResult) -> None:
                 )
             ),
             "selection": result.selection,
+            "reference_metadata": result.reference_metadata,
             "scores": [
                 {
                     "window": s.window,
@@ -211,6 +226,7 @@ def summary_rows(results: list[ExperimentResult]) -> list[dict[str, object]]:
             "contact_ids": " ".join(result.contact_ids),
             "success": result.output.success,
             "message": result.output.message,
+            **reference_summary(result.reference_metadata),
         }
         if not result.scores:
             rows.append(
@@ -234,6 +250,16 @@ def summary_rows(results: list[ExperimentResult]) -> list[dict[str, object]]:
                 }
             )
     return rows
+
+
+def reference_summary(metadata: ReferenceMetadata | None) -> dict[str, object]:
+    """Keep assessment and limitations visible even for nonconverged fits."""
+    if metadata is None:
+        return {"reference_status": "unverified"}
+    return {
+        f"reference_{field.name}": getattr(metadata, field.name)
+        for field in fields(metadata)
+    }
 
 
 def save_summary(directory: Path, results: list[ExperimentResult]) -> None:

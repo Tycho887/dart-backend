@@ -1,0 +1,48 @@
+{
+  "converged": true,
+  "iterations": 2,
+  "fit_observations": 1902,
+  "fit_observations_retained": 1902,
+  "fit_observations_edited": 0,
+  "fitted_cd_a_over_m_m2_kg": 0.01831406471071144,
+  "position_residual_m": {
+    "count": 2287,
+    "rms": 124.30562246034846,
+    "median": 15.652532664562433,
+    "p95": 77.08989814238865,
+    "max": 5268.953624864122
+  },
+  "withheld_position_residual_m": {
+    "count": 385,
+    "rms": 56.1152951453216,
+    "median": 15.003189362679814,
+    "p95": 80.83796690708678,
+    "max": 341.42339564863994
+  },
+  "velocity_residual_m_s": {
+    "count": 2287,
+    "rms": 0.18821947725071206,
+    "median": 0.05709192048342825,
+    "p95": 0.21543257556418602,
+    "max": 5.111595442176766
+  },
+  "oem_interpolation_error_m": {
+    "count": 5761,
+    "rms": 0.0034193975089485545,
+    "median": 0.0019950795680094076,
+    "p95": 0.0058845442375171485,
+    "max": 0.009388521335229291
+  },
+  "oem_velocity_interpolation_error_m_s": {
+    "count": 5761,
+    "rms": 3.853804673383483e-06,
+    "median": 2.51771452930897e-06,
+    "p95": 7.443661384711573e-06,
+    "max": 1.673230139591306e-05
+  },
+  "records": 2881,
+  "oem_sha256": "fdfe7fbacaa849a7dd71447c4ccaf77b0d847e48b6067c29a293a5f4dde3996d",
+  "oem_version": "1.0",
+  "gps_evaluation": "Degree-7 interpolation of directly reported 30-second GMAT states in EarthFixed.",
+  "passed": true
+}

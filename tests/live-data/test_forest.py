@@ -9,9 +9,9 @@ import pytest
 from dotenv import load_dotenv
 
 from dart.io.adx import client_from_env
-from dart.io.oem import read_oem
 from dart.od import OrbitModel
 from experiments.live_data import ExperimentSettings, run_comparison
+from experiments.references import load_reference
 
 
 @pytest.mark.live_data
@@ -23,12 +23,18 @@ def test_forest(name: str, tmp_path: Path) -> None:
         os.getenv("DART_SECRETS_ENV", "/opt/dart/secrets/test.env"), override=False
     )
     prefix = f"DART_{name.upper()}"
-    required = [f"{prefix}_EPHEMERIS_ID", f"{prefix}_OEM", "KOGS_API_KEY"]
+    required = [f"{prefix}_EPHEMERIS_ID", "KOGS_API_KEY"]
     missing = [key for key in required if not os.getenv(key)]
     if missing:
         pytest.fail(f"explicit live inputs required: {', '.join(missing)}")
     case = runpy.run_path(str(Path(__file__).with_name(f"{name}.py")))
-    reference = read_oem(Path(os.environ[f"{prefix}_OEM"]))
+    override = os.getenv(f"{prefix}_OEM")
+    reference, reference_metadata = load_reference(
+        case["DEFAULT_REFERENCE_OEM"],
+        case["REFERENCE_OBJECT_ID"],
+        case["SPACECRAFT_ID"],
+        Path(override) if override else None,
+    )
     root = Path(os.environ.get("DART_LIVE_DATA_OUTPUT", str(tmp_path)))
     settings = ExperimentSettings(OrbitModel.SGP4, case["CENTER_FREQUENCY_HZ"])
     with client_from_env() as client:
@@ -39,6 +45,7 @@ def test_forest(name: str, tmp_path: Path) -> None:
                 spacecraft_id=case["SPACECRAFT_ID"],
                 settings=settings,
                 reference=reference,
+                reference_metadata=reference_metadata,
                 output_dir=root / name,
                 kogs_api_key=os.environ["KOGS_API_KEY"],
                 adx_client=client,

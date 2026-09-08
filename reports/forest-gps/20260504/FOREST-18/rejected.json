@@ -1,0 +1,102 @@
+[
+  {
+    "line": 216,
+    "packet_ms": "1777827304448",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 375,
+    "packet_ms": "1777837391579",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 662,
+    "packet_ms": "1777859631867",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 663,
+    "packet_ms": "1777859660867",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 669,
+    "packet_ms": "1777860375889",
+    "reason": "missing_receiver_epoch"
+  },
+  {
+    "line": 749,
+    "packet_ms": "1777866195200",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 831,
+    "packet_ms": "1777872062268",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 902,
+    "packet_ms": "1777877723358",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 903,
+    "packet_ms": "1777877774349",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1044,
+    "packet_ms": "1777888400155",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1079,
+    "packet_ms": "1777891831422",
+    "reason": "packet_latency"
+  },
+  {
+    "line": 1081,
+    "packet_ms": "1777893852041",
+    "reason": "packet_latency"
+  },
+  {
+    "line": 1089,
+    "packet_ms": "1777894668335",
+    "reason": "packet_latency"
+  },
+  {
+    "line": 1091,
+    "packet_ms": "1777896559388",
+    "reason": "packet_latency"
+  },
+  {
+    "line": 1523,
+    "packet_ms": "1777925439187",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1524,
+    "packet_ms": "1777925498189",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 1678,
+    "packet_ms": "1777935819343",
+    "reason": "position_uncertainty"
+  },
+  {
+    "line": 3393,
+    "packet_ms": "1778071460279",
+    "reason": "invalid_number"
+  },
+  {
+    "line": 3517,
+    "packet_ms": "1778085620259",
+    "reason": "invalid_number"
+  },
+  {
+    "line": 4175,
+    "packet_ms": "1778139837135",
+    "reason": "invalid_number"
+  }
+]

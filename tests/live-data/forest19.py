@@ -1,8 +1,10 @@
 """FOREST19 LEOP contact inventory, extracted from doppler_parquet/forest19.parquet.
 
-May 3–4, 2026 UTC. Supply the initial ephemeris ID and GPS OEM explicitly
-when running; the contact-associated ephemerides are never fit defaults.
+May 3–4, 2026 UTC. Supply the initial ephemeris ID explicitly when running; the committed GPS
+OEM is the default reference. Contact ephemerides are never fit defaults.
 """
+
+from pathlib import Path
 
 SPACECRAFT_ID = "e72db085-5680-457c-ab1b-5b2f8e2d739c"
 CENTER_FREQUENCY_HZ = 2_216_300_000.0
@@ -22,4 +24,11 @@ CONTACT_IDS = (
     "df2618ab-46b7-49bb-a148-ea9f89466869",
     "c862d412-bfa6-4ff1-bd12-935e690521fb",
     "e629dfe8-8210-4af9-a61d-f02b5377a4fd",
+)
+
+# Exploratory candidate: withheld GPS RMS exceeds the 100 m acceptance target.
+REFERENCE_OBJECT_ID = "FOREST-19"
+DEFAULT_REFERENCE_OEM = (
+    Path(__file__).resolve().parents[2]
+    / "reports/forest-gps/20260504/FOREST-19/FOREST-19.candidate.oem"
 )

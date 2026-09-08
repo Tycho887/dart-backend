@@ -40,6 +40,7 @@ from dart.od import (
 )
 from dart.od.profiles import orbit_bias_profile
 from dart.orbit import StateHistory, propagate
+from experiments.references import ReferenceMetadata, bind_reference, load_reference
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ class ExperimentResult:
     output: OptimizerOutput
     selection: tuple[ContactSelection, ...]
     scores: tuple[WindowScore, ...]
+    reference_metadata: ReferenceMetadata | None = None
 
 
 async def load_experiment(
@@ -195,10 +197,10 @@ def solve_loaded(
     *,
     settings: ExperimentSettings,
     reference: OemEphemeris,
+    reference_metadata: ReferenceMetadata | None = None,
 ) -> ExperimentResult:
     """Fit one exact contact group using already acquired data and a pinned prior."""
-    if {c.cospar for c in contacts} != {reference.object_id}:
-        raise ValueError("reference OEM object ID differs from contact COSPAR identity")
+    reference = bind_reference(reference, contacts, reference_metadata)
     context, counts = prepare_doppler(
         contacts,
         frame,
@@ -224,7 +226,9 @@ def solve_loaded(
         if output.success
         else ()
     )
-    return ExperimentResult(ids, effective, prior, optimizer, output, counts, scores)
+    return ExperimentResult(
+        ids, effective, prior, optimizer, output, counts, scores, reference_metadata
+    )
 
 
 async def solve_contacts(
@@ -235,6 +239,7 @@ async def solve_contacts(
     reference: OemEphemeris,
     kogs_api_key: str,
     adx_client: KustoClient,
+    reference_metadata: ReferenceMetadata | None = None,
 ) -> ExperimentResult:
     """Load, fit and score any explicit same-spacecraft list of contact IDs."""
     contacts, frame, prior = await load_experiment(
@@ -244,7 +249,14 @@ async def solve_contacts(
         adx_client=adx_client,
         timeout_seconds=settings.timeout_seconds,
     )
-    return solve_loaded(contacts, frame, prior, settings=settings, reference=reference)
+    return solve_loaded(
+        contacts,
+        frame,
+        prior,
+        settings=settings,
+        reference=reference,
+        reference_metadata=reference_metadata,
+    )
 
 
 def contact_groups(contacts: Sequence[ContactMetadata]) -> tuple[tuple[str, ...], ...]:
@@ -263,6 +275,7 @@ def fit_comparison(
     *,
     settings: ExperimentSettings,
     reference: OemEphemeris,
+    reference_metadata: ReferenceMetadata | None = None,
 ) -> Iterator[ExperimentResult]:
     """Fit an already selected usable inventory without acquisition or artifact IO."""
     common = common_settings(contacts, frame, settings, reference)
@@ -275,6 +288,7 @@ def fit_comparison(
                 prior,
                 settings=replace(common, model=model),
                 reference=reference,
+                reference_metadata=reference_metadata,
             )
 
 
@@ -288,6 +302,7 @@ async def run_comparison(
     output_dir: Path,
     kogs_api_key: str,
     adx_client: KustoClient,
+    reference_metadata: ReferenceMetadata | None = None,
 ) -> list[ExperimentResult]:
     """Run singles and growing groups for both models, sharing acquisition/prior."""
     from experiments.live_data_report import save_inventory, save_result, save_summary
@@ -301,9 +316,19 @@ async def run_comparison(
     )
     if prior.spacecraft_id != spacecraft_id:
         raise ValueError("experiment spacecraft differs from selected prior")
+    bind_reference(reference, contacts, reference_metadata)
     output_dir.mkdir(parents=True, exist_ok=False)
     counts = selection_counts(contacts, frame)
-    save_inventory(output_dir, contacts, frame, prior, counts, settings, reference)
+    save_inventory(
+        output_dir,
+        contacts,
+        frame,
+        prior,
+        counts,
+        settings,
+        reference,
+        reference_metadata,
+    )
     usable_ids = {
         c.contact_id for c in counts if c.retained_samples >= settings.min_samples
     }
@@ -313,7 +338,12 @@ async def run_comparison(
     filtered = frame.filter(pl.col("contact_id").is_in(usable_ids))
     results = []
     cases = fit_comparison(
-        usable, filtered, prior, settings=settings, reference=reference
+        usable,
+        filtered,
+        prior,
+        settings=settings,
+        reference=reference,
+        reference_metadata=reference_metadata,
     )
     for index, result in enumerate(cases):
         save_result(output_dir / f"{result.output.model_kind}-{index:03d}", result)
@@ -330,18 +360,25 @@ def main() -> None:
     from dotenv import load_dotenv
 
     from dart.io.adx import client_from_env
-    from dart.io.oem import read_oem
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", type=Path, required=True)
     parser.add_argument("--ephemeris-id", required=True)
-    parser.add_argument("--reference-oem", type=Path, required=True)
+    parser.add_argument(
+        "--reference-oem", type=Path, help="override the case GPS snapshot"
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     load_dotenv(
         os.getenv("DART_SECRETS_ENV", "/opt/dart/secrets/test.env"), override=False
     )
     case = runpy.run_path(str(args.case))
+    reference, reference_metadata = load_reference(
+        case["DEFAULT_REFERENCE_OEM"],
+        case["REFERENCE_OBJECT_ID"],
+        case["SPACECRAFT_ID"],
+        args.reference_oem,
+    )
     settings = ExperimentSettings(OrbitModel.SGP4, case["CENTER_FREQUENCY_HZ"])
     with client_from_env() as client:
         results = asyncio.run(
@@ -350,7 +387,8 @@ def main() -> None:
                 ephemeris_id=args.ephemeris_id,
                 spacecraft_id=case["SPACECRAFT_ID"],
                 settings=settings,
-                reference=read_oem(args.reference_oem),
+                reference=reference,
+                reference_metadata=reference_metadata,
                 output_dir=args.output,
                 kogs_api_key=os.environ["KOGS_API_KEY"],
                 adx_client=client,

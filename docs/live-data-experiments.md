@@ -8,8 +8,10 @@ observations through the existing KOGS and ADX clients.
 
 ## Run a comparison
 
-Every invocation requires a manually selected initial ephemeris ID and a
-smoothed GPS OEM. Select a prior representative of the intended experiment;
+Every invocation requires a manually selected initial ephemeris ID. The four
+FOREST definitions default to the frozen GPS OEMs in
+`reports/forest-gps/20260504`; `--reference-oem` optionally overrides that product.
+Select a prior representative of the intended experiment;
 the software cannot establish whether a supplied ephemeris was derived from
 customer GPS. It never chooses a prior from the contacts or reference OEM.
 
@@ -17,7 +19,6 @@ customer GPS. It never chooses a prior from the contacts or reference OEM.
 uv run python -m experiments.live_data \
   --case tests/live-data/forest16.py \
   --ephemeris-id YOUR_SELECTED_EPHEMERIS_UUID \
-  --reference-oem /path/to/forest16-smoothed-gps.oem \
   --output experiments/results/forest16-run1
 ```
 
@@ -31,17 +32,55 @@ To run through pytest, supply the inputs for the selected spacecraft:
 ```bash
 export DART_RUN_LIVE_DATA=1
 export DART_FOREST16_EPHEMERIS_ID=YOUR_SELECTED_EPHEMERIS_UUID
-export DART_FOREST16_OEM=/path/to/forest16-smoothed-gps.oem
+# Optional: export DART_FOREST16_OEM=/path/to/alternate-forest16.oem
 export DART_LIVE_DATA_OUTPUT=/path/to/new-run-directory
 uv run pytest -q tests/live-data/test_forest.py -k forest16
 ```
 
 The other spacecraft use the corresponding `DART_FOREST17_*` through
 `DART_FOREST19_*` variables. Without explicit opt-in, all live cases skip.
-When enabled, missing inputs, provider failures, identity mismatches, and
+The `DART_FOREST*_OEM` variables are optional; the initial
+`DART_FOREST*_EPHEMERIS_ID` values remain mandatory and manually supplied.
+When enabled, missing required inputs, provider failures, identity mismatches, and
 invalid products fail loudly. Nonconverged optimizers are recorded as scientific
 outcomes. Tests impose no GPS accuracy threshold. Select a persistent output
 root when using pytest; otherwise artifacts use pytest's temporary directory.
+
+## Default GPS references
+
+| Reference | Status | Withheld GPS 3D RMS |
+|---|---|---:|
+| FOREST-16 | Accepted | 82.9 m |
+| FOREST-17 | Accepted | 35.0 m |
+| FOREST-18 | Accepted | 56.1 m |
+| FOREST-19 | Candidate; exploratory comparison | 166.7 m |
+
+All four products have 2,881 one-minute samples from May 3, 2026 at 12:00 UTC
+through May 5 at 12:00 UTC. Earlier reference coverage is unavailable, including
+for early LEOP contacts. The shared scoring windows and grouping policy remain
+unchanged; scoring selects only actual reference samples inside those windows.
+
+`experiments.references.load_reference` reads each snapshot's `quality.json`
+and verifies its product checksum before use. Withheld RMS is a validation-fit
+metric, not a guarantee of absolute reference accuracy. FOREST-19 missed the
+100 m target and retains the validation-fit candidate; the accepted products
+were subsequently fitted to all accepted GPS observations. Accuracy inside GPS
+gaps and endpoint extrapolations is unverified. FOREST-19's longest GPS gap is
+about 12.4 hours.
+
+Overrides must use the case's expected OEM object ID. They inherit the snapshot
+assessment only when their SHA-256 matches the assessed product, regardless of
+filename. Otherwise status is `unverified`, acceptance and withheld RMS are
+unknown, and snapshot observation coverage is not attributed to the override.
+The recorded quality-report path/hash identifies the snapshot used for this
+check; `matches_snapshot` states whether its assessment applies.
+
+The case definitions explicitly bind each `FOREST-*` OEM object ID to its existing
+spacecraft UUID. `bind_reference` checks every loaded contact against that UUID
+and requires one nonempty COSPAR identity. Only then does it assign that COSPAR
+to normalized comparison histories. Original OEM bytes and parsed metadata keep
+the FOREST ID. Without an explicit binding, OEM IDs must match contact COSPAR
+exactly; comparison identity checks are never disabled.
 
 ## Reusable functions and data flow
 
@@ -74,6 +113,8 @@ The workflow composes small independently usable functions:
 
 Use `solve_loaded` with already acquired data, or `fit_comparison` to iterate
 over both models' cases without provider access or artifact writing.
+The optional `reference_metadata` argument carries a verified reference
+assessment and explicit identity binding through all experiment entry points.
 `run_comparison` composes acquisition, case generation, and artifact writing.
 
 ## Comparison policy
@@ -132,18 +173,28 @@ is inferred from optimizer diagnostics.
 
 The run directory contains the selected initial ephemeris, contact metadata,
 unfiltered canonical measurements, original GPS OEM, and a manifest with input
-hashes, exclusions and dependency versions. Case directories contain normalized
+hashes, exclusions and dependency versions. For FOREST references,
+`reference-quality.json` preserves the assessed snapshot report, and the manifest
+records the identity binding, acceptance status, withheld GPS RMS, report path
+and checksum, content-match flag, observation gaps and endpoint limitations.
+Case directories contain normalized
 inputs, fit output, optimizer settings, rank/conditioning and bound diagnostics,
 Doppler RMS, fitted/prior OEMs, and compressed state/error arrays retaining
 segment lengths. `summary.json` and `summary.csv` compare accuracy against
-contact count and orbit model. Credentials are never included.
+contact count and orbit model. Fit reports and summary rows retain reference
+status, validation RMS, quality-report provenance and coverage limitations,
+including for nonconverged cases. Credentials are never included.
 
 ## Verification and complexity
 
 Deterministic tests cover inventory extraction, explicit-prior isolation,
 arbitrary contact groups, acquisition reuse, filtering, parameter reconstruction,
 both Rust propagators, frame velocity, time/units, OEM round trips and gaps,
-and known state errors. Live runs require the external inputs above.
+and known state errors. `tests/test_forest_references.py` loads every committed
+OEM through the production adapter, checks normalization against the independent
+SOFA frame-bias implementation, and exercises scoring/reporting using real OEM
+samples without KOGS, ADX or GMAT. Synthetic fixtures still verify controlled
+numerical errors. Live fits require the explicit enablement and inputs above.
 
 Focused extraction kept the new orchestration functions below complexity 11:
 
@@ -156,3 +207,21 @@ Focused extraction kept the new orchestration functions below complexity 11:
 Extracted responsibilities: group validation, fitting a comparison matrix from
 loaded data, and OEM metadata validation. Existing `fit` (16) and optimizer
 validation (13) remain candidates for a separate simplification task.
+
+The FOREST snapshot integration uses Ruff's McCabe (`C901`) measurement below;
+these counts exclude expression-level branches counted in the earlier table.
+The explicit binding is isolated in `experiments.references`, with no change to
+the library-backed OEM adapter or numerical kernels.
+
+| Function | Before integration | After |
+|---|---:|---:|
+| `solve_loaded` | 2 | 1 |
+| `run_comparison` | 4 | 4 |
+| `save_inventory` | 2 | 4 |
+| `summary_rows` | 4 | 4 |
+| `load_reference` | New | 5 |
+| `bind_reference` | New | 6 |
+
+The offline reference tests verify identity rejection, checksum/status handling,
+source preservation and shared scoring/reporting. Existing synthetic matrix
+tests retain coverage of single-pass/multipass grouping and common windows.

@@ -91,3 +91,14 @@ cargo test --manifest-path crates/forward-models/Cargo.toml
 See [the suite architecture](docs/dart-suite-architecture.md) for the target
 module boundaries. TDM, service, and control consumers are retained as
 migration work and are not part of the current IO/OD contracts.
+
+## GPS orbit fitting and CCSDS OEM
+
+`uv run python scripts/smooth_gps.py run` fits the FOREST GPS observations with
+GMAT over May 3–5, 2026 (noon UTC endpoints). It produces one-minute EME2000 OEMs
+and independent withheld-GPS validation reports. See
+[the GMAT workflow](scripts/gmat/README.md) for runtime installation, preparation,
+resuming interrupted runs, and the output quality gates.
+
+The recorded FOREST-16 through FOREST-19 OEMs and their quality reports are in
+[the May 2026 results](reports/forest-gps/20260504/README.md).

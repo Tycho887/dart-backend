@@ -209,6 +209,10 @@ tempCodeRunnerFile.py
 # Ruff stuff:
 .ruff_cache/
 
+# Local GMAT runtime and reproducible orbit-fit products
+.tools/
+artifacts/gps_smoothing/
+
 # PyPI configuration file
 .pypirc
 
