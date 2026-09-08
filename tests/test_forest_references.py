@@ -19,6 +19,7 @@ from dart.io.oem import read_oem
 from dart.od import OrbitModel
 from experiments import live_data as live
 from experiments.live_data_report import save_inventory, save_result, save_summary
+from experiments.position_rms import write_report
 from experiments.references import bind_reference, load_reference
 from tests.test_io_load import metadata as contact_metadata
 from tests.test_live_data import data as data
@@ -167,10 +168,10 @@ def test_shared_evaluation_and_reports_use_real_samples(forest, data, tmp_path):
         max_evaluations=2,
         windows=(
             live.EvaluationWindow(
-                "earlier", sk.time(2026, 5, 3), sk.time(2026, 5, 3, 1, 0, 0)
+                "contact_span", sk.time(2026, 5, 3), sk.time(2026, 5, 3, 1, 0, 0)
             ),
             live.EvaluationWindow(
-                "covered", sk.time(2026, 5, 3, 12, 0, 0), sk.time(2026, 5, 3, 12, 2, 0)
+                "future", sk.time(2026, 5, 3, 12, 0, 0), sk.time(2026, 5, 3, 12, 2, 0)
             ),
         ),
     )
@@ -233,18 +234,34 @@ def test_shared_evaluation_and_reports_use_real_samples(forest, data, tmp_path):
         assert (
             row["reference_quality_report_sha256"] == provenance.quality_report_sha256
         )
-    assert read_oem(tmp_path / "fit/covered.oem").object_id == contacts[0].cospar
+    assert read_oem(tmp_path / "fit/future.oem").object_id == contacts[0].cospar
+    rms_rows = write_report(tmp_path)
+    actual = rms_rows.filter(pl.col("window") == "future")
+    assert actual["sample_count"].to_list() == [1, 2, 3]
+    assert actual["fitted_rms_m"][-1] == pytest.approx(covered.error.position_rms_m)
+    assert rms_rows.filter(pl.col("window") == "contact_span")["status"].to_list() == [
+        "unavailable"
+    ]
+    assert (tmp_path / "position-rms.png").read_bytes().startswith(b"\x89PNG")
+    csv = (tmp_path / "position-rms.csv").read_bytes()
+    write_report(tmp_path)
+    assert (tmp_path / "position-rms.csv").read_bytes() == csv
 
 
 @pytest.mark.parametrize("override", [False, True])
+@pytest.mark.parametrize(
+    "prior_override", [None, "11111111-2222-3333-4444-555555555555"]
+)
 def test_live_entrypoint_selects_default_or_override(
-    forest, monkeypatch, tmp_path, override
+    forest, monkeypatch, tmp_path, override, prior_override
 ):
-    number, _, reference, provenance = forest
+    number, case, reference, provenance = forest
     test = runpy.run_path(str(ROOT / "tests/live-data/test_forest.py"))["test_forest"]
     namespace = test.__globals__
     monkeypatch.setenv("DART_RUN_LIVE_DATA", "1")
-    monkeypatch.setenv(f"DART_FOREST{number}_EPHEMERIS_ID", "manual-prior")
+    monkeypatch.delenv(f"DART_FOREST{number}_EPHEMERIS_ID", raising=False)
+    if prior_override is not None:
+        monkeypatch.setenv(f"DART_FOREST{number}_EPHEMERIS_ID", prior_override)
     monkeypatch.setenv("KOGS_API_KEY", "test")
     monkeypatch.delenv("DART_LIVE_DATA_OUTPUT", raising=False)
     monkeypatch.delenv(f"DART_FOREST{number}_OEM", raising=False)
@@ -270,18 +287,65 @@ def test_live_entrypoint_selects_default_or_override(
     assert arguments["reference_metadata"].status == (
         "unverified" if override else provenance.status
     )
-    assert arguments["ephemeris_id"] == "manual-prior"
+    assert arguments["ephemeris_id"] == (prior_override or case["EPHEMERIS_ID"])
+    assert arguments["grouping"] == "all"
     assert arguments["reference_metadata"].spacecraft_id == arguments["spacecraft_id"]
 
 
-def test_live_entrypoint_still_requires_initial_ephemeris(monkeypatch, tmp_path):
+def test_live_entrypoint_rejects_invalid_initial_ephemeris(monkeypatch, tmp_path):
     test = runpy.run_path(str(ROOT / "tests/live-data/test_forest.py"))["test_forest"]
     monkeypatch.setenv("DART_RUN_LIVE_DATA", "1")
-    monkeypatch.delenv("DART_FOREST16_EPHEMERIS_ID", raising=False)
+    monkeypatch.setenv("DART_FOREST16_EPHEMERIS_ID", "invalid")
     monkeypatch.setenv("KOGS_API_KEY", "test")
     monkeypatch.setitem(test.__globals__, "load_dotenv", lambda *a, **kw: None)
     client = Mock(side_effect=AssertionError("must fail before acquisition"))
     monkeypatch.setitem(test.__globals__, "client_from_env", client)
-    with pytest.raises(pytest.fail.Exception, match="DART_FOREST16_EPHEMERIS_ID"):
+    with pytest.raises(ValueError, match="valid UUID"):
+        test("forest16", tmp_path)
+    client.assert_not_called()
+
+
+@pytest.mark.parametrize("source", ["case", "environment", "cli"])
+def test_cli_prior_precedence_and_all_grouping(monkeypatch, tmp_path, source):
+    import sys
+
+    import dotenv
+
+    from dart.io import adx
+
+    case_path = ROOT / "tests/live-data/forest16.py"
+    case = runpy.run_path(str(case_path))
+    environment_id = "11111111-2222-3333-4444-555555555555"
+    cli_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    argv = ["live_data", "--case", str(case_path), "--output", str(tmp_path / "result")]
+    monkeypatch.delenv("DART_FOREST16_EPHEMERIS_ID", raising=False)
+    if source != "case":
+        monkeypatch.setenv("DART_FOREST16_EPHEMERIS_ID", environment_id)
+    if source == "cli":
+        argv.extend(["--ephemeris-id", cli_id])
+    monkeypatch.setenv("KOGS_API_KEY", "test")
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **kw: None)
+    monkeypatch.setattr(adx, "client_from_env", lambda: nullcontext(object()))
+    run = AsyncMock(return_value=[])
+    monkeypatch.setattr(live, "run_comparison", run)
+    live.main()
+    assert (
+        run.call_args.kwargs["ephemeris_id"]
+        == {
+            "case": case["EPHEMERIS_ID"],
+            "environment": environment_id,
+            "cli": cli_id,
+        }[source]
+    )
+    assert run.call_args.kwargs["grouping"] == "all"
+
+
+def test_live_entrypoint_requires_opt_in(monkeypatch, tmp_path):
+    test = runpy.run_path(str(ROOT / "tests/live-data/test_forest.py"))["test_forest"]
+    monkeypatch.delenv("DART_RUN_LIVE_DATA", raising=False)
+    client = Mock(side_effect=AssertionError("must skip before acquisition"))
+    monkeypatch.setitem(test.__globals__, "client_from_env", client)
+    with pytest.raises(pytest.skip.Exception, match="DART_RUN_LIVE_DATA"):
         test("forest16", tmp_path)
     client.assert_not_called()

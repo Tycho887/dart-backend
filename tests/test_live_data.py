@@ -196,7 +196,10 @@ def test_filtering_preserves_raw_and_rejects_group_changes(data):
     assert frame["carrier_lock"].unique().to_list() == ["Locked"]
 
 
-def test_empty_deliveries_are_inventory_exclusions(monkeypatch, data, tmp_path):
+@pytest.mark.parametrize("grouping", ["matrix", "all"])
+def test_empty_deliveries_are_inventory_exclusions(
+    monkeypatch, data, tmp_path, grouping
+):
     contacts, frame, selected, reference = data
     _, fetch = install_providers(monkeypatch, data)
     fetch.side_effect = lambda client, contact, **kw: (
@@ -212,6 +215,7 @@ def test_empty_deliveries_are_inventory_exclusions(monkeypatch, data, tmp_path):
             settings=live.ExperimentSettings(OrbitModel.SGP4, 400e6, max_evaluations=1),
             reference=reference,
             output_dir=tmp_path / "empty-contact",
+            grouping=grouping,
             kogs_api_key="key",
             adx_client=object(),
         )
@@ -275,7 +279,10 @@ def test_nonconvergence_and_reference_identity_are_explicit(
         )
 
 
-def test_matrix_loads_once_and_shares_prior_epochs(monkeypatch, data, tmp_path):
+@pytest.mark.parametrize("grouping", ["matrix", "all"])
+def test_matrix_loads_once_and_shares_prior_epochs(
+    monkeypatch, data, tmp_path, grouping
+):
     contacts, _, selected, reference = data
     get_prior, fetch = install_providers(monkeypatch, data)
     # Exercise both actual numerical models, with a bounded evaluation count.
@@ -287,19 +294,25 @@ def test_matrix_loads_once_and_shares_prior_epochs(monkeypatch, data, tmp_path):
             settings=live.ExperimentSettings(OrbitModel.SGP4, 400e6, max_evaluations=2),
             reference=reference,
             output_dir=tmp_path / "matrix",
+            **({"grouping": grouping} if grouping == "all" else {}),
             kogs_api_key="key",
             adx_client=object(),
         )
     )
     assert get_prior.call_count == 1
     assert fetch.call_count == 2
-    assert len(results) == 6
-    assert [len(r.contact_ids) for r in results] == [1, 1, 2, 1, 1, 2]
+    assert len(results) == (6 if grouping == "matrix" else 2)
+    assert [len(r.contact_ids) for r in results] == (
+        [1, 1, 2, 1, 1, 2] if grouping == "matrix" else [2, 2]
+    )
     assert all(r.prior.ephemeris is selected for r in results)
     assert all(r.prior.epoch == results[0].prior.epoch for r in results)
     assert all(r.settings.windows == results[0].settings.windows for r in results)
     manifest = json.loads((tmp_path / "matrix" / "manifest.json").read_text())
     assert manifest["initial_ephemeris_id"] == "manual-prior"
+    assert manifest["initial_tle_epoch_utc"] == "2026-05-03T00:00:00.000000+00:00"
+    assert manifest["initial_ephemeris_metadata_epoch_utc"] is None
+    assert manifest["grouping"] == grouping
     assert manifest["reference_sha256"] == reference.sha256
     assert (tmp_path / "matrix" / "summary.csv").is_file()
 
@@ -323,4 +336,4 @@ def test_forest_inventory_matches_parquet(name, count):
     assert frame["expected_frequency"].unique().to_list() == [
         case["CENTER_FREQUENCY_HZ"]
     ]
-    assert "EPHEMERIS_ID" not in case
+    assert live.case_ephemeris_id(case["EPHEMERIS_ID"]) == case["EPHEMERIS_ID"]

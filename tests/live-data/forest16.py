@@ -1,7 +1,7 @@
 """FOREST16 LEOP contact inventory, extracted from doppler_parquet/forest16.parquet.
 
-May 3–4, 2026 UTC. Supply the initial ephemeris ID explicitly when running; the committed GPS
-OEM is the default reference. Contact ephemerides are never fit defaults.
+May 3–4, 2026 UTC. The recovered EPHEMERIS_ID and committed GPS OEM are
+the defaults. Explicit overrides remain supported; contact ephemerides never select the prior.
 """
 
 from pathlib import Path
@@ -23,6 +23,7 @@ CONTACT_IDS = (
     "85ec563d-ecb0-4c0b-9b2d-eeb9cec80587",
     "556b1cfa-0a8e-4d19-8f95-b123fd47cd60",
 )
+EPHEMERIS_ID = "23f53a9c-7307-43d0-844d-29934384ef0c"
 
 REFERENCE_OBJECT_ID = "FOREST-16"
 DEFAULT_REFERENCE_OEM = (

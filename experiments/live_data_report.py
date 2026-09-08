@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from importlib import import_module
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import polars as pl
@@ -20,7 +20,7 @@ from dart.evaluation import OrbitError
 from dart.io import ContactMetadata, EphemerisMetadata
 from dart.io.doppler import ContactSelection
 from dart.io.oem import OemEphemeris, OemMetadata, write_oem
-from dart.od import OptimizerContext, OptimizerOutput, ParameterRole
+from dart.od import OptimizerContext, OptimizerOutput, ParameterRole, _source_tle_lines
 from experiments.references import ReferenceMetadata
 
 if TYPE_CHECKING:
@@ -88,7 +88,14 @@ def save_inventory(
     settings: ExperimentSettings,
     reference: OemEphemeris,
     reference_metadata: ReferenceMetadata | None = None,
+    *,
+    grouping: Literal["all", "matrix"] = "matrix",
 ) -> None:
+    if prior.tle is None:
+        raise ValueError("initial ephemeris must contain a TLE")
+    tle = sk.TLE.from_lines(_source_tle_lines(prior.tle)[-2:])
+    if isinstance(tle, list):
+        tle = tle[0]  # Fixed-width validation above permits exactly one TLE.
     save_json(directory / "initial-ephemeris.json", prior)
     save_json(directory / "contacts.json", contacts)
     frame.write_parquet(directory / "raw-measurements.parquet")
@@ -108,6 +115,12 @@ def save_inventory(
     native_path = Path(native_file)
     manifest = {
         "initial_ephemeris_id": prior.ephemeris_id,
+        "initial_tle_epoch_utc": tle.epoch.as_datetime().isoformat(
+            timespec="microseconds"
+        ),
+        "initial_tle_epoch_unix": tle.epoch.as_unixtime(),
+        "initial_ephemeris_metadata_epoch_utc": prior.epoch,
+        "grouping": grouping,
         "initial_ephemeris_sha256": hashlib.sha256(
             (directory / "initial-ephemeris.json").read_bytes()
         ).hexdigest(),

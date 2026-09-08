@@ -12,7 +12,8 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
+from uuid import UUID
 
 import numpy as np
 import polars as pl
@@ -268,6 +269,17 @@ def contact_groups(contacts: Sequence[ContactMetadata]) -> tuple[tuple[str, ...]
     )
 
 
+def case_ephemeris_id(default: str | None, override: str | None = None) -> str:
+    """Use an explicit override or the case prior; reject missing/invalid UUIDs."""
+    selected = override if override is not None else default
+    if selected is None:
+        raise ValueError("an initial ephemeris ID is required")
+    try:
+        return str(UUID(selected))
+    except ValueError as exc:
+        raise ValueError("initial ephemeris ID must be a valid UUID") from exc
+
+
 def fit_comparison(
     contacts: Sequence[ContactMetadata],
     frame: pl.DataFrame,
@@ -276,12 +288,18 @@ def fit_comparison(
     settings: ExperimentSettings,
     reference: OemEphemeris,
     reference_metadata: ReferenceMetadata | None = None,
+    grouping: Literal["all", "matrix"] = "matrix",
 ) -> Iterator[ExperimentResult]:
     """Fit an already selected usable inventory without acquisition or artifact IO."""
+    if grouping not in ("all", "matrix"):
+        raise ValueError("grouping must be 'all' or 'matrix'")
     common = common_settings(contacts, frame, settings, reference)
     lookup = {c.contact_id: c for c in contacts}
+    groups = contact_groups(contacts)
+    if grouping == "all":
+        groups = groups[-1:]
     for model in OrbitModel:
-        for group in contact_groups(contacts):
+        for group in groups:
             yield solve_loaded(
                 [lookup[cid] for cid in group],
                 frame.filter(pl.col("contact_id").is_in(group)),
@@ -303,10 +321,13 @@ async def run_comparison(
     kogs_api_key: str,
     adx_client: KustoClient,
     reference_metadata: ReferenceMetadata | None = None,
+    grouping: Literal["all", "matrix"] = "matrix",
 ) -> list[ExperimentResult]:
-    """Run singles and growing groups for both models, sharing acquisition/prior."""
+    """Run both models with one usable inventory or a singleton/prefix matrix."""
     from experiments.live_data_report import save_inventory, save_result, save_summary
 
+    if grouping not in ("all", "matrix"):
+        raise ValueError("grouping must be 'all' or 'matrix'")
     contacts, frame, prior = await load_experiment(
         contact_ids,
         ephemeris_id=ephemeris_id,
@@ -328,6 +349,7 @@ async def run_comparison(
         settings,
         reference,
         reference_metadata,
+        grouping=grouping,
     )
     usable_ids = {
         c.contact_id for c in counts if c.retained_samples >= settings.min_samples
@@ -344,11 +366,16 @@ async def run_comparison(
         settings=settings,
         reference=reference,
         reference_metadata=reference_metadata,
+        grouping=grouping,
     )
     for index, result in enumerate(cases):
         save_result(output_dir / f"{result.output.model_kind}-{index:03d}", result)
         results.append(result)
         save_summary(output_dir, results)
+    if grouping == "all":
+        from experiments.position_rms import write_report
+
+        write_report(output_dir)
     return results
 
 
@@ -363,7 +390,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", type=Path, required=True)
-    parser.add_argument("--ephemeris-id", required=True)
+    parser.add_argument("--ephemeris-id", help="override the case initial TLE ID")
     parser.add_argument(
         "--reference-oem", type=Path, help="override the case GPS snapshot"
     )
@@ -373,6 +400,13 @@ def main() -> None:
         os.getenv("DART_SECRETS_ENV", "/opt/dart/secrets/test.env"), override=False
     )
     case = runpy.run_path(str(args.case))
+    prefix = f"DART_{args.case.stem.upper()}"
+    ephemeris_id = case_ephemeris_id(
+        case.get("EPHEMERIS_ID"),
+        args.ephemeris_id
+        if args.ephemeris_id is not None
+        else os.getenv(f"{prefix}_EPHEMERIS_ID"),
+    )
     reference, reference_metadata = load_reference(
         case["DEFAULT_REFERENCE_OEM"],
         case["REFERENCE_OBJECT_ID"],
@@ -384,7 +418,7 @@ def main() -> None:
         results = asyncio.run(
             run_comparison(
                 case["CONTACT_IDS"],
-                ephemeris_id=args.ephemeris_id,
+                ephemeris_id=ephemeris_id,
                 spacecraft_id=case["SPACECRAFT_ID"],
                 settings=settings,
                 reference=reference,
@@ -392,6 +426,7 @@ def main() -> None:
                 output_dir=args.output,
                 kogs_api_key=os.environ["KOGS_API_KEY"],
                 adx_client=client,
+                grouping="all",
             )
         )
     print(f"Saved {len(results)} fits to {args.output}")

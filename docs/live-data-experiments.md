@@ -8,8 +8,8 @@ observations through the existing KOGS and ADX clients.
 
 ## Run a comparison
 
-Every invocation requires a manually selected initial ephemeris ID. The four
-FOREST definitions default to the frozen GPS OEMs in
+The four FOREST definitions default to recovered initial ephemeris IDs and the
+frozen GPS OEMs in
 `reports/forest-gps/20260504`; `--reference-oem` optionally overrides that product.
 Select a prior representative of the intended experiment;
 the software cannot establish whether a supplied ephemeris was derived from
@@ -18,8 +18,7 @@ customer GPS. It never chooses a prior from the contacts or reference OEM.
 ```bash
 uv run python -m experiments.live_data \
   --case tests/live-data/forest16.py \
-  --ephemeris-id YOUR_SELECTED_EPHEMERIS_UUID \
-  --output experiments/results/forest16-run1
+  --output experiments/results/forest-rms/NEW_RUN/forest16
 ```
 
 The output directory must be new. Credentials use the existing ADX environment
@@ -31,7 +30,7 @@ To run through pytest, supply the inputs for the selected spacecraft:
 
 ```bash
 export DART_RUN_LIVE_DATA=1
-export DART_FOREST16_EPHEMERIS_ID=YOUR_SELECTED_EPHEMERIS_UUID
+# Optional: export DART_FOREST16_EPHEMERIS_ID=YOUR_SELECTED_EPHEMERIS_UUID
 # Optional: export DART_FOREST16_OEM=/path/to/alternate-forest16.oem
 export DART_LIVE_DATA_OUTPUT=/path/to/new-run-directory
 uv run pytest -q tests/live-data/test_forest.py -k forest16
@@ -39,12 +38,28 @@ uv run pytest -q tests/live-data/test_forest.py -k forest16
 
 The other spacecraft use the corresponding `DART_FOREST17_*` through
 `DART_FOREST19_*` variables. Without explicit opt-in, all live cases skip.
-The `DART_FOREST*_OEM` variables are optional; the initial
-`DART_FOREST*_EPHEMERIS_ID` values remain mandatory and manually supplied.
+The `DART_FOREST*_OEM` and `DART_FOREST*_EPHEMERIS_ID` variables are optional
+overrides. The CLI accepts `--ephemeris-id` with precedence over the environment
+override and case default. Missing or malformed case/override UUIDs fail before
+acquisition.
 When enabled, missing required inputs, provider failures, identity mismatches, and
 invalid products fail loudly. Nonconverged optimizers are recorded as scientific
 outcomes. Tests impose no GPS accuracy threshold. Select a persistent output
 root when using pytest; otherwise artifacts use pytest's temporary directory.
+
+## Default initial ephemerides
+
+| Spacecraft | Ephemeris UUID | TLE epoch, UTC on 2026-05-03 |
+|---|---|---|
+| FOREST-16 | `23f53a9c-7307-43d0-844d-29934384ef0c` | 09:23:46.592736 |
+| FOREST-17 | `a79ad36d-0ea1-4b6a-9309-3cb603d0ae6e` | 09:21:23.693184 |
+| FOREST-18 | `52e670bc-e434-46df-b206-bebe4068bbd0` | 09:22:38.792928 |
+| FOREST-19 | `378baf66-330b-4c28-a127-84659699e638` | 09:23:21.992928 |
+
+The run manifest records the epoch parsed from the actual selected TLE in
+`initial_tle_epoch_utc` and `initial_tle_epoch_unix`, separately from KOGS's
+`initial_ephemeris_metadata_epoch_utc`. The shared initialization epoch remains
+one second before the earliest usable Doppler sample.
 
 ## Default GPS references
 
@@ -57,8 +72,7 @@ root when using pytest; otherwise artifacts use pytest's temporary directory.
 
 All four products have 2,881 one-minute samples from May 3, 2026 at 12:00 UTC
 through May 5 at 12:00 UTC. Earlier reference coverage is unavailable, including
-for early LEOP contacts. The shared scoring windows and grouping policy remain
-unchanged; scoring selects only actual reference samples inside those windows.
+for early LEOP contacts. Scoring selects only actual reference samples inside the shared scoring windows.
 
 `experiments.references.load_reference` reads each snapshot's `quality.json`
 and verifies its product checksum before use. Withheld RMS is a validation-fit
@@ -123,8 +137,11 @@ Each spacecraft is treated as one maneuver-free arc. The initial ephemeris is
 resolved once, and every fit starts independently from it. The reference GPS
 states do not initialize, filter, tune, or warm-start the fitter.
 
-The matrix contains every usable singleton plus chronological prefixes of
-2 through N usable contacts, for both SGP4 and Cartesian full-state models.
+FOREST tests and the CLI select `grouping="all"`: one fit using every usable
+contact per model, two fits per spacecraft and eight across FOREST-16/17/18/19.
+The reusable `fit_comparison` and `run_comparison` APIs retain `grouping="matrix"`
+as their default: every usable singleton plus chronological prefixes of 2
+through N usable contacts, for both SGP4 and Cartesian full-state models.
 Contacts with fewer than 20 finite locked samples are listed as excluded in
 the inventory manifest. An explicit `solve_contacts` call instead rejects a
 group containing an unusable contact.
@@ -185,6 +202,32 @@ contact count and orbit model. Fit reports and summary rows retain reference
 status, validation RMS, quality-report provenance and coverage limitations,
 including for nonconverged cases. Credentials are never included.
 
+## Rolling position RMS reports
+
+All-contact runs also produce `position-rms.csv` and `position-rms.png` in each
+spacecraft directory. Regenerate them from saved artifacts, with no acquisition
+or repeated fits:
+
+```bash
+uv run python -m experiments.position_rms experiments/results/forest-rms/NEW_RUN/forest16
+```
+
+RMS is `sqrt(mean(dx² + dy² + dz²))` in meters over `(t − 1800 seconds, t]`.
+Each scoring window and OEM segment is independent; early partial windows are
+retained and CSV rows include their sample counts. Rows identify the fit, model,
+window, segment, UTC epoch, fitted RMS and prior RMS. Unavailable windows and
+nonconvergence have explicit status/reason rows, zero counts and blank RMS values.
+Missing saved arrays raise an error rather than being treated as missing GPS.
+
+Figures separate contact-span and future windows, with solid fitted and dashed
+prior curves. Reference status and withheld GPS validation RMS remain visible.
+Amber shading marks reported GPS gaps and endpoint extrapolations where reference
+accuracy is unverified; grey indicates unavailable reference coverage. A reference
+validation RMS is not an accuracy bound on the entire smoothed OEM. FOREST-19
+remains a candidate. Rolling curves do not bridge OEM segment boundaries or
+extrapolate outside the reference; the continuous smoothed OEM still supplies
+states inside the annotated gaps in the original GPS observations.
+
 ## Verification and complexity
 
 Deterministic tests cover inventory extraction, explicit-prior isolation,
@@ -225,3 +268,24 @@ the library-backed OEM adapter or numerical kernels.
 The offline reference tests verify identity rejection, checksum/status handling,
 source preservation and shared scoring/reporting. Existing synthetic matrix
 tests retain coverage of single-pass/multipass grouping and common windows.
+
+The RMS additions retain the same McCabe measurement (limit 10):
+
+| Function | Before | After |
+|---|---:|---:|
+| `fit_comparison` | 3 | 5 |
+| `run_comparison` | 4 | 6 |
+| `save_inventory` | 4 | 6 |
+| `case_ephemeris_id` | New | 3 |
+| `rolling_rms` | New | 4 |
+| `_state_rows` | New | 5 |
+| `_fit_rows` | New | 4 |
+| `_shade_reference` | New | 6 |
+| `_plot_panel` | New | 3 |
+| `_plot` | New | 4 |
+| `write_report` | New | 3 |
+
+Offline report verification covers exact left-open rolling boundaries, partial
+windows, segment/window resets, missing arrays and reference coverage, and
+nonconvergence. Default/override precedence is exercised through both the CLI
+and opt-in test entry point.

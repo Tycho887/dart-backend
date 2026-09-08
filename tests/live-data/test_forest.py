@@ -1,4 +1,4 @@
-"""Explicitly enabled live experiments; credentials and prior IDs are required."""
+"""Explicitly enabled live experiments with pinned case priors and GPS references."""
 
 import asyncio
 import os
@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 from dart.io.adx import client_from_env
 from dart.od import OrbitModel
-from experiments.live_data import ExperimentSettings, run_comparison
+from experiments.live_data import ExperimentSettings, case_ephemeris_id, run_comparison
 from experiments.references import load_reference
 
 
@@ -23,11 +23,14 @@ def test_forest(name: str, tmp_path: Path) -> None:
         os.getenv("DART_SECRETS_ENV", "/opt/dart/secrets/test.env"), override=False
     )
     prefix = f"DART_{name.upper()}"
-    required = [f"{prefix}_EPHEMERIS_ID", "KOGS_API_KEY"]
+    required = ["KOGS_API_KEY"]
     missing = [key for key in required if not os.getenv(key)]
     if missing:
         pytest.fail(f"explicit live inputs required: {', '.join(missing)}")
     case = runpy.run_path(str(Path(__file__).with_name(f"{name}.py")))
+    ephemeris_id = case_ephemeris_id(
+        case.get("EPHEMERIS_ID"), os.getenv(f"{prefix}_EPHEMERIS_ID")
+    )
     override = os.getenv(f"{prefix}_OEM")
     reference, reference_metadata = load_reference(
         case["DEFAULT_REFERENCE_OEM"],
@@ -41,7 +44,7 @@ def test_forest(name: str, tmp_path: Path) -> None:
         results = asyncio.run(
             run_comparison(
                 case["CONTACT_IDS"],
-                ephemeris_id=os.environ[f"{prefix}_EPHEMERIS_ID"],
+                ephemeris_id=ephemeris_id,
                 spacecraft_id=case["SPACECRAFT_ID"],
                 settings=settings,
                 reference=reference,
@@ -49,9 +52,10 @@ def test_forest(name: str, tmp_path: Path) -> None:
                 output_dir=root / name,
                 kogs_api_key=os.environ["KOGS_API_KEY"],
                 adx_client=client,
+                grouping="all",
             )
         )
-    assert results, "no fit cases were executed"
+    assert len(results) == 2, "expected one fit per model"
     assert {result.output.model_kind for result in results} == set(OrbitModel)
     # Accuracy and nonconvergence are reported scientific outcomes, not gates.
     assert (root / name / "summary.json").is_file()
