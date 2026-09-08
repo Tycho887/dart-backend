@@ -26,6 +26,8 @@ use satkit::sgp4::{GravConst, OpsMode, SGP4Error, sgp4_full};
 use satkit::{Duration, Frame, ITRFCoord, Instant, TLE};
 use std::fmt;
 
+pub mod diagnostics;
+pub mod frame_cache;
 mod python;
 
 /// Transform finite Cartesian SI states using satkit, including frame velocity.
@@ -1031,8 +1033,10 @@ pub fn propagate_sgp4_gcrf(tle: &TLE, times: &[Instant]) -> FmResult<Vec<Vector6
         }
         let pos_teme = Vector3::from_array([out.pos[(0, k)], out.pos[(1, k)], out.pos[(2, k)]]);
         let vel_teme = Vector3::from_array([out.vel[(0, k)], out.vel[(1, k)], out.vel[(2, k)]]);
-        let (pos, vel) = transform_state(Frame::TEME, Frame::GCRF, t, &pos_teme, &vel_teme)
-            .map_err(|error| ForwardModelError::Propagation(error.to_string()))?;
+        // satkit's TEME/GCRF state dispatch applies the same inertial rotation
+        // to position and velocity. Reuse it across finite differences/replays.
+        let rotation = frame_cache::teme_to_gcrf(t)?;
+        let (pos, vel) = (rotation * pos_teme, rotation * vel_teme);
         let state = Vector6::from_array([pos[0], pos[1], pos[2], vel[0], vel[1], vel[2]]);
         if !state.as_slice().iter().all(|value| value.is_finite()) {
             return Err(ForwardModelError::Propagation(format!(

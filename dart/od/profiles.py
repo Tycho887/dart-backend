@@ -1,6 +1,7 @@
-"""Shared six-orbit-parameter study configuration, in physical units."""
+"""Reusable orbit/bias study profiles, in physical units."""
 
 from collections.abc import Sequence
+from typing import Literal
 
 from . import _FULL_STATE_PARAMETER_NAMES, _SGP4_PARAMETER_NAMES
 from .schema import OptimizerContext, OrbitModel, ParameterSpec
@@ -15,6 +16,41 @@ ORBIT_BOUNDS = {
     OrbitModel.SGP4: (0.2, 0.1, 0.1, 0.1, 0.1, 30.0),
     OrbitModel.FULL_STATE: (1e6, 1e6, 1e6, 1000.0, 1000.0, 1000.0),
 }
+
+Sgp4ParameterSet = Literal["L", "L+n", "six"]
+
+
+def sgp4_bias_profile(
+    parameter_set: Sgp4ParameterSet,
+    contact_id: str | Sequence[str],
+    *,
+    robust: bool = False,
+    max_evaluations: int = 1000,
+) -> OptimizerContext:
+    """Selected orbit corrections plus one bias; omitted corrections stay zero.
+
+    The robust transition is 200 Hz for unit-variance Doppler observations.
+    Bounds and scales are identical to the six-parameter control.
+    """
+    from dataclasses import replace
+
+    contacts = (contact_id,) if isinstance(contact_id, str) else tuple(contact_id)
+    if not contacts or len(set(contacts)) != len(contacts):
+        raise ValueError("contact IDs must be nonempty and unique")
+    selected = {
+        "L": {"mean_longitude_deg"},
+        "L+n": {"mean_longitude_deg", "mean_motion_rev_per_day"},
+        "six": set(_SGP4_PARAMETER_NAMES[:6]),
+    }[parameter_set] | {f"pass_bias_hz:{cid}" for cid in contacts}
+    control = orbit_bias_profile(
+        OrbitModel.SGP4, contacts, max_evaluations=max_evaluations
+    )
+    return replace(
+        control,
+        parameters=tuple(p for p in control.parameters if p.name in selected),
+        loss="soft_l1" if robust else "linear",
+        loss_scale=200.0 if robust else 1.0,
+    )
 
 
 def orbit_bias_profile(

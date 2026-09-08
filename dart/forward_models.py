@@ -261,6 +261,7 @@ def transform_states(
 
 
 __all__ = [
+    "clear_frame_cache",
     "transform_states",
     "ForwardModelEvaluation",
     "evaluate_full_state",
@@ -271,3 +272,12 @@ __all__ = [
     "sgp4_states_gcrf",
     "full_state_states_gcrf",
 ]
+
+
+def clear_frame_cache() -> None:
+    """Invalidate Rust rotations after changing satkit Earth-orientation data.
+
+    Keep runtime reference data fixed during fitting or trajectory evaluation.
+    Normal callers do not need to clear the bounded process-wide cache.
+    """
+    _native.clear_frame_cache()

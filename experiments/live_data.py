@@ -199,6 +199,7 @@ def solve_loaded(
     settings: ExperimentSettings,
     reference: OemEphemeris,
     reference_metadata: ReferenceMetadata | None = None,
+    optimizer: OptimizerContext | None = None,
 ) -> ExperimentResult:
     """Fit one exact contact group using already acquired data and a pinned prior."""
     reference = bind_reference(reference, contacts, reference_metadata)
@@ -215,9 +216,12 @@ def solve_loaded(
     # Validate/materialize the chosen TLE before invoking optimization.
     resolve_prior(prior, settings.model)
     ids = tuple(c.contact_id for c in contacts)
-    optimizer = orbit_bias_profile(
-        settings.model, ids, max_evaluations=settings.max_evaluations
-    )
+    if optimizer is None:
+        optimizer = orbit_bias_profile(
+            settings.model, ids, max_evaluations=settings.max_evaluations
+        )
+    if optimizer.model != settings.model:
+        raise ValueError("optimizer model differs from experiment settings")
     output = fit(prior, optimizer)
     scores = (
         tuple(
@@ -241,6 +245,7 @@ async def solve_contacts(
     kogs_api_key: str,
     adx_client: KustoClient,
     reference_metadata: ReferenceMetadata | None = None,
+    optimizer: OptimizerContext | None = None,
 ) -> ExperimentResult:
     """Load, fit and score any explicit same-spacecraft list of contact IDs."""
     contacts, frame, prior = await load_experiment(
@@ -257,6 +262,7 @@ async def solve_contacts(
         settings=settings,
         reference=reference,
         reference_metadata=reference_metadata,
+        optimizer=optimizer,
     )
 
 

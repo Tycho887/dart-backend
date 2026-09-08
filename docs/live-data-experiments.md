@@ -1,5 +1,8 @@
 # Live-data orbit accuracy experiments
 
+For the independent-pass, fixed-38-contact SGP4 comparison replaying archived
+inputs, see [FOREST pass-level accuracy](forest-pass-accuracy.md).
+
 The FOREST definitions in `tests/live-data/forest16.py` through `forest19.py`
 contain 13, 15, 18, and 15 contact UUIDs respectively, extracted in chronological
 order from the May 3–4, 2026 Parquet files. Their nominal frequency is

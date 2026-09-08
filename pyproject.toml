@@ -29,6 +29,11 @@ dart-api = "dart.service.cli:api"
 dart-migrate = "dart.service.cli:migrate"
 dart-worker = "dart.service.cli:worker"
 
+[project.optional-dependencies]
+tuning = [
+    "optuna>=4.5,<5",
+]
+
 [dependency-groups]
 dev = [
     "httpx2>=0.1.0",

@@ -77,6 +77,35 @@ def test_snapshot_adapter_normalizes_all_samples(forest):
     assert np.max(np.abs(history.states[:, :3] - original_si[:, :3])) > 0.1
 
 
+def test_relocated_snapshot_requires_explicit_opt_in_and_identical_hash(
+    forest, tmp_path
+):
+    _, case, reference, provenance = forest
+    copied = tmp_path / reference.path.name
+    copied.write_bytes(reference.raw)
+    (tmp_path / "quality.json").write_bytes(provenance.quality_report.read_bytes())
+    # A report naming its original absolute path remains byte-for-byte preserved.
+    report = json.loads((tmp_path / "quality.json").read_text())
+    key = "oem" if report["accepted"] else "candidate_oem"
+    report[key] = str(reference.path.resolve())
+    (tmp_path / "quality.json").write_text(json.dumps(report))
+    with pytest.raises(ValueError, match="different product"):
+        load_reference(copied, case["REFERENCE_OBJECT_ID"], case["SPACECRAFT_ID"])
+    restored, assessment = load_reference(
+        copied, case["REFERENCE_OBJECT_ID"], case["SPACECRAFT_ID"], allow_relocated=True
+    )
+    assert restored.sha256 == reference.sha256
+    assert assessment.status == provenance.status
+    copied.write_bytes(reference.raw + b"\n")
+    with pytest.raises(ValueError, match="checksum"):
+        load_reference(
+            copied,
+            case["REFERENCE_OBJECT_ID"],
+            case["SPACECRAFT_ID"],
+            allow_relocated=True,
+        )
+
+
 def test_identity_binding_preserves_source_and_rejects_mismatches(forest):
     _, case, reference, provenance = forest
     contact = replace(

@@ -1,5 +1,6 @@
 """Prepare Doppler observations without altering the raw delivery."""
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -21,6 +22,28 @@ def select_doppler(measurements: pl.DataFrame) -> pl.DataFrame:
     return measurements.filter(
         (pl.col("carrier_lock") == "Locked") & pl.col("doppler_hz").is_finite()
     ).sort("timestamp")
+
+
+def select_quality_doppler(
+    measurements: pl.DataFrame,
+    *,
+    min_ebn0_db: float = 3.0,
+    max_abs_offset_hz: float = 100000.0,
+) -> pl.DataFrame:
+    """Finite locked observations with inclusive Eb/N0 and strict offset gates."""
+    if (
+        not math.isfinite(min_ebn0_db)
+        or not math.isfinite(max_abs_offset_hz)
+        or max_abs_offset_hz <= 0
+    ):
+        raise ValueError(
+            "quality thresholds must be finite with a positive offset limit"
+        )
+    return select_doppler(measurements).filter(
+        pl.col("ebn0").is_finite()
+        & (pl.col("ebn0") >= min_ebn0_db)
+        & (pl.col("doppler_hz").abs() < max_abs_offset_hz)
+    )
 
 
 def selection_counts(

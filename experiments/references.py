@@ -35,6 +35,8 @@ def load_reference(
     object_id: str,
     spacecraft_id: str,
     override: Path | None = None,
+    *,
+    allow_relocated: bool = False,
 ) -> tuple[OemEphemeris, ReferenceMetadata]:
     """Verify the frozen product; only identical content inherits its assessment."""
     quality_path = default.with_name("quality.json")
@@ -43,7 +45,12 @@ def load_reference(
     product_key = "oem" if report["accepted"] else "candidate_oem"
     product = quality_path.parent / report[product_key]
     expected_sha256 = report[f"{product_key}_sha256"]
-    if report["satellite"] != object_id or product.resolve() != default.resolve():
+    matching_path = (
+        product.name == default.name
+        if allow_relocated
+        else product.resolve() == default.resolve()
+    )
+    if report["satellite"] != object_id or not matching_path:
         raise ValueError("snapshot quality report identifies a different product")
     if hashlib.sha256(default.read_bytes()).hexdigest() != expected_sha256:
         raise ValueError("snapshot OEM checksum differs from its quality report")

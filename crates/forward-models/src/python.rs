@@ -18,6 +18,30 @@ use satkit::{ITRFCoord, Instant, TLE};
 type ReceiverGeodetic = (f64, f64, f64);
 type PythonEvaluation = (Vec<f64>, Vec<Vec<f64>>);
 
+#[pyfunction]
+fn clear_frame_cache() {
+    crate::frame_cache::clear();
+}
+
+#[pyfunction]
+fn orbit_information(
+    jacobian: Vec<Vec<f64>>,
+    residuals: Vec<f64>,
+    scales: Vec<f64>,
+    loss_scale: f64,
+) -> PyResult<crate::diagnostics::Information> {
+    crate::diagnostics::orbit_information(&jacobian, &residuals, &scales, loss_scale)
+        .map_err(python_error)
+}
+
+#[pyfunction]
+fn position_errors_rtn(
+    predicted: Vec<Vec<f64>>,
+    reference: Vec<Vec<f64>>,
+) -> PyResult<Vec<Vec<f64>>> {
+    crate::diagnostics::position_errors_rtn(&predicted, &reference).map_err(python_error)
+}
+
 struct EvaluationInputs {
     engine: EstimationEngine,
     observations: Vec<ObservationRecord>,
@@ -221,6 +245,9 @@ fn tle_state_gcrf(
 
 #[pymodule]
 fn _forward_models(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(clear_frame_cache, module)?)?;
+    module.add_function(wrap_pyfunction!(orbit_information, module)?)?;
+    module.add_function(wrap_pyfunction!(position_errors_rtn, module)?)?;
     module.add_function(wrap_pyfunction!(transform_states, module)?)?;
     module.add_function(wrap_pyfunction!(evaluate_sgp4, module)?)?;
     module.add_function(wrap_pyfunction!(evaluate_sgp4_augmented, module)?)?;
