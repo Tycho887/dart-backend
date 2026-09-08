@@ -26,6 +26,13 @@ variables and `KOGS_API_KEY`. `DART_SECRETS_ENV` defaults to
 `/opt/dart/secrets/test.env`; existing environment values take precedence.
 Nothing contacts an antenna controller or submits an asynchronous service job.
 
+KOGS spacecraft UUIDs establish the association between contacts, spacecraft
+records, and ephemerides. Historical LEOP TLEs can contain provisional NORAD
+numbers that differ from today's spacecraft catalog number. The loader preserves
+the original TLE and its COSPAR while exposing the current catalog number in
+contact metadata; it does not require those catalog numbers to match. Conflicting
+spacecraft UUIDs and internally inconsistent ephemeris identities still fail.
+
 To run through pytest, supply the inputs for the selected spacecraft:
 
 ```bash

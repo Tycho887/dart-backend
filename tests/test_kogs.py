@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -66,7 +67,8 @@ def test_auth_rejects_malformed_credentials(value):
         kogs.headers(value)
 
 
-def test_load_contact_metadata_cross_checks_sources(monkeypatch):
+@pytest.fixture
+def metadata_sources(monkeypatch):
     contact = kogs.Contact(
         "contact-1",
         "spacecraft-1",
@@ -104,13 +106,75 @@ def test_load_contact_metadata_cross_checks_sources(monkeypatch):
     monkeypatch.setattr(kogs, "get_antenna", lambda *args, **kwargs: antenna)
     monkeypatch.setattr(kogs, "get_spacecraft", lambda *args, **kwargs: spacecraft)
     monkeypatch.setattr(kogs, "get_ephemeris", lambda *args, **kwargs: ephemeris)
+    return {
+        "contact": contact,
+        "antenna": antenna,
+        "spacecraft": spacecraft,
+        "ephemeris": ephemeris,
+    }
 
+
+def test_load_contact_metadata_cross_checks_sources(metadata_sources):
     metadata = kogs.load_contact_metadata(API_KEY, "contact-1")
 
     assert metadata.contact_id == "contact-1"
-    assert metadata.ephemeris.tle == ephemeris.tle
+    assert metadata.ephemeris is metadata_sources["ephemeris"]
     assert metadata.catalog == "60543"
     assert metadata.cospar == "2024-149A"
+
+
+def test_leop_catalog_and_cospar_preserved_with_matching_uuid(
+    monkeypatch, metadata_sources
+):
+    source = metadata_sources["ephemeris"]
+    leop_tle = source.tle.replace("60543", "90916").replace("24149A  ", "00000AA ")
+    ephemeris = replace(source, tle=leop_tle)
+    spacecraft = replace(metadata_sources["spacecraft"], catalog="68998")
+    monkeypatch.setattr(kogs, "get_ephemeris", lambda *a, **kw: ephemeris)
+    monkeypatch.setattr(kogs, "get_spacecraft", lambda *a, **kw: spacecraft)
+
+    metadata = kogs.load_contact_metadata(API_KEY, "contact-1")
+
+    assert metadata.spacecraft_id == spacecraft.id == ephemeris.spacecraft_id
+    assert metadata.ephemeris is ephemeris
+    assert metadata.ephemeris.tle == leop_tle
+    assert metadata.catalog == "68998"
+    assert metadata.cospar == "2000-000AA"
+
+
+@pytest.mark.parametrize(
+    "provider,changes,message",
+    [
+        ("contact", {"id": "wrong-contact"}, "contact identity"),
+        ("antenna", {"id": "wrong-system"}, "antenna identity"),
+        ("antenna", {"station_id": "wrong-station"}, "antenna identity"),
+        ("spacecraft", {"id": "wrong-spacecraft"}, "spacecraft identity"),
+        ("ephemeris", {"spacecraft_id": "wrong-spacecraft"}, "ephemeris spacecraft"),
+    ],
+)
+def test_metadata_uuid_mismatches_fail_despite_matching_catalogs(
+    monkeypatch, metadata_sources, provider, changes, message
+):
+    changed = replace(metadata_sources[provider], **changes)
+    monkeypatch.setattr(kogs, f"get_{provider}", lambda *a, **kw: changed)
+    with pytest.raises(kogs.KogsError, match=message):
+        kogs.load_contact_metadata(API_KEY, "contact-1")
+
+
+@pytest.mark.parametrize(
+    "omm",
+    [
+        "OBJECT_ID = 2024-149A\nNORAD_CAT_ID = 90916\n",
+        "OBJECT_ID = 2000-000AA\nNORAD_CAT_ID = 60543\n",
+    ],
+)
+def test_internally_conflicting_ephemeris_identities_still_fail(
+    monkeypatch, metadata_sources, omm
+):
+    ephemeris = replace(metadata_sources["ephemeris"], omm=omm)
+    monkeypatch.setattr(kogs, "get_ephemeris", lambda *a, **kw: ephemeris)
+    with pytest.raises(kogs.KogsError, match="ephemeris identities do not match"):
+        kogs.load_contact_metadata(API_KEY, "contact-1")
 
 
 def test_mutations_require_confirmed_contract(monkeypatch):

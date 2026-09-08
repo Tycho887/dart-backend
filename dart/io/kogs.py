@@ -416,7 +416,7 @@ def load_contact_metadata(
     *,
     timeout_seconds: float = KOGS_REQUEST_TIMEOUT_SECONDS,
 ) -> ContactMetadata:
-    """Resolve and cross-check all KOGS metadata for one pass."""
+    """Resolve pass metadata using the KOGS spacecraft UUID as authority."""
 
     contact = get_contact(api_key, contact_id, timeout_seconds=timeout_seconds)
     antenna = get_antenna(api_key, contact.system_id, timeout_seconds=timeout_seconds)
@@ -434,9 +434,9 @@ def load_contact_metadata(
         raise KogsError("KOGS spacecraft identity does not match the contact")
     if ephemeris.spacecraft_id != contact.spacecraft_id:
         raise KogsError("KOGS ephemeris spacecraft does not match the contact")
-    cospar, ephemeris_catalog = _ephemeris_identity(ephemeris)
-    if ephemeris_catalog and ephemeris_catalog != spacecraft.catalog:
-        raise KogsError("KOGS spacecraft and ephemeris catalog IDs do not match")
+    # LEOP TLEs may predate assigned NORAD numbers. Preserve their identifiers
+    # without requiring agreement with today's spacecraft catalog number.
+    cospar, _ = _ephemeris_identity(ephemeris)
     vector = sk.itrfcoord(
         latitude_deg=antenna.latitude,
         longitude_deg=antenna.longitude,
