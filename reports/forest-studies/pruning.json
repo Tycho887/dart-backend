@@ -1,0 +1,51 @@
+{
+  "format_version": 1,
+  "directories": [
+    {
+      "path": "experiments/results/forest-rms/20260908T103148Z",
+      "publication": "acquisition",
+      "files": 108,
+      "bytes": 30513695,
+      "inventory_sha256": "ccb58add9c61d5345e886a8d39ed789c257bed69463ab639da028701e45a1451"
+    },
+    {
+      "path": "experiments/results/forest-pass-accuracy/20260908T112616Z",
+      "publication": "pass-accuracy",
+      "files": 2987,
+      "bytes": 34664835,
+      "inventory_sha256": "902dcc5b7a94e79eca7abdb977e93fcacb2a2de1f1f14a7bd77212eb4d153c66"
+    },
+    {
+      "path": "experiments/results/forest-forecast-reference/20260908",
+      "publication": "forecast-reference",
+      "files": 105,
+      "bytes": 159152444,
+      "inventory_sha256": "389f5c795f82a73e13b8773d095cf6df0fa22462e5cfc7ce1d1fb92184a4557a"
+    },
+    {
+      "path": "experiments/results/forest-trajectories/20260908T132101Z",
+      "publication": "trajectories",
+      "files": 11114,
+      "bytes": 703265934,
+      "inventory_sha256": "a88a83b41408bfe125001832adb1b70fbab8ad843fd2cb462aaedd7bae986022"
+    },
+    {
+      "path": "experiments/results/forest-trajectories/20260908T130400Z-debug-incomplete",
+      "publication": null,
+      "files": 161,
+      "bytes": 4434352,
+      "inventory_sha256": "60c973c03c4f019ffefbe3e8b78845940e43921d62d6c3dc925f5ba84dd190a2",
+      "reason": "Interrupted performance trial; not a headline result.",
+      "original_readme": "# Interrupted performance trial\n\nNot the final comparison. Superseded by ../20260908T132101Z/. Partial outputs are retained for provenance.\n"
+    },
+    {
+      "path": "experiments/results/forest-trajectories/20260908T130953Z",
+      "publication": null,
+      "files": 950,
+      "bytes": 11895850,
+      "inventory_sha256": "45ae39fbcaa9add830edcb818f5b93a207c5c0d47f204a816d46069f5a004c24",
+      "reason": "Interrupted performance trial; not a headline result.",
+      "original_readme": "# Interrupted performance trial\n\nNot the final comparison. Superseded by ../20260908T132101Z/. Partial outputs are retained for provenance.\n"
+    }
+  ]
+}

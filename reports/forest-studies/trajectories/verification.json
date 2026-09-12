@@ -1,0 +1,34 @@
+{
+  "python": {
+    "passed": 303,
+    "skipped": 5
+  },
+  "rust_tests": 29,
+  "clippy": "passed",
+  "focused_lint": "passed",
+  "focused_types": "passed",
+  "repository_lint_existing_findings": 3,
+  "repository_types_existing_findings": 147,
+  "original_snapshot_checksums": "passed",
+  "plots_visually_inspected": [
+    "comparison.png",
+    "diagnostics.png"
+  ],
+  "saved_array_audit": {
+    "saved_window_scores_checked": 1173,
+    "fixed_denominator": 38,
+    "strict_threshold_m": 5000,
+    "archive_hashes_unchanged": true,
+    "offset_sign": "orbit(t+delta) - reference(t)"
+  },
+  "optuna": {
+    "trials": 4,
+    "feasible_trials": 4,
+    "held_out_evaluations": 1,
+    "purpose": "four-trial workflow smoke test; no generalization claim"
+  },
+  "optuna_held_out_objectives_m": [
+    18208.928034190776,
+    39464.35825389769
+  ]
+}

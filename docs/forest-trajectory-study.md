@@ -8,6 +8,29 @@ its candidate local reference annotation.
 
 ## Running and replaying
 
+Completed study publications are now stored in
+[`reports/forest-studies`](../reports/forest-studies/README.md). Restore one before
+using the original experiment commands; the large generated result directories
+are disposable workspaces. The publication contains exact fit descriptors and
+reference bytes, while cached trajectories are regenerated through Rust.
+
+```bash
+uv run python -m experiments.study_artifacts verify reports/forest-studies/trajectories
+uv run python -m experiments.study_artifacts restore \
+  reports/forest-studies/trajectories /tmp/forest-restored
+uv run python -m experiments.verify_trajectory_publication /tmp/forest-restored
+```
+
+The verifier propagates restored fits without refitting, checks every published
+nominal local/48-hour score, reproduces recorded propagation failures, and repeats
+four representative timing sweeps. It requires the recorded native runtime.
+Full replay with `trajectory_report` regenerates state arrays and CSV exports.
+The full repository history and sibling publications must be available for
+checksum-backed Git sources and shared input dependencies.
+
+See [the multipass run study](multipass-run-study.md) for the next experiment
+design, measured-error contract, and proposed reusable selection interface.
+
 ```bash
 uv sync --extra tuning
 uv run maturin develop --release

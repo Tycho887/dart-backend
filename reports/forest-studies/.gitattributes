@@ -1,0 +1,3 @@
+# Preserve archived bytes and their checksums on every checkout.
+* -text
+*.csv whitespace=cr-at-eol

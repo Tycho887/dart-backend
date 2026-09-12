@@ -1,0 +1,28 @@
+{
+  "bundle_sha256": "008289f6b669294fb7e9f4c7c274e5ef9b784fbe623ba4b9dbf7d82e461c22fd",
+  "code_revision": "26bc425f13a5f39ae3da0e8fa7384803ecdd39c3",
+  "counts": {
+    "retained_bytes": 30186714,
+    "retained_files": 1937,
+    "source_bytes": 34664835,
+    "source_files": 2987
+  },
+  "dependencies": {
+    "../acquisition": "a39c3dbe2c4c7eec8dc2502f37d7fca186463dead30cc458e95348bc1e45469e"
+  },
+  "exclude": [
+    "*.npz",
+    "*/fit/*.oem",
+    "*/phase-scan.csv",
+    "per-pass.csv"
+  ],
+  "format_version": 1,
+  "readable": {
+    "README.md": "356757d234d10117b2b9238c9c0b045a543bb8d3c01bb081c5c7c357b82e29a8",
+    "comparison.csv": "474be7c4a896151bbba1043c212ae448ea3f4345b5978eacd0b8ed00aa781eda",
+    "diagnostics.png": "c2358668f7433662077c6ef2db5dd8b6450c5f3a3a2f94cbcba087e47b05eb04",
+    "pass-diagnostics.png": "4c17038fa395a41ac55808d050512fda022b08bcd68ace07c78a93307081b7ca",
+    "verification.json": "22e2feb53764711dbd202cf28b0c6170b83fdb1688320dcdf67d9644ae1632df"
+  },
+  "source_name": "20260908T112616Z"
+}

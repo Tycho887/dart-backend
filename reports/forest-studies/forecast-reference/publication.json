@@ -1,0 +1,21 @@
+{
+  "bundle_sha256": "43e96839908ccdfe7f19042221b0e3c813317fc54d683f4f3e1a6d3115d10803",
+  "code_revision": "26bc425f13a5f39ae3da0e8fa7384803ecdd39c3",
+  "counts": {
+    "retained_bytes": 7534088,
+    "retained_files": 72,
+    "source_bytes": 159152444,
+    "source_files": 105
+  },
+  "dependencies": {},
+  "exclude": [
+    "*/estimator.*",
+    "*/evaluated_states.csv",
+    "*/candidate.oem",
+    "*/GmatLog.txt",
+    "*/measurements.gmd"
+  ],
+  "format_version": 1,
+  "readable": {},
+  "source_name": "20260908"
+}
