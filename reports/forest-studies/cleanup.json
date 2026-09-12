@@ -1,0 +1,19 @@
+{
+  "status": "complete",
+  "preservation_commit": "caa7f1e741353df091d30cc352990c5f09c530eb",
+  "directories_removed": [
+    "experiments/results/forest-rms/20260908T103148Z",
+    "experiments/results/forest-pass-accuracy/20260908T112616Z",
+    "experiments/results/forest-forecast-reference/20260908",
+    "experiments/results/forest-trajectories/20260908T132101Z",
+    "experiments/results/forest-trajectories/20260908T130400Z-debug-incomplete",
+    "experiments/results/forest-trajectories/20260908T130953Z"
+  ],
+  "source_files_removed": 15425,
+  "source_bytes_removed": 943927110,
+  "all_publication_bytes_verified_against_git_before_pruning": true,
+  "all_source_inventories_rechecked_before_pruning": true,
+  "publication_files": 26,
+  "publication_bytes": 38448293,
+  "fresh_restore_after_pruning": "passed, including local and 48-hour propagation scores"
+}

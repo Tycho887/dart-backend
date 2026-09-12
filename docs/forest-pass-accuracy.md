@@ -19,17 +19,21 @@ seven screening failures and one SGP4 error. Every failure remains in the fixed
 38-pass denominator. Residual outliers and poor six-parameter conditioning remain
 visible in the saved diagnostics.
 
-The [complete report](../experiments/results/forest-pass-accuracy/20260908T112616Z/README.md)
-links the [366-row per-pass CSV](../experiments/results/forest-pass-accuracy/20260908T112616Z/per-pass.csv),
-configuration/spacecraft breakdowns, plots, source snapshots and checksum records.
+The [complete report](../reports/forest-studies/pass-accuracy/README.md) and
+[compact publication](../reports/forest-studies/README.md) preserve the 366 per-pass
+records, configuration/spacecraft breakdowns, plots, source versions and checksums.
+Restore the publication to read `per-pass.json`; generated arrays and duplicate
+CSV exports were pruned after verification.
 An independent audit reproduced all 192 available fitted GPS scores and checked
 selection, epoch windows, prior scores and all 366 outcome classifications.
 
 ## Reproduce
 
 ```bash
+uv run python -m experiments.study_artifacts restore \
+  reports/forest-studies/acquisition /tmp/forest-acquisition
 uv run python -m experiments.forest_passes \
-  --archive experiments/results/forest-rms/20260908T103148Z \
+  --archive /tmp/forest-acquisition \
   --workers 8
 ```
 

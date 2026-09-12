@@ -14,8 +14,9 @@ bundle plus readable summaries and figures. No fitting algorithm changed.
 
 The completed studies total 14,314 original files. Including the two interrupted
 trajectory attempts listed in [pruning.json](pruning.json), the cleanup covers
-15,425 files and 943,927,110 bytes. Publication files occupy approximately 38.5 MB,
-a 96% reduction in the active artifact footprint. Git history retains the compact
+15,425 files and 943,927,110 bytes. The 26 publication files occupy approximately
+38.5 MB, a 96% reduction in the active artifact footprint. The completed deletion
+record is [cleanup.json](cleanup.json). Git history retains the compact
 publications; discarded caches and interrupted fit outputs are not archived.
 
 ## What the results establish
