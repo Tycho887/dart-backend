@@ -1,5 +1,13 @@
 # FOREST study publications
 
+These are historical publications. The study, reporting, and restoration scripts
+were retired during benchmark consolidation. Run the commands below from the
+historical Git revision `e5e851d` (for example, in a separate worktree); each
+publication also records its original source/runtime requirements. The bundles
+and their individual files remain unchanged. For new work, use
+[the contact-list benchmark](../../docs/benchmark.md); selected findings and exact
+tuned settings are retained in [notes](../../experiments/notes.md).
+
 These compact publications preserve the completed FOREST studies in Git. The
 original generated directories contained thousands of files, mostly reproducible
 trajectory arrays and repeated inputs. Each publication provides one essential

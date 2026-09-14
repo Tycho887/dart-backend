@@ -1,0 +1,218 @@
+"""One joint Doppler fit, scored against actual OEM samples.
+
+See docs/benchmark.md for acquisition, snapshot replay, and CSV export.
+Numerical work is delegated to the existing DART library.
+"""
+
+from dataclasses import dataclass, fields, replace
+from datetime import UTC, datetime
+from importlib.metadata import version
+from pathlib import Path
+
+import numpy as np
+import polars as pl
+import satkit as sk
+
+from dart.evaluation import compare_states
+from dart.io import ContactMetadata, ForwardModelContext
+from dart.io.doppler import prepare_doppler
+from dart.io.load import _contact_ids
+from dart.io.oem import OemEphemeris, read_oem
+from dart.od import (
+    OptimizerContext,
+    OptimizerOutput,
+    PriorStateData,
+    fit,
+    resolve_prior,
+    resolve_solution,
+)
+from dart.orbit import OrbitSolution, StateHistory, propagate
+from experiments._benchmark_io import load_inputs, save_json
+
+_ERROR_COLUMNS = ("dx_m", "dy_m", "dz_m", "dvx_m_s", "dvy_m_s", "dvz_m_s")
+_STATE_SCHEMA = {
+    "timestamp_unix_s": pl.Float64,
+    "segment": pl.Int64,
+    "solution": pl.String,
+    **dict.fromkeys(_ERROR_COLUMNS, pl.Float64),
+}
+
+
+@dataclass(frozen=True)
+class BenchmarkResult:
+    states: pl.DataFrame
+    doppler: pl.DataFrame
+    epoch: sk.time
+    output: OptimizerOutput
+    metadata: dict[str, object]
+
+    def save(self, directory: Path) -> None:
+        """Write two CSV tables and a JSON run record; never overwrite a run."""
+        directory.mkdir(parents=True, exist_ok=False)
+        self.states.write_csv(directory / "states.csv")
+        self.doppler.write_csv(directory / "doppler.csv")
+        save_json(directory / "run.json", self.metadata)
+
+
+def _bind_reference(
+    reference: OemEphemeris,
+    contacts: list[ContactMetadata],
+    spacecraft_id: str | None,
+) -> OemEphemeris:
+    """Bind comparison histories only; preserve source OEM bytes and metadata."""
+    identities = {c.cospar for c in contacts}
+    if len(identities) != 1 or not next(iter(identities)).strip():
+        raise ValueError("reference comparison requires one contact COSPAR")
+    cospar = next(iter(identities))
+    if spacecraft_id is not None and {c.spacecraft_id for c in contacts} != {
+        spacecraft_id
+    }:
+        raise ValueError("reference binding and contact spacecraft identities differ")
+    expected = cospar if spacecraft_id is None else reference.object_id
+    source_ids = {s.metadata["OBJECT_ID"] for s in reference.document}
+    if source_ids != {expected} or {s.object_id for s in reference.segments} != {
+        expected
+    }:
+        raise ValueError("reference OEM object ID differs from COSPAR or binding")
+    return replace(
+        reference,
+        segments=tuple(replace(s, object_id=cospar) for s in reference.segments),
+    )
+
+
+def _state_errors(
+    solution: OrbitSolution,
+    reference: OemEphemeris,
+    epoch: sk.time,
+    label: str,
+) -> pl.DataFrame:
+    tables = []
+    for index, segment in enumerate(reference.segments):
+        selected = [i for i, t in enumerate(segment.epochs) if t >= epoch]
+        if not selected:
+            continue
+        truth = StateHistory(
+            segment.object_id,
+            segment.source_id,
+            tuple(segment.epochs[i] for i in selected),
+            segment.states[selected],
+        )
+        errors = compare_states(propagate(solution, truth.epochs), truth).differences
+        tables.append(
+            pl.DataFrame(
+                {
+                    "timestamp_unix_s": [t.as_unixtime() for t in truth.epochs],
+                    "segment": [index] * len(selected),
+                    "solution": [label] * len(selected),
+                    **dict(zip(_ERROR_COLUMNS, errors.T, strict=True)),
+                },
+                schema=_STATE_SCHEMA,
+            )
+        )
+    return pl.concat(tables) if tables else pl.DataFrame(schema=_STATE_SCHEMA)
+
+
+def _doppler_residuals(
+    context: ForwardModelContext, output: OptimizerOutput
+) -> pl.DataFrame:
+    observations = context.observations
+    return pl.DataFrame(
+        {
+            "timestamp_unix_s": [o.time.as_unixtime() for o in observations],
+            "contact_id": [o.contact_id for o in observations],
+            "system_id": [
+                context.contacts[str(o.contact_id)].system_id for o in observations
+            ],
+            "observed_hz": [o.observed[0] for o in observations],
+            "residual_hz": output.residuals
+            * np.sqrt([o.noise_cov[0][0] for o in observations]),
+        }
+    )
+
+
+async def benchmark(
+    contact_ids: list[str],
+    oem_path: Path,
+    *,
+    optimizer: OptimizerContext,
+    ephemeris_id: str,
+    center_frequency_hz: float,
+    snapshot_dir: Path | None = None,
+    reference_spacecraft_id: str | None = None,
+    variance_hz2: float = 1.0,
+    min_samples: int = 20,
+) -> BenchmarkResult:
+    """Fit exactly these contacts once and return signed residuals in SI/Hz.
+
+    A new snapshot_dir freezes inputs; an existing one replays without providers.
+    A snapshot may supply subsets, but its prior and OEM must match this request.
+    Nonconvergence retains Doppler diagnostics and prior state errors, without
+    publishing fitted state errors. Contract and provider failures raise.
+    """
+    ids = _contact_ids(contact_ids)
+    if not ephemeris_id.strip():
+        raise ValueError("an explicit initial ephemeris_id is required")
+    reference = read_oem(oem_path)
+    contacts, measurements, ephemeris, hashes = await load_inputs(
+        ids, ephemeris_id, reference, snapshot_dir
+    )
+    reference = _bind_reference(reference, contacts, reference_spacecraft_id)
+    context, counts = prepare_doppler(
+        contacts,
+        measurements,
+        center_frequency_hz=center_frequency_hz,
+        variance_hz2=variance_hz2,
+        min_samples=min_samples,
+    )
+    epoch = min(o.time for o in context.observations) - sk.duration(seconds=1)
+    prior = PriorStateData(context, ephemeris, epoch)
+    initial = resolve_prior(prior, optimizer.model)
+    output = fit(prior, optimizer)
+    states = _state_errors(initial, reference, epoch, "prior")
+    if output.success:
+        states = pl.concat(
+            [
+                states,
+                _state_errors(
+                    resolve_solution(prior, output), reference, epoch, "fitted"
+                ),
+            ]
+        )
+    metadata: dict[str, object] = {
+        "format_version": 1,
+        "created_at": datetime.now(UTC),
+        "contact_ids": ids,
+        "contacts": contacts,
+        "initial_ephemeris": ephemeris,
+        "epoch_unix_s": epoch.as_unixtime(),
+        "optimizer": optimizer,
+        "output": {
+            f.name: getattr(output, f.name)
+            for f in fields(output)
+            if f.name not in {"residuals", "jacobian"}
+        },
+        "center_frequency_hz": center_frequency_hz,
+        "variance_hz2": variance_hz2,
+        "min_samples": min_samples,
+        "selection": counts,
+        "input_sha256": hashes,
+        "reference_path": oem_path,
+        "reference_object_id": reference.object_id,
+        "reference_spacecraft_id": reference_spacecraft_id,
+        "reference_sha256": reference.sha256,
+        "state_unavailable_reason": (
+            "no OEM samples at or after initialization epoch"
+            if states.is_empty()
+            else ""
+        ),
+        "frame": "GCRF",
+        "time_system": "UTC Unix seconds",
+        "residual_sign": "predicted minus reference/observed",
+        "packages": {
+            name: version(name)
+            for name in ("dart", "satkit", "oem", "numpy", "scipy", "polars")
+        },
+    }
+    return BenchmarkResult(
+        states, _doppler_residuals(context, output), epoch, output, metadata
+    )

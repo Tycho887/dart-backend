@@ -22,8 +22,7 @@ from dart.trajectory_evaluation import (
     timing_sweep,
     window_samples,
 )
-from experiments.trajectory_report import comparison
-from tests.test_live_data import data as data
+from tests.benchmark_data import data as data
 
 
 @pytest.mark.parametrize("loss", [0.0, 200.0])
@@ -161,56 +160,3 @@ def test_replay_shift_sign_and_descriptor_round_trip(data, tmp_path, monkeypatch
     right = StateHistory(truth.object_id, truth.source_id, epochs[5:], truth.states[5:])
     with pytest.raises(MissingReferenceCoverage):
         window_samples([left, right], epochs[0], epochs[-1])
-
-
-def test_fixed_denominator_and_strict_threshold():
-    rows = [
-        {
-            "configuration": "L/3",
-            "spacecraft": "TEST",
-            "status": "converged",
-            "matched": True,
-            "local_position_rms_m": v,
-            "forecast_position_rms_m": v,
-        }
-        for v in (4999.999, 5000.0, 5000.001)
-    ]
-    rows += [
-        {"configuration": "L/3", "spacecraft": "TEST", "status": s, "matched": True}
-        for s in ("screening_failed", "nonconverged", "warm_up", "selection_failed")
-    ]
-    result = comparison(rows)[0]
-    assert result["denominator"] == 7
-    assert result["local_successful"] == result["forecast_successful"] == 1
-    assert not result["target_achieved"]
-
-
-def test_tuning_failure_cannot_drop_an_anchor(data, monkeypatch, tmp_path):
-    from types import SimpleNamespace
-
-    from experiments import trajectory_tuning as tuning
-    from experiments.trajectory_fits import StudySettings
-
-    contacts = data[0]
-    monkeypatch.setattr(
-        tuning, "load_archive", lambda _: SimpleNamespace(contacts=contacts)
-    )
-
-    def evaluate(*args):
-        if args[2].contact_id == contacts[1].contact_id:
-            raise ValueError("screening failed")
-        return {"status": "converged", "local_rms_m": 1000.0, "forecast_rms_m": 2000.0}
-
-    monkeypatch.setattr(tuning, "evaluate_anchor", evaluate)
-    result = tuning.evaluate_settings(
-        tmp_path,
-        ["test"],
-        StudySettings(),
-        "L",
-        "trace",
-        {"test": None},
-        {"test": {c.contact_id: (c.contact_id,) for c in contacts}},
-        "runtime",
-    )
-    assert len(result["anchors"]) == 2
-    assert not result["feasible"] and result["objectives"] is None

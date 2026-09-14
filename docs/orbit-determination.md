@@ -96,7 +96,7 @@ text serialization remains a future product API.
 The selected fit ephemeris must belong to the observed spacecraft; it may
 differ from the ephemeris originally associated with each contact. Original
 contact metadata remains unchanged. Live experiments always require an
-explicit initial ephemeris ID; see [live-data experiments](live-data-experiments.md).
+explicit initial ephemeris ID; see [contact-list benchmarking](benchmark.md).
 
 An unsuccessful optimizer exit returns an `OptimizerOutput` with
 `success=False`. Invalid contracts, source-identity mismatches, invalid TLEs,

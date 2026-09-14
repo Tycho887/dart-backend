@@ -94,6 +94,12 @@ migration work and are not part of the current IO/OD contracts.
 
 ## GPS orbit fitting and CCSDS OEM
 
+For Doppler fitting against a reference OEM, use the single
+[`benchmark` function](docs/benchmark.md). It accepts contact IDs, a selected
+prior and optimizer, returns raw state/Doppler residual tables, and supports
+frozen-input replay and CSV export. Previous study results and tuned settings
+are summarized in [the benchmark notes](experiments/notes.md).
+
 `uv run python scripts/smooth_gps.py run` fits the FOREST GPS observations with
 GMAT over May 3–5, 2026 (noon UTC endpoints). It produces one-minute EME2000 OEMs
 and independent withheld-GPS validation reports. See

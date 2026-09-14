@@ -13,7 +13,7 @@ objects; requested order and repeated epochs are preserved. Empty or nonfinite
 inputs fail, and full-state propagation rejects epochs before the initial state.
 The SGP4 offsets are the same seven mean-equinoctial/B* offsets used by its
 Doppler evaluator. Full-state trajectories reuse its Rust propagation settings.
-The offline [burst-radio study](burst-radio-experiment.md) uses these APIs.
+The [contact-list benchmark](benchmark.md) uses these APIs through `dart.od`.
 
 ```text
 ForwardModelContext + model-specific state

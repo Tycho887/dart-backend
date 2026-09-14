@@ -29,15 +29,9 @@ dart-api = "dart.service.cli:api"
 dart-migrate = "dart.service.cli:migrate"
 dart-worker = "dart.service.cli:worker"
 
-[project.optional-dependencies]
-tuning = [
-    "optuna>=4.5,<5",
-]
-
 [dependency-groups]
 dev = [
     "httpx2>=0.1.0",
-    "matplotlib>=3.11.1",
     "maturin>=1.14.1",
     "pandas>=2.2",
     "pyarrow>=16",
@@ -68,7 +62,6 @@ features = ["extension-module"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-markers = ["live_data: explicitly enabled KOGS/ADX orbit accuracy experiments"]
 
 [tool.ruff.lint]
 # Keep the release gate focused on correctness, syntax, and import hygiene.

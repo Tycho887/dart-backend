@@ -224,5 +224,5 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Offline Monte Carlo runs include archived numerical data and native binaries.
+# Local benchmark input snapshots and exported residuals.
 experiments/results/
