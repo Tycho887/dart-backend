@@ -144,6 +144,8 @@ def _validate_optimizer(
         _validate_parameter(parameter)
     if optimizer.loss not in _LOSSES:
         raise ValueError(f"unsupported loss: {optimizer.loss}")
+    if optimizer.x_scale not in ("profile", "jac"):
+        raise ValueError(f"unsupported x_scale: {optimizer.x_scale}")
     settings = (
         optimizer.loss_scale,
         optimizer.ftol,
@@ -352,7 +354,11 @@ def fit(data: PriorStateData, optimizer: OptimizerContext) -> OptimizerOutput:
                 [parameter.lower_bound for parameter in estimated_parameters],
                 [parameter.upper_bound for parameter in estimated_parameters],
             ),
-            x_scale=[parameter.scale for parameter in estimated_parameters],
+            x_scale=(
+                "jac"
+                if optimizer.x_scale == "jac"
+                else [parameter.scale for parameter in estimated_parameters]
+            ),
             loss=optimizer.loss,
             f_scale=optimizer.loss_scale,
             max_nfev=optimizer.max_evaluations,
@@ -360,6 +366,7 @@ def fit(data: PriorStateData, optimizer: OptimizerContext) -> OptimizerOutput:
             xtol=optimizer.xtol,
             gtol=optimizer.gtol,
             method="trf",
+            tr_solver="exact",
         )
         canonical_final = expand(np.asarray(result.x, dtype=np.float64))
         cost = float(result.cost)

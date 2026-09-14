@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass, replace
 from math import isfinite
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 import polars as pl
@@ -16,7 +17,7 @@ from dart.io.orbit import save_orbit
 from dart.od import OrbitModel, PriorStateData, fit, resolve_prior, resolve_solution
 from dart.od.initialization import initialize_sgp4_phase
 from dart.od.profiles import ORBIT_SCALES, Sgp4ParameterSet, sgp4_bias_profile
-from dart.od.schema import OptimizerOutput, ParameterRole, PriorSource
+from dart.od.schema import OptimizerContext, OptimizerOutput, ParameterRole, PriorSource
 from dart.od.selection import PassInformation, assess_pass_information
 from experiments.archived_data import ArchivedExperiment, sha256
 from experiments.forest_passes import screening_reason
@@ -89,15 +90,22 @@ def fit_group(
     parameter_set: Sgp4ParameterSet,
     settings: StudySettings,
     runtime_key: str,
+    *,
+    optimizer: OptimizerContext | None = None,
 ) -> Path:
-    profile = replace(
-        sgp4_bias_profile(
-            parameter_set,
-            [c.contact_id for c in contacts],
-            robust=True,
-            max_evaluations=settings.max_evaluations,
-        ),
-        loss_scale=settings.loss_scale_hz,
+    """Fit with an explicit complete profile, or the historical study default."""
+    profile = (
+        optimizer
+        if optimizer is not None
+        else replace(
+            sgp4_bias_profile(
+                parameter_set,
+                [c.contact_id for c in contacts],
+                robust=True,
+                max_evaluations=settings.max_evaluations,
+            ),
+            loss_scale=settings.loss_scale_hz,
+        )
     )
     data = prior_data(archive, contacts, frame)
     # Include both normalized measurement values and source metadata, never GPS.
@@ -116,6 +124,7 @@ def fit_group(
     directory = cache / key
     if (directory / "status.json").exists():
         return directory
+    started = perf_counter()
     directory.mkdir(parents=True, exist_ok=True)
     save_json(directory / "profile.json", profile)
     save_json(directory / "contacts.json", contacts)
@@ -140,7 +149,9 @@ def fit_group(
             _save_information(directory, data, output, seeded)
     except (ValueError, RuntimeError, FloatingPointError, np.linalg.LinAlgError) as exc:
         status = {"status": "fit_error", "reason": f"{type(exc).__name__}: {exc}"}
-    save_json(directory / "status.json", status)
+    save_json(
+        directory / "status.json", {**status, "runtime_s": perf_counter() - started}
+    )
     return directory
 
 

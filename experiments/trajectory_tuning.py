@@ -21,6 +21,7 @@ from dart.trajectory_evaluation import score_offset, window_samples
 from experiments.archived_data import load_archive
 from experiments.forest_passes import freeze_cohort
 from experiments.live_data_report import save_json
+from experiments.solver_tuning import run_solver_tuning as run_solver_tuning
 from experiments.trajectory_fits import (
     StudySettings,
     fit_group,

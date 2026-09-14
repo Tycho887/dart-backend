@@ -63,6 +63,7 @@ class OptimizerContext:
     ftol: float = 1e-8
     xtol: float = 1e-8
     gtol: float = 1e-8
+    x_scale: Literal["profile", "jac"] = "profile"
 
 
 @dataclass(frozen=True, slots=True)

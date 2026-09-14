@@ -12,11 +12,18 @@ bundle plus readable summaries and figures. No fitting algorithm changed.
 | [Forecast reference](forecast-reference/publication.json) | 105 | 159,152,444 | 3,134,458 |
 | [Trajectories](trajectories/README.md) | 11,114 | 703,265,934 | 22,873,578 |
 
+A subsequent [solver-settings study](solver-tuning/README.md) ran 100 trials each
+for five, six, and eight passes. On the same six anchors, mean local RMS improved
+from 5.553/4.121/4.161 km to 4.664/3.709/3.798 km, with exact independent refits.
+These are dataset-specific results. Eight-pass mean forecast RMS worsened, and
+its local count below 5 km fell from 5/6 to 4/6. The publication includes all
+trial records, per-anchor comparisons, and the additional 38-anchor evaluation.
+
 The completed studies total 14,314 original files. Including the two interrupted
 trajectory attempts listed in [pruning.json](pruning.json), the cleanup covers
 15,425 files and 943,927,110 bytes. The 26 publication files occupy approximately
 38.5 MB, a 96% reduction in the active artifact footprint. The completed deletion
-record is [cleanup.json](cleanup.json). Git history retains the compact
+record is [cleanup.json](cleanup.json). Git history retains the original compact
 publications; discarded caches and interrupted fit outputs are not archived.
 
 ## What the results establish

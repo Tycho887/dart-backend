@@ -1,0 +1,131 @@
+{
+  "bundle_sha256": "f0f9b8afa908587f1085ebbc6e89b36d399c44e171e07023d499b88efe442c8d",
+  "publication_manifest_sha256": "03dc94c62c39c23455dc9a24adb7a3df6fb9f22cb559faa3e1797cf703bb7127",
+  "bundle_bytes": 13301527,
+  "publication_checksum_verification": "passed",
+  "restoration": "passed",
+  "restored_resume": "passed; no added trials; all scores and trial JSON unchanged",
+  "immutable_manifest_preserved": true,
+  "pass_counts": [
+    {
+      "passes": 5,
+      "completed_trials_after_restored_resume": 100,
+      "trial_json_unchanged": true,
+      "scores_unchanged": true,
+      "full_diagnostics_preserved": true,
+      "winner_trial": 41,
+      "exact_independent_refit": true,
+      "relative_local_mean_reduction": 0.1601068814783153,
+      "trial_runtime_hours": 0.9952708985927782,
+      "max_nfev": 101,
+      "forecast_status_counts": {
+        "scored": 600
+      },
+      "cohort_status_counts": {
+        "warm_up": 13,
+        "screening_failed": 7,
+        "converged": 18
+      },
+      "cohort_status_meanings": {
+        "warm_up": "insufficient usable contact history",
+        "screening_failed": "anchor failed fixed Doppler quality gates"
+      }
+    },
+    {
+      "passes": 6,
+      "completed_trials_after_restored_resume": 100,
+      "trial_json_unchanged": true,
+      "scores_unchanged": true,
+      "full_diagnostics_preserved": true,
+      "winner_trial": 22,
+      "exact_independent_refit": true,
+      "relative_local_mean_reduction": 0.09996687131287085,
+      "trial_runtime_hours": 1.2188266245030541,
+      "max_nfev": 111,
+      "forecast_status_counts": {
+        "scored": 600
+      },
+      "cohort_status_counts": {
+        "warm_up": 17,
+        "screening_failed": 7,
+        "converged": 14
+      },
+      "cohort_status_meanings": {
+        "warm_up": "insufficient usable contact history",
+        "screening_failed": "anchor failed fixed Doppler quality gates"
+      }
+    },
+    {
+      "passes": 8,
+      "completed_trials_after_restored_resume": 100,
+      "trial_json_unchanged": true,
+      "scores_unchanged": true,
+      "full_diagnostics_preserved": true,
+      "winner_trial": 61,
+      "exact_independent_refit": true,
+      "relative_local_mean_reduction": 0.0872305834090924,
+      "trial_runtime_hours": 1.4132404355472226,
+      "max_nfev": 291,
+      "forecast_status_counts": {
+        "scored": 600
+      },
+      "cohort_status_counts": {
+        "warm_up": 25,
+        "screening_failed": 7,
+        "converged": 6
+      },
+      "cohort_status_meanings": {
+        "warm_up": "insufficient usable contact history",
+        "screening_failed": "anchor failed fixed Doppler quality gates"
+      }
+    }
+  ],
+  "validation": {
+    "python_suite": {
+      "command": "uv run pytest -q",
+      "passed": 318,
+      "skipped": 5,
+      "warnings": 2,
+      "runtime_s": 109.09
+    },
+    "rust_suite": {
+      "command": "cargo test --manifest-path crates/forward-models/Cargo.toml",
+      "passed": 29
+    },
+    "focused_before": {
+      "passed": 21
+    },
+    "focused_after": {
+      "passed": 29
+    },
+    "changed_code_lint": "passed",
+    "changed_code_types": "passed",
+    "changed_code_complexity_limit": 10,
+    "complexity": {
+      "_validate_optimizer": {
+        "before": 8,
+        "after": 9
+      },
+      "fit": {
+        "before": 6,
+        "after": 6
+      },
+      "fit_group": {
+        "before": 5,
+        "after": 5
+      },
+      "prepare_manifest": {
+        "after": 2
+      },
+      "optimize_study": {
+        "after": 5
+      },
+      "run_solver_tuning": {
+        "after": 5
+      }
+    },
+    "baseline_max_score_difference_m": 0.0,
+    "original_publications": "checksums and dependency checks passed during restoration",
+    "native_runtime_unchanged_after_uv_build": true
+  }
+}
