@@ -1,22 +1,27 @@
-"""Direct psycopg persistence for submission, leases, events, and artifacts."""
-
-from __future__ import annotations
+"""Transactional estimates and a lease-fenced PostgreSQL work queue."""
 
 import hashlib
 import importlib.resources
-import json
 from dataclasses import dataclass
-from typing import Any
+from typing import LiteralString
 from uuid import UUID, uuid4
 
-from psycopg import sql
+from psycopg import Connection, sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from .config import ServiceSettings
-from .profiles import profile_documents
-from .tdm_profiles import load_tdm_profile_documents
+from .models import (
+    EstimateAccepted,
+    ForwardModelProfile,
+    OptimizerProfile,
+    ResolvedEstimateConfiguration,
+)
+from .profiles import forward_model_profiles, optimizer_profiles
+from .serialization import json_bytes
+
+TERMINAL = {"succeeded", "failed", "canceled"}
 
 
 class IdempotencyConflict(Exception):
@@ -31,32 +36,26 @@ class JobOwnershipConflict(Exception):
     pass
 
 
+class LeaseLost(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class ClaimedJob:
     id: UUID
-    request_json: dict
+    estimate_uuid: UUID
+    run_id: UUID
     attempt_count: int
     max_attempts: int
-    operation: str = "solve"
-
-
-def canonical_json(value: Any) -> bytes:
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode()
-
-
-def sha256_json(value: Any) -> str:
-    return hashlib.sha256(canonical_json(value)).hexdigest()
+    configuration: ResolvedEstimateConfiguration
 
 
 class Database:
     def __init__(self, settings: ServiceSettings, *, open_pool: bool = True):
         settings.validate()
         self.settings = settings
-        self.schema = settings.database_schema
-        self.pool = ConnectionPool(
-            conninfo=settings.database_url,
+        self.pool: ConnectionPool[Connection[dict]] = ConnectionPool(
+            settings.database_url,
             min_size=1,
             max_size=10,
             open=open_pool,
@@ -69,191 +68,297 @@ class Database:
     def close(self) -> None:
         self.pool.close()
 
-    def _table(self, name: str) -> sql.Composed:
-        return sql.SQL("{}.{}").format(
-            sql.Identifier(self.schema), sql.Identifier(name)
-        )
+    def query(self, text: LiteralString) -> sql.Composed:
+        return sql.SQL(text).format(s=sql.Identifier(self.settings.database_schema))
 
     def migrate(self) -> None:
-        migration_dir = importlib.resources.files("dart.service.migrations")
-        files = sorted(
-            item for item in migration_dir.iterdir() if item.name.endswith(".sql")
-        )
+        directory = importlib.resources.files("dart.service.migrations")
         with self.pool.connection() as conn, conn.transaction():
             conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtext('dart-service-migrations'))"
             )
+            conn.execute(self.query("CREATE SCHEMA IF NOT EXISTS {s}"))
             conn.execute(
-                sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
-                    sql.Identifier(self.schema)
+                self.query(
+                    "CREATE TABLE IF NOT EXISTS {s}.schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
                 )
-            )
-            conn.execute(
-                sql.SQL(
-                    "CREATE TABLE IF NOT EXISTS {} "
-                    "(version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
-                ).format(self._table("schema_migrations"))
             )
             applied = {
                 row["version"]
                 for row in conn.execute(
-                    sql.SQL("SELECT version FROM {}").format(
-                        self._table("schema_migrations")
-                    )
-                ).fetchall()
+                    self.query("SELECT version FROM {s}.schema_migrations")
+                )
             }
-            for item in files:
-                if item.name in applied:
-                    continue
-                body = item.read_text(encoding="utf-8").replace(
-                    "{{schema}}", f'"{self.schema}"'
-                )
-                conn.execute(body)
+            for item in sorted(directory.iterdir(), key=lambda p: p.name):
+                if item.name.endswith(".sql") and item.name not in applied:
+                    conn.execute(
+                        item.read_text()
+                        .replace(
+                            "{{schema}}",
+                            sql.Identifier(self.settings.database_schema).as_string(
+                                conn
+                            ),
+                        )
+                        .encode()
+                    )
+                    conn.execute(
+                        self.query(
+                            "INSERT INTO {s}.schema_migrations(version) VALUES (%s)"
+                        ),
+                        (item.name,),
+                    )
+            self._seed_profiles(conn)
+
+    def _seed_profiles(self, conn: Connection[dict]) -> None:
+        for table, profiles in (
+            ("forward_model_profiles", forward_model_profiles()),
+            ("optimizer_profiles", optimizer_profiles()),
+        ):
+            target = sql.Identifier(self.settings.database_schema, table)
+            for profile in profiles:
+                data = profile.model_dump(mode="json")
                 conn.execute(
                     sql.SQL(
-                        "INSERT INTO {} (version) VALUES (%s) ON CONFLICT DO NOTHING"
-                    ).format(self._table("schema_migrations")),
-                    (item.name,),
+                        "INSERT INTO {} (name,version,definition) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING"
+                    ).format(target),
+                    (profile.name, profile.version, Jsonb(data)),
                 )
-            for profile in profile_documents():
-                conn.execute(
+                stored = conn.execute(
                     sql.SQL(
-                        "INSERT INTO {} (name, version, solver_kind, definition) "
-                        "VALUES (%s, %s, %s, %s) ON CONFLICT (name, version) DO NOTHING"
-                    ).format(self._table("optimizer_profiles")),
-                    (
-                        profile["name"],
-                        profile["version"],
-                        profile["solver_kind"],
-                        Jsonb(profile),
-                    ),
-                )
-            for profile in load_tdm_profile_documents(
-                self.settings.tdm_profile_dir
-            ):
-                conn.execute(
-                    sql.SQL(
-                        "INSERT INTO {} (name, version, product, definition) "
-                        "VALUES (%s, %s, %s, %s) "
-                        "ON CONFLICT (name, version) DO NOTHING"
-                    ).format(self._table("tdm_profiles")),
-                    (
-                        profile["name"],
-                        profile["version"],
-                        profile["product"],
-                        Jsonb(profile),
-                    ),
-                )
+                        "SELECT definition FROM {} WHERE name=%s AND version=%s"
+                    ).format(target),
+                    (profile.name, profile.version),
+                ).fetchone()
+                assert stored is not None
+                if stored["definition"] != data:
+                    raise ValueError(
+                        f"immutable profile changed: {profile.name} v{profile.version}; increment its version"
+                    )
 
     def healthcheck(self) -> None:
         with self.pool.connection() as conn:
-            conn.execute("SELECT 1").fetchone()
+            conn.execute(self.query("SELECT estimate_uuid FROM {s}.estimates LIMIT 0"))
 
-    def queue_metrics(self) -> tuple[int, float]:
-        with self.pool.connection() as conn:
-            row = conn.execute(
-                sql.SQL(
-                    "SELECT count(*)::integer AS depth, "
-                    "COALESCE(extract(epoch FROM now() - min(created_at)), 0)::float8 AS age "
-                    "FROM {} WHERE status = 'queued'"
-                ).format(self._table("jobs"))
-            ).fetchone()
-        return row["depth"], row["age"]
-
-    def list_profiles(self) -> list[dict]:
+    def list_profiles(self, family: str) -> list[dict]:
+        tables = {
+            "forward_model": "forward_model_profiles",
+            "optimizer": "optimizer_profiles",
+        }
         with self.pool.connection() as conn:
             rows = conn.execute(
-                sql.SQL("SELECT definition FROM {} ORDER BY name, version").format(
-                    self._table("optimizer_profiles")
-                )
-            ).fetchall()
-        return [row["definition"] for row in rows]
-
-    def list_tdm_profiles(self) -> list[dict]:
-        with self.pool.connection() as conn:
-            rows = conn.execute(
-                sql.SQL("SELECT definition FROM {} ORDER BY name, version").format(
-                    self._table("tdm_profiles")
-                )
-            ).fetchall()
-        return [row["definition"] for row in rows]
-
-    def get_tdm_profile(self, name: str, version: int) -> dict:
-        with self.pool.connection() as conn:
-            row = conn.execute(
                 sql.SQL(
-                    "SELECT definition FROM {} WHERE name = %s AND version = %s"
-                ).format(self._table("tdm_profiles")),
-                (name, version),
-            ).fetchone()
-        if row is None:
-            raise KeyError(f"unknown TDM profile {name!r} version {version}")
-        return row["definition"]
+                    "SELECT definition FROM {} WHERE definition ? 'label' ORDER BY name,version"
+                ).format(sql.Identifier(self.settings.database_schema, tables[family]))
+            )
+            return [r["definition"] for r in rows]
 
-    def submit_job(
+    def resolve_profiles(
         self,
-        *,
-        request_json: dict,
+        model_name: str,
+        model_version: int,
+        optimizer_name: str,
+        optimizer_version: int,
+    ) -> tuple[ForwardModelProfile, OptimizerProfile]:
+        models = {
+            (p["name"], p["version"]): p for p in self.list_profiles("forward_model")
+        }
+        optimizers = {
+            (p["name"], p["version"]): p for p in self.list_profiles("optimizer")
+        }
+        return (
+            ForwardModelProfile.model_validate(models[model_name, model_version]),
+            OptimizerProfile.model_validate(
+                optimizers[optimizer_name, optimizer_version]
+            ),
+        )
+
+    def submit_estimate(
+        self,
+        configuration: ResolvedEstimateConfiguration,
         actor_id: str,
         actor_type: str,
         idempotency_key: str,
-        max_attempts: int,
-        operation: str = "solve",
-    ) -> tuple[UUID, bool]:
-        request_hash = sha256_json(
-            {"operation": operation, "request": request_json}
-        )
-        job_id = uuid4()
-        context = request_json.get("client_context", {})
+    ) -> EstimateAccepted:
+        request = configuration.request.model_dump(mode="json")
+        digest = hashlib.sha256(json_bytes(request)).hexdigest()
+        job_id, estimate_uuid = uuid4(), uuid4()
         with self.pool.connection() as conn, conn.transaction():
             inserted = conn.execute(
-                sql.SQL(
-                    "INSERT INTO {} "
-                    "(id, operation, status, stage, request_json, request_hash, actor_id, actor_type, "
-                    " idempotency_key, label, tags, max_attempts) "
-                    "VALUES (%s, %s, 'queued', 'queued', %s, %s, %s, %s, %s, %s, %s, %s) "
-                    "ON CONFLICT (actor_id, idempotency_key) DO NOTHING RETURNING id"
-                ).format(self._table("jobs")),
+                self.query("""INSERT INTO {s}.jobs
+                (id,operation,status,stage,request_json,request_hash,actor_id,actor_type,idempotency_key,label,max_attempts)
+                VALUES (%s,'estimate','queued','queued',%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT(actor_id,idempotency_key) DO NOTHING RETURNING id"""),
                 (
                     job_id,
-                    operation,
-                    Jsonb(request_json),
-                    request_hash,
+                    Jsonb(request),
+                    digest,
                     actor_id,
                     actor_type,
                     idempotency_key,
-                    context.get("label"),
-                    Jsonb(context.get("tags", [])),
-                    max_attempts,
+                    request["label"],
+                    self.settings.max_attempts,
                 ),
             ).fetchone()
-            replay = inserted is None
-            if replay:
-                existing = conn.execute(
-                    sql.SQL(
-                        "SELECT id, request_hash FROM {} WHERE actor_id = %s AND idempotency_key = %s"
-                    ).format(self._table("jobs")),
+            if inserted is None:
+                row = conn.execute(
+                    self.query("""SELECT j.id AS job_id,j.status,j.request_hash,j.actor_type,e.estimate_uuid
+                    FROM {s}.jobs j LEFT JOIN {s}.estimates e ON e.job_id=j.id
+                    WHERE actor_id=%s AND idempotency_key=%s"""),
                     (actor_id, idempotency_key),
                 ).fetchone()
-                if existing["request_hash"] != request_hash:
+                assert row is not None
+                if (
+                    row["request_hash"] != digest
+                    or row["estimate_uuid"] is None
+                    or row["actor_type"] != actor_type
+                ):
                     raise IdempotencyConflict(idempotency_key)
-                job_id = existing["id"]
-            else:
-                conn.execute(
-                    sql.SQL(
-                        "INSERT INTO {} (job_id, event_type, to_status, stage) "
-                        "VALUES (%s, 'submitted', 'queued', 'queued')"
-                    ).format(self._table("job_events")),
-                    (job_id,),
+                return EstimateAccepted(
+                    job_id=row["job_id"],
+                    estimate_uuid=row["estimate_uuid"],
+                    status=row["status"],
+                    idempotent_replay=True,
                 )
-                conn.execute("SELECT pg_notify('dart_jobs', %s)", (str(job_id),))
-        return job_id, replay
+            conn.execute(
+                self.query("""INSERT INTO {s}.estimates
+                (estimate_uuid,job_id,forward_model_name,forward_model_version,optimizer_name,optimizer_version,configuration,prior_ephemeris_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"""),
+                (
+                    estimate_uuid,
+                    job_id,
+                    configuration.forward_model.name,
+                    configuration.forward_model.version,
+                    configuration.optimizer.name,
+                    configuration.optimizer.version,
+                    Jsonb(configuration.model_dump(mode="json")),
+                    request["ephemeris_id"],
+                ),
+            )
+            for ordinal, contact_id in enumerate(request["contact_ids"]):
+                conn.execute(
+                    self.query(
+                        "INSERT INTO {s}.estimate_contacts(estimate_uuid,contact_id,ordinal) VALUES (%s,%s,%s)"
+                    ),
+                    (estimate_uuid, contact_id, ordinal),
+                )
+            self._event(conn, job_id, "submitted", "queued")
+            conn.execute("SELECT pg_notify('dart_jobs',%s)", (str(job_id),))
+        return EstimateAccepted(
+            job_id=job_id,
+            estimate_uuid=estimate_uuid,
+            status="queued",
+            idempotent_replay=False,
+        )
+
+    def _event(
+        self,
+        conn: Connection[dict],
+        job_id: UUID,
+        event: str,
+        status: str,
+        diagnostic: dict | None = None,
+    ) -> None:
+        conn.execute(
+            self.query(
+                "INSERT INTO {s}.job_events(job_id,event_type,to_status,stage,diagnostic) VALUES (%s,%s,%s,%s,%s)"
+            ),
+            (job_id, event, status, status, Jsonb(diagnostic or {})),
+        )
+
+    def claim_job(self, worker_id: str, lease_seconds: int) -> ClaimedJob | None:
+        with self.pool.connection() as conn, conn.transaction():
+            row = conn.execute(
+                self.query("""SELECT j.id,j.attempt_count,j.max_attempts,e.estimate_uuid,e.configuration
+                FROM {s}.jobs j JOIN {s}.estimates e ON e.job_id=j.id
+                WHERE j.operation='estimate' AND j.status='queued' AND j.available_at<=now()
+                AND NOT j.cancel_requested AND j.attempt_count<j.max_attempts
+                ORDER BY j.created_at FOR UPDATE OF j SKIP LOCKED LIMIT 1""")
+            ).fetchone()
+            if row is None:
+                return None
+            attempt = row["attempt_count"] + 1
+            run_id = uuid4()
+            config = ResolvedEstimateConfiguration.model_validate(row["configuration"])
+            conn.execute(
+                self.query("""UPDATE {s}.jobs SET status='resolving_inputs',stage='resolving_inputs',attempt_count=%s,
+                lease_owner=%s,lease_expires_at=clock_timestamp()+(%s*interval '1 second'),heartbeat_at=clock_timestamp(),
+                started_at=COALESCE(started_at,now()),updated_at=now(),terminal_error=NULL WHERE id=%s"""),
+                (attempt, worker_id, lease_seconds, row["id"]),
+            )
+            conn.execute(
+                self.query("""INSERT INTO {s}.job_runs(id,job_id,ordinal,algorithm,parameterization,resolved_settings,status,started_at)
+                VALUES (%s,%s,%s,%s,%s,%s,'running',now())"""),
+                (
+                    run_id,
+                    row["id"],
+                    attempt,
+                    config.forward_model.model,
+                    config.forward_model.name,
+                    Jsonb(row["configuration"]),
+                ),
+            )
+            self._event(
+                conn,
+                row["id"],
+                "claimed",
+                "resolving_inputs",
+                {"attempt": attempt, "run_id": str(run_id)},
+            )
+            return ClaimedJob(
+                row["id"],
+                row["estimate_uuid"],
+                run_id,
+                attempt,
+                row["max_attempts"],
+                config,
+            )
+
+    def _owned_job(
+        self, conn: Connection[dict], job: ClaimedJob, worker_id: str
+    ) -> dict:
+        row = conn.execute(
+            self.query("""SELECT j.* FROM {s}.jobs j JOIN {s}.job_runs r ON r.job_id=j.id
+            WHERE j.id=%s AND r.id=%s AND r.ordinal=j.attempt_count AND j.attempt_count=%s
+            AND j.lease_owner=%s AND j.lease_expires_at>clock_timestamp()
+            AND j.status NOT IN ('succeeded','failed','canceled') FOR UPDATE OF j"""),
+            (job.id, job.run_id, job.attempt_count, worker_id),
+        ).fetchone()
+        if row is None:
+            raise LeaseLost(str(job.id))
+        return row
+
+    def heartbeat(self, job: ClaimedJob, worker_id: str, lease_seconds: int) -> None:
+        with self.pool.connection() as conn, conn.transaction():
+            self._owned_job(conn, job, worker_id)
+            conn.execute(
+                self.query(
+                    "UPDATE {s}.jobs SET heartbeat_at=clock_timestamp(),lease_expires_at=clock_timestamp()+(%s*interval '1 second') WHERE id=%s"
+                ),
+                (lease_seconds, job.id),
+            )
+
+    def set_stage(self, job: ClaimedJob, worker_id: str, stage: str) -> bool:
+        if stage not in {"resolving_inputs", "loading_telemetry", "running"}:
+            raise ValueError("invalid worker stage")
+        with self.pool.connection() as conn, conn.transaction():
+            row = self._owned_job(conn, job, worker_id)
+            if row["cancel_requested"]:
+                self._terminal(conn, job, "canceled")
+                return False
+            conn.execute(
+                self.query(
+                    "UPDATE {s}.jobs SET status=%s,stage=%s,updated_at=now() WHERE id=%s"
+                ),
+                (stage, stage, job.id),
+            )
+            self._event(conn, job.id, "stage_changed", stage)
+            return True
 
     def cancel_job(self, job_id: UUID, actor_id: str) -> dict:
         with self.pool.connection() as conn, conn.transaction():
             row = conn.execute(
-                sql.SQL("SELECT * FROM {} WHERE id = %s FOR UPDATE").format(
-                    self._table("jobs")
+                self.query(
+                    "SELECT * FROM {s}.jobs WHERE id=%s AND operation='estimate' FOR UPDATE"
                 ),
                 (job_id,),
             ).fetchone()
@@ -261,424 +366,275 @@ class Database:
                 raise JobNotFound(str(job_id))
             if row["actor_id"] != actor_id:
                 raise JobOwnershipConflict(str(job_id))
-            terminal = row["status"] in {"succeeded", "failed", "canceled"}
-            new_status = row["status"]
-            cancel_requested = row["cancel_requested"]
-            if not terminal:
-                cancel_requested = True
-                if row["status"] == "queued":
-                    new_status = "canceled"
-                    conn.execute(
-                        sql.SQL(
-                            "UPDATE {} SET status = 'canceled', stage = 'canceled', "
-                            "cancel_requested = true, updated_at = now(), finished_at = now() WHERE id = %s"
-                        ).format(self._table("jobs")),
-                        (job_id,),
-                    )
-                else:
-                    conn.execute(
-                        sql.SQL(
-                            "UPDATE {} SET cancel_requested = true, updated_at = now() WHERE id = %s"
-                        ).format(self._table("jobs")),
-                        (job_id,),
-                    )
+            if row["status"] not in TERMINAL:
                 conn.execute(
-                    sql.SQL(
-                        "INSERT INTO {} (job_id, event_type, from_status, to_status, stage) "
-                        "VALUES (%s, 'cancel_requested', %s, %s, %s)"
-                    ).format(self._table("job_events")),
-                    (
-                        job_id,
-                        row["status"],
-                        new_status,
-                        "canceled" if new_status == "canceled" else row["stage"],
-                    ),
+                    self.query("""UPDATE {s}.jobs SET cancel_requested=true, updated_at=now(),
+                    status=CASE WHEN status='queued' THEN 'canceled' ELSE status END,
+                    stage=CASE WHEN status='queued' THEN 'canceled' ELSE stage END,
+                    finished_at=CASE WHEN status='queued' THEN now() ELSE finished_at END
+                    WHERE id=%s"""),
+                    (job_id,),
                 )
+                row["cancel_requested"] = True
+                row["status"] = (
+                    "canceled" if row["status"] == "queued" else row["status"]
+                )
+                self._event(conn, job_id, "cancel_requested", row["status"])
             return {
                 "job_id": job_id,
-                "status": new_status,
-                "cancel_requested": cancel_requested,
+                "status": row["status"],
+                "cancel_requested": row["cancel_requested"],
             }
 
     def recover_expired_leases(self) -> int:
         with self.pool.connection() as conn, conn.transaction():
-            exhausted = conn.execute(
-                sql.SQL(
-                    "UPDATE {} SET status = 'failed', stage = 'failed', finished_at = now(), "
-                    "terminal_error = %s, lease_owner = NULL, lease_expires_at = NULL, "
-                    "heartbeat_at = NULL, updated_at = now() "
-                    "WHERE status IN ('resolving_inputs', 'loading_telemetry', 'running') "
-                    "AND lease_expires_at < now() AND attempt_count >= max_attempts RETURNING id"
-                ).format(self._table("jobs")),
-                (
-                    Jsonb(
-                        {
-                            "type": "urn:dart:problem:worker_lease_exhausted",
-                            "title": "Worker Lease Exhausted",
-                            "status": 503,
-                            "detail": "The final worker lease expired.",
-                            "code": "worker_lease_exhausted",
-                            "retryable": False,
-                        }
-                    ),
-                ),
-            ).fetchall()
             rows = conn.execute(
-                sql.SQL(
-                    "UPDATE {} SET status = 'queued', stage = 'queued', available_at = now(), "
-                    "lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = now() "
-                    "WHERE status IN ('resolving_inputs', 'loading_telemetry', 'running') "
-                    "AND lease_expires_at < now() AND attempt_count < max_attempts RETURNING id"
-                ).format(self._table("jobs"))
+                self.query("""SELECT id,attempt_count,max_attempts,cancel_requested FROM {s}.jobs
+                WHERE operation='estimate' AND lease_expires_at<=clock_timestamp()
+                AND status NOT IN ('succeeded','failed','canceled') FOR UPDATE SKIP LOCKED""")
             ).fetchall()
             for row in rows:
-                conn.execute(
-                    sql.SQL(
-                        "INSERT INTO {} (job_id, event_type, to_status, stage, diagnostic) "
-                        "VALUES (%s, 'lease_recovered', 'queued', 'queued', %s)"
-                    ).format(self._table("job_events")),
-                    (row["id"], Jsonb({"reason": "expired_lease"})),
-                )
-            for row in exhausted:
-                conn.execute(
-                    sql.SQL(
-                        "INSERT INTO {} (job_id, event_type, to_status, stage, diagnostic) "
-                        "VALUES (%s, 'lease_exhausted', 'failed', 'failed', %s)"
-                    ).format(self._table("job_events")),
-                    (row["id"], Jsonb({"reason": "expired_final_lease"})),
-                )
-            return len(rows) + len(exhausted)
+                self._recover(conn, row)
+            return len(rows)
 
-    def claim_job(self, worker_id: str, lease_seconds: int) -> ClaimedJob | None:
-        with self.pool.connection() as conn, conn.transaction():
-            row = conn.execute(
-                sql.SQL(
-                    "WITH candidate AS ("
-                    " SELECT id FROM {} WHERE status = 'queued' AND available_at <= now() "
-                    " AND attempt_count < max_attempts "
-                    " AND cancel_requested = false ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1"
-                    ") UPDATE {} j SET status = 'resolving_inputs', stage = 'resolving_inputs', "
-                    "attempt_count = attempt_count + 1, lease_owner = %s, "
-                    "lease_expires_at = now() + (%s * interval '1 second'), heartbeat_at = now(), "
-                    "started_at = COALESCE(started_at, now()), updated_at = now() "
-                    "FROM candidate WHERE j.id = candidate.id "
-                    "RETURNING j.id, j.request_json, j.attempt_count, j.max_attempts, j.operation"
-                ).format(self._table("jobs"), self._table("jobs")),
-                (worker_id, lease_seconds),
-            ).fetchone()
-            if row is None:
-                return None
-            conn.execute(
-                sql.SQL(
-                    "INSERT INTO {} (job_id, event_type, from_status, to_status, stage, diagnostic) "
-                    "VALUES (%s, 'claimed', 'queued', 'resolving_inputs', 'resolving_inputs', %s)"
-                ).format(self._table("job_events")),
-                (
-                    row["id"],
-                    Jsonb({"worker_id": worker_id, "attempt": row["attempt_count"]}),
-                ),
-            )
-            return ClaimedJob(**row)
+    def _recover(self, conn: Connection[dict], row: dict) -> None:
+        status = "queued" if row["attempt_count"] < row["max_attempts"] else "failed"
+        if row["cancel_requested"]:
+            status = "canceled"
+        error = {
+            "code": "lease_expired",
+            "detail": "Worker lease expired.",
+            "retryable": status == "queued",
+        }
+        conn.execute(
+            self.query(
+                "UPDATE {s}.job_runs SET status='failed',terminal_error=%s,finished_at=now() WHERE job_id=%s AND ordinal=%s"
+            ),
+            (Jsonb(error), row["id"], row["attempt_count"]),
+        )
+        conn.execute(
+            self.query("""UPDATE {s}.jobs SET status=%s,stage=%s,terminal_error=%s,lease_owner=NULL,
+            lease_expires_at=NULL,heartbeat_at=NULL,updated_at=now(),available_at=now(),
+            finished_at=CASE WHEN %s='queued' THEN NULL ELSE now() END WHERE id=%s"""),
+            (status, status, Jsonb(error), status, row["id"]),
+        )
+        self._event(conn, row["id"], "lease_expired", status, error)
 
-    def heartbeat(self, job_id: UUID, worker_id: str, lease_seconds: int) -> bool:
-        with self.pool.connection() as conn, conn.transaction():
-            row = conn.execute(
-                sql.SQL(
-                    "UPDATE {} SET heartbeat_at = now(), "
-                    "lease_expires_at = now() + (%s * interval '1 second'), updated_at = now() "
-                    "WHERE id = %s AND lease_owner = %s AND status NOT IN ('succeeded','failed','canceled') "
-                    "RETURNING id"
-                ).format(self._table("jobs")),
-                (lease_seconds, job_id, worker_id),
-            ).fetchone()
-            return row is not None
-
-    def cancellation_requested(self, job_id: UUID) -> bool:
-        with self.pool.connection() as conn:
-            row = conn.execute(
-                sql.SQL("SELECT cancel_requested FROM {} WHERE id = %s").format(
-                    self._table("jobs")
-                ),
-                (job_id,),
-            ).fetchone()
-            return bool(row and row["cancel_requested"])
-
-    def set_stage(self, job_id: UUID, worker_id: str, status: str, stage: str) -> None:
-        with self.pool.connection() as conn, conn.transaction():
-            old = conn.execute(
-                sql.SQL("SELECT status FROM {} WHERE id = %s FOR UPDATE").format(
-                    self._table("jobs")
-                ),
-                (job_id,),
-            ).fetchone()
-            if old is None:
-                raise JobNotFound(str(job_id))
-            updated = conn.execute(
-                sql.SQL(
-                    "UPDATE {} SET status = %s, stage = %s, updated_at = now() "
-                    "WHERE id = %s AND lease_owner = %s RETURNING id"
-                ).format(self._table("jobs")),
-                (status, stage, job_id, worker_id),
-            ).fetchone()
-            if updated is None:
-                raise RuntimeError(f"worker {worker_id} lost lease for {job_id}")
-            conn.execute(
-                sql.SQL(
-                    "INSERT INTO {} (job_id, event_type, from_status, to_status, stage) "
-                    "VALUES (%s, 'stage_changed', %s, %s, %s)"
-                ).format(self._table("job_events")),
-                (job_id, old["status"], status, stage),
-            )
-
-    def store_resolution(
+    def _terminal(
         self,
-        *,
-        job_id: UUID,
-        worker_id: str,
-        resolved_configuration: dict,
-        contact: dict,
-        run_id: UUID,
-        algorithm: str,
-        parameterization: str,
+        conn: Connection[dict],
+        job: ClaimedJob,
+        status: str,
+        error: dict | None = None,
     ) -> None:
+        conn.execute(
+            self.query("""UPDATE {s}.jobs SET status=%s,stage=%s,terminal_error=%s,finished_at=now(),updated_at=now(),
+            lease_owner=NULL,lease_expires_at=NULL,heartbeat_at=NULL WHERE id=%s"""),
+            (status, status, Jsonb(error) if error else None, job.id),
+        )
+        conn.execute(
+            self.query(
+                "UPDATE {s}.job_runs SET status=%s,terminal_error=%s,finished_at=now() WHERE id=%s"
+            ),
+            (status, Jsonb(error) if error else None, job.run_id),
+        )
+        self._event(conn, job.id, status, status, error)
+
+    def fail_or_retry(
+        self, job: ClaimedJob, worker_id: str, error: dict, retryable: bool
+    ) -> str:
         with self.pool.connection() as conn, conn.transaction():
-            updated = conn.execute(
-                sql.SQL(
-                    "UPDATE {} SET resolved_configuration = %s, updated_at = now() "
-                    "WHERE id = %s AND lease_owner = %s RETURNING id"
-                ).format(self._table("jobs")),
-                (Jsonb(resolved_configuration), job_id, worker_id),
-            ).fetchone()
-            if updated is None:
-                raise RuntimeError(f"worker {worker_id} lost lease for {job_id}")
+            row = self._owned_job(conn, job, worker_id)
+            if row["cancel_requested"]:
+                self._terminal(conn, job, "canceled")
+                return "canceled"
+            if not retryable or job.attempt_count >= job.max_attempts:
+                self._terminal(conn, job, "failed", error)
+                return "failed"
             conn.execute(
-                sql.SQL(
-                    "INSERT INTO {} (job_id, ordinal, contact_id, spacecraft_id, spacecraft_name, "
-                    "system_id, station_id, ephemeris_id, provenance) "
-                    "VALUES (%s, 0, %s, %s, %s, %s, %s, %s, %s) "
-                    "ON CONFLICT (job_id, ordinal) DO UPDATE SET "
-                    "spacecraft_id=EXCLUDED.spacecraft_id, spacecraft_name=EXCLUDED.spacecraft_name, "
-                    "system_id=EXCLUDED.system_id, station_id=EXCLUDED.station_id, "
-                    "ephemeris_id=EXCLUDED.ephemeris_id, provenance=EXCLUDED.provenance"
-                ).format(self._table("job_contacts")),
-                (
-                    job_id,
-                    contact["contact_id"],
-                    contact.get("spacecraft_id"),
-                    contact.get("spacecraft_name"),
-                    contact.get("system_id"),
-                    contact.get("station_id"),
-                    contact.get("ephemeris_id"),
-                    Jsonb(contact.get("provenance", {})),
+                self.query(
+                    "UPDATE {s}.job_runs SET status='failed',terminal_error=%s,finished_at=now() WHERE id=%s"
                 ),
+                (Jsonb(error), job.run_id),
             )
             conn.execute(
-                sql.SQL(
-                    "INSERT INTO {} (id, job_id, ordinal, algorithm, parameterization, resolved_settings, status, started_at) "
-                    "VALUES (%s, %s, 0, %s, %s, %s, 'running', now()) "
-                    "ON CONFLICT (job_id, ordinal) DO UPDATE SET resolved_settings=EXCLUDED.resolved_settings, "
-                    "status='running', started_at=COALESCE({}.started_at, now()), terminal_error=NULL"
-                ).format(self._table("job_runs"), self._table("job_runs")),
-                (
-                    run_id,
-                    job_id,
-                    algorithm,
-                    parameterization,
-                    Jsonb(resolved_configuration),
-                ),
+                self.query("""UPDATE {s}.jobs SET status='queued',stage='queued',terminal_error=%s,updated_at=now(),
+                available_at=now()+(%s*interval '1 second'),lease_owner=NULL,lease_expires_at=NULL,heartbeat_at=NULL WHERE id=%s"""),
+                (Jsonb(error), min(300, 5 * 2 ** (job.attempt_count - 1)), job.id),
             )
+            self._event(conn, job.id, "retry_scheduled", "queued", error)
+            conn.execute("SELECT pg_notify('dart_jobs',%s)", (str(job.id),))
+            return "queued"
 
     def store_artifact(
         self,
-        *,
-        job_id: UUID,
-        run_id: UUID,
+        conn: Connection[dict],
+        job: ClaimedJob,
         kind: str,
+        filename: str,
         content_type: str,
-        data: bytes | dict,
-        filename: str | None = None,
-        metadata: dict | None = None,
-    ) -> None:
-        raw = data if isinstance(data, bytes) else canonical_json(data)
-        digest = hashlib.sha256(raw).hexdigest()
-        with self.pool.connection() as conn, conn.transaction():
-            conn.execute(
-                sql.SQL(
-                    "INSERT INTO {} (id, job_id, run_id, kind, content_type, sha256, payload, json_payload, filename, metadata) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
-                    "ON CONFLICT (job_id, kind, version, content_type) DO UPDATE SET "
-                    "run_id=EXCLUDED.run_id, sha256=EXCLUDED.sha256, payload=EXCLUDED.payload, "
-                    "json_payload=EXCLUDED.json_payload, filename=EXCLUDED.filename, "
-                    "metadata=EXCLUDED.metadata, created_at=now()"
-                ).format(self._table("job_artifacts")),
-                (
-                    uuid4(),
-                    job_id,
-                    run_id,
-                    kind,
-                    content_type,
-                    digest,
-                    data if isinstance(data, bytes) else None,
-                    None if isinstance(data, bytes) else Jsonb(data),
-                    filename,
-                    Jsonb(metadata or {}),
-                ),
-            )
+        payload: bytes,
+        provenance: dict | None = None,
+    ) -> UUID:
+        artifact_uuid = uuid4()
+        conn.execute(
+            self.query("""INSERT INTO {s}.estimate_artifacts
+            (artifact_uuid,estimate_uuid,run_id,kind,filename,content_type,payload,sha256,provenance)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)"""),
+            (
+                artifact_uuid,
+                job.estimate_uuid,
+                job.run_id,
+                kind,
+                filename,
+                content_type,
+                payload,
+                hashlib.sha256(payload).hexdigest(),
+                Jsonb(provenance or {}),
+            ),
+        )
+        return artifact_uuid
 
-    def finish_success(
-        self,
-        *,
-        job_id: UUID,
-        worker_id: str,
-        run_id: UUID,
-        summary: dict,
-        warnings: list[str],
-    ) -> str:
-        with self.pool.connection() as conn, conn.transaction():
-            job = conn.execute(
-                sql.SQL(
-                    "SELECT status, cancel_requested FROM {} WHERE id = %s FOR UPDATE"
-                ).format(self._table("jobs")),
-                (job_id,),
-            ).fetchone()
-            status = "canceled" if job["cancel_requested"] else "succeeded"
-            run_status = "canceled" if status == "canceled" else "succeeded"
-            updated = conn.execute(
-                sql.SQL(
-                    "UPDATE {} SET status=%s, stage=%s, warnings=%s, finished_at=now(), updated_at=now(), "
-                    "lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL WHERE id=%s AND lease_owner=%s"
-                ).format(self._table("jobs")),
-                (status, status, Jsonb(warnings), job_id, worker_id),
-            ).rowcount
-            if updated != 1:
-                raise RuntimeError(f"worker {worker_id} lost lease for {job_id}")
-            conn.execute(
-                sql.SQL(
-                    "UPDATE {} SET status=%s, result_summary=%s, finished_at=now() WHERE id=%s"
-                ).format(self._table("job_runs")),
-                (run_status, Jsonb(summary), run_id),
-            )
-            conn.execute(
-                sql.SQL(
-                    "INSERT INTO {} (job_id, event_type, from_status, to_status, stage) "
-                    "VALUES (%s, %s, %s, %s, %s)"
-                ).format(self._table("job_events")),
-                (job_id, status, job["status"], status, status),
-            )
-            return status
-
-    def finish_canceled(self, job_id: UUID, worker_id: str) -> None:
-        with self.pool.connection() as conn, conn.transaction():
+    def load_prior(self, estimate_uuid: UUID) -> dict | None:
+        with self.pool.connection() as conn:
             row = conn.execute(
-                sql.SQL(
-                    "UPDATE {} SET status='canceled', stage='canceled', finished_at=now(), updated_at=now(), "
-                    "lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL "
-                    "WHERE id=%s AND lease_owner=%s RETURNING status"
-                ).format(self._table("jobs")),
-                (job_id, worker_id),
+                self.query("SELECT prior FROM {s}.estimates WHERE estimate_uuid=%s"),
+                (estimate_uuid,),
             ).fetchone()
-            if row:
-                conn.execute(
-                    sql.SQL(
-                        "UPDATE {} SET status='canceled', finished_at=now() "
-                        "WHERE job_id=%s AND status='running'"
-                    ).format(self._table("job_runs")),
-                    (job_id,),
-                )
-                conn.execute(
-                    sql.SQL(
-                        "INSERT INTO {} (job_id, event_type, to_status, stage) "
-                        "VALUES (%s, 'canceled', 'canceled', 'canceled')"
-                    ).format(self._table("job_events")),
-                    (job_id,),
-                )
+        if row is None:
+            raise JobNotFound(str(estimate_uuid))
+        return row["prior"]
 
-    def finish_solver_failure(
+    def store_prior(
         self,
-        *,
-        job_id: UUID,
-        worker_id: str,
-        run_id: UUID,
-        summary: dict,
-        error: dict,
-        warnings: list[str],
-    ) -> None:
-        with self.pool.connection() as conn, conn.transaction():
-            updated = conn.execute(
-                sql.SQL(
-                    "UPDATE {} SET status='failed', stage='failed', terminal_error=%s, warnings=%s, "
-                    "finished_at=now(), updated_at=now(), lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL "
-                    "WHERE id=%s AND lease_owner=%s"
-                ).format(self._table("jobs")),
-                (Jsonb(error), Jsonb(warnings), job_id, worker_id),
-            ).rowcount
-            if updated != 1:
-                raise RuntimeError(f"worker {worker_id} lost lease for {job_id}")
-            conn.execute(
-                sql.SQL(
-                    "UPDATE {} SET status='failed', result_summary=%s, terminal_error=%s, finished_at=now() "
-                    "WHERE id=%s"
-                ).format(self._table("job_runs")),
-                (Jsonb(summary), Jsonb(error), run_id),
-            )
-            conn.execute(
-                sql.SQL(
-                    "INSERT INTO {} (job_id, event_type, to_status, stage, diagnostic) "
-                    "VALUES (%s, 'solver_failed', 'failed', 'failed', %s)"
-                ).format(self._table("job_events")),
-                (job_id, Jsonb(error)),
-            )
-
-    def fail_or_retry(
-        self,
-        *,
         job: ClaimedJob,
         worker_id: str,
-        error: dict,
-        retryable: bool,
-    ) -> str:
-        will_retry = retryable and job.attempt_count < job.max_attempts
-        status = "queued" if will_retry else "failed"
-        delay_seconds = min(300, 5 * (2 ** max(0, job.attempt_count - 1)))
+        prior: dict,
+        raw_measurements: bytes,
+        provenance: dict,
+        versions: dict,
+    ) -> None:
         with self.pool.connection() as conn, conn.transaction():
-            if will_retry:
-                conn.execute(
-                    sql.SQL(
-                        "UPDATE {} SET status='queued', stage='queued', available_at=now() + (%s * interval '1 second'), "
-                        "terminal_error=%s, lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL, updated_at=now() "
-                        "WHERE id=%s AND lease_owner=%s"
-                    ).format(self._table("jobs")),
-                    (delay_seconds, Jsonb(error), job.id, worker_id),
-                )
-            else:
-                conn.execute(
-                    sql.SQL(
-                        "UPDATE {} SET status='failed', stage='failed', terminal_error=%s, finished_at=now(), "
-                        "lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL, updated_at=now() "
-                        "WHERE id=%s AND lease_owner=%s"
-                    ).format(self._table("jobs")),
-                    (Jsonb(error), job.id, worker_id),
-                )
-                conn.execute(
-                    sql.SQL(
-                        "UPDATE {} SET status='failed', terminal_error=%s, finished_at=now() "
-                        "WHERE job_id=%s AND status='running'"
-                    ).format(self._table("job_runs")),
-                    (Jsonb(error), job.id),
-                )
-            conn.execute(
-                sql.SQL(
-                    "INSERT INTO {} (job_id, event_type, to_status, stage, diagnostic) "
-                    "VALUES (%s, %s, %s, %s, %s)"
-                ).format(self._table("job_events")),
+            self._owned_job(conn, job, worker_id)
+            updated = conn.execute(
+                self.query("""UPDATE {s}.estimates SET prior=%s,epoch=to_timestamp(%s),
+                spacecraft_id=%s,spacecraft_name=%s,software_version=%s WHERE estimate_uuid=%s AND prior IS NULL RETURNING estimate_uuid"""),
                 (
-                    job.id,
-                    "retry_scheduled" if will_retry else "failed",
-                    status,
-                    status,
-                    Jsonb(error),
+                    Jsonb(prior),
+                    prior["epoch_unix_s"],
+                    prior["ephemeris"]["spacecraft_id"],
+                    prior["contacts"][0]["spacecraft"],
+                    Jsonb(versions),
+                    job.estimate_uuid,
                 ),
+            ).fetchone()
+            if updated is None:
+                raise ValueError("estimate inputs are already frozen")
+            for contact in prior["contacts"]:
+                conn.execute(
+                    self.query(
+                        "UPDATE {s}.estimate_contacts SET provenance=%s WHERE estimate_uuid=%s AND contact_id=%s"
+                    ),
+                    (Jsonb(contact), job.estimate_uuid, contact["contact_id"]),
+                )
+            self.store_artifact(
+                conn,
+                job,
+                "normalized_prior",
+                "prior.json",
+                "application/json",
+                json_bytes(prior),
+                provenance,
             )
-            if will_retry:
-                conn.execute("SELECT pg_notify('dart_jobs', %s)", (str(job.id),))
-        return status
+            self.store_artifact(
+                conn,
+                job,
+                "raw_measurements",
+                "measurements.parquet",
+                "application/vnd.apache.parquet",
+                raw_measurements,
+                provenance,
+            )
+
+    def persist_estimate_result(
+        self,
+        job: ClaimedJob,
+        worker_id: str,
+        parameters: list[dict],
+        diagnostics: dict,
+        output: dict,
+        initialized_optimizer: dict,
+        initialization_scan: list,
+    ) -> str:
+        with self.pool.connection() as conn, conn.transaction():
+            row = self._owned_job(conn, job, worker_id)
+            if row["cancel_requested"]:
+                self._terminal(conn, job, "canceled")
+                return "canceled"
+            for parameter in parameters:
+                conn.execute(
+                    self.query("""INSERT INTO {s}.estimate_parameters
+                    (estimate_uuid,parameter_name,ordinal,role,value,unit,initial_value,lower_bound,upper_bound,scale,standard_uncertainty,contact_id)
+                    VALUES (%(estimate_uuid)s,%(parameter_name)s,%(ordinal)s,%(role)s,%(value)s,%(unit)s,%(initial_value)s,%(lower_bound)s,%(upper_bound)s,%(scale)s,%(standard_uncertainty)s,%(contact_id)s)"""),
+                    {"estimate_uuid": job.estimate_uuid, **parameter},
+                )
+            values = {**diagnostics, "estimate_uuid": job.estimate_uuid}
+            for key in ("covariance", "parameter_order", "warnings"):
+                values[key] = None if values[key] is None else Jsonb(values[key])
+            conn.execute(
+                self.query("""INSERT INTO {s}.estimate_diagnostics
+                (estimate_uuid,success,optimizer_status,message,objective,optimality,function_evaluations,jacobian_evaluations,
+                 observation_count,whitened_residual_rms,residual_rms_hz,covariance,covariance_rank,parameter_order,warnings)
+                VALUES (%(estimate_uuid)s,%(success)s,%(optimizer_status)s,%(message)s,%(objective)s,%(optimality)s,%(function_evaluations)s,
+                %(jacobian_evaluations)s,%(observation_count)s,%(whitened_residual_rms)s,%(residual_rms_hz)s,%(covariance)s,%(covariance_rank)s,%(parameter_order)s,%(warnings)s)"""),
+                values,
+            )
+            self.store_artifact(
+                conn,
+                job,
+                "optimizer_output",
+                "output.json",
+                "application/json",
+                json_bytes(output),
+            )
+            self.store_artifact(
+                conn,
+                job,
+                "initialized_optimizer",
+                "optimizer.json",
+                "application/json",
+                json_bytes(initialized_optimizer),
+                {"scan": initialization_scan},
+            )
+            conn.execute(
+                self.query(
+                    "UPDATE {s}.estimates SET published_run_id=%s WHERE estimate_uuid=%s"
+                ),
+                (job.run_id, job.estimate_uuid),
+            )
+            conn.execute(
+                self.query("UPDATE {s}.job_runs SET result_summary=%s WHERE id=%s"),
+                (Jsonb(diagnostics), job.run_id),
+            )
+            status = "succeeded" if diagnostics["success"] else "failed"
+            error = (
+                None
+                if diagnostics["success"]
+                else {
+                    "code": "optimizer_failed",
+                    "detail": diagnostics["message"],
+                    "retryable": False,
+                }
+            )
+            self._terminal(conn, job, status, error)
+            return status
+
+    def queue_metrics(self) -> tuple[int, float]:
+        with self.pool.connection() as conn:
+            row = conn.execute(
+                self.query("""SELECT count(*)::integer AS depth,
+                COALESCE(extract(epoch FROM now()-min(created_at)),0)::float8 AS age
+                FROM {s}.jobs WHERE status='queued' AND operation='estimate'""")
+            ).fetchone()
+            assert row is not None
+            return row["depth"], row["age"]

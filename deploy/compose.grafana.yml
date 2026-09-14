@@ -1,0 +1,24 @@
+# Restarts the existing test Grafana without altering its persisted dashboards.
+services:
+  grafana:
+    image: grafana/grafana:13.0.2
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?required}
+      GF_SERVER_ROOT_URL: http://localhost:${DART_GRAFANA_PORT:-3001}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    restart: unless-stopped
+  ingress:
+    image: nginx:1.27-alpine
+    ports: ["127.0.0.1:${DART_GRAFANA_PORT:-3001}:8080"]
+    volumes:
+      - ./nginx/grafana.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [grafana]
+    restart: unless-stopped
+volumes:
+  grafana_data:
+    external: true
+    name: ${DART_GRAFANA_VOLUME:-dart-test_grafana_data}

@@ -1,0 +1,16 @@
+apiVersion: 1
+datasources:
+  - name: DART Estimates
+    uid: dart-estimates-db
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: timescaledb:5432
+    user: dart_grafana
+    secureJsonData:
+      password: ${DART_RESULTS_GRAFANA_PASSWORD}
+    jsonData:
+      database: results
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: true
+    editable: false

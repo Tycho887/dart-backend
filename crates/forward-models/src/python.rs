@@ -245,6 +245,7 @@ fn tle_state_gcrf(
 
 #[pymodule]
 fn _forward_models(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(reepoch_tle, module)?)?;
     module.add_function(wrap_pyfunction!(clear_frame_cache, module)?)?;
     module.add_function(wrap_pyfunction!(orbit_information, module)?)?;
     module.add_function(wrap_pyfunction!(position_errors_rtn, module)?)?;
@@ -257,6 +258,25 @@ fn _forward_models(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(sgp4_states_gcrf, module)?)?;
     module.add_function(wrap_pyfunction!(full_state_states_gcrf, module)?)?;
     Ok(())
+}
+
+#[pyfunction]
+fn reepoch_tle(
+    py: Python<'_>,
+    lines: [String; 2],
+    epoch: f64,
+    start: f64,
+    stop: f64,
+) -> PyResult<crate::reepoch::ReepochedTle> {
+    use crate::reepoch::ReepochError;
+    py.allow_threads(move || crate::reepoch::reepoch_tle(lines, epoch, start, stop))
+        .map_err(|error| {
+            let message = error.to_string();
+            match error {
+                ReepochError::Failed(_) => PyValueError::new_err(message),
+                ReepochError::Rejected(report) => PyValueError::new_err((message, *report)),
+            }
+        })
 }
 
 #[pyfunction]

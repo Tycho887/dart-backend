@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 import numpy as np
+from scipy.optimize import lsq_linear
 
 from . import (
     _canonical_parameter_names,
@@ -22,6 +23,91 @@ from .schema import (
 )
 
 
+def _timing_parameters(data: PriorStateData, optimizer: OptimizerContext) -> list[str]:
+    _validate_data(data)
+    _validate_optimizer(data, optimizer)
+    if optimizer.model != OrbitModel.SGP4 or optimizer.loss != "linear":
+        raise ValueError("timing initialization requires SGP4 and linear loss")
+    mapping = data.observations.contact_to_pass_idx
+    names = [
+        "time_offset_s",
+        *[f"pass_bias_hz:{cid}" for cid in sorted(mapping, key=mapping.__getitem__)],
+    ]
+    estimated = {
+        p.name for p in optimizer.parameters if p.role == ParameterRole.ESTIMATE
+    }
+    if estimated != set(names):
+        raise ValueError(
+            "timing initialization must estimate only time offset and all pass biases"
+        )
+    return names
+
+
+def _time_candidates(lower: float, upper: float, step_s: float) -> FloatArray:
+    if not np.isfinite(step_s) or step_s <= 0:
+        raise ValueError("timing scan step must be finite and positive")
+    if not lower <= 0 <= upper:
+        raise ValueError("timing bounds must contain zero")
+    return np.unique(np.r_[np.arange(lower, upper, step_s), upper, 0.0])
+
+
+def _seed_optimizer(
+    optimizer: OptimizerContext, names: list[str], values: FloatArray
+) -> OptimizerContext:
+    initial = dict(zip(names, values, strict=True))
+    return replace(
+        optimizer,
+        parameters=tuple(
+            replace(p, initial=initial.get(p.name, p.initial))
+            for p in optimizer.parameters
+        ),
+    )
+
+
+def initialize_sgp4_time(
+    prior: PriorStateData,
+    optimizer: OptimizerContext,
+    step_s: float = 10,
+) -> tuple[OptimizerContext, FloatArray]:
+    """Scan timing bounds with bounded linear pass biases using Rust derivatives.
+
+    Columns are [offset_s, bias/contact in pass-index order, cost]. All other
+    initial values and settings remain fixed. Equal costs select the first
+    candidate in ascending offset order. OEM data is never accepted here.
+    """
+    scan_names = _timing_parameters(prior, optimizer)
+    specs = {p.name: p for p in optimizer.parameters}
+    timing = specs["time_offset_s"]
+    offsets = _time_candidates(timing.lower_bound, timing.upper_bound, step_s)
+    names = _canonical_parameter_names(prior, optimizer.model)
+    indices = [names.index(name) for name in scan_names]
+    values = np.array([specs[n].initial if n in specs else 0.0 for n in names])
+    bias_indices = indices[1:]
+    values[bias_indices] = 0
+    bounds = (
+        [specs[n].lower_bound for n in scan_names[1:]],
+        [specs[n].upper_bound for n in scan_names[1:]],
+    )
+    evaluate, _ = _sgp4_evaluator(prior)
+    scan = np.empty((len(offsets), len(scan_names) + 1))
+    for row, offset in enumerate(offsets):
+        values[indices[0]] = offset
+        evaluation = evaluate(values)
+        bias_jacobian = evaluation.jacobian[:, bias_indices]
+        result = lsq_linear(bias_jacobian, -evaluation.residuals, bounds=bounds)
+        if not result.success:
+            raise ValueError(
+                f"timing scan bias fit failed at {offset} s: {result.message}"
+            )
+        residuals = evaluation.residuals + bias_jacobian @ result.x
+        scan[row] = offset, *result.x, 0.5 * residuals @ residuals
+    if not np.all(np.isfinite(scan)):
+        raise ValueError("timing scan produced nonfinite values")
+    return _seed_optimizer(
+        optimizer, scan_names, scan[np.argmin(scan[:, -1]), :-1]
+    ), scan
+
+
 def initialize_sgp4_phase(
     data: PriorStateData, optimizer: OptimizerContext
 ) -> tuple[OptimizerContext, FloatArray]:
@@ -31,21 +117,9 @@ def initialize_sgp4_phase(
     Equal costs choose the first candidate in ascending phase order. All other
     initial values, roles, scales and bounds are preserved. No GPS is accepted.
     """
-    _validate_data(data)
-    _validate_optimizer(data, optimizer)
-    if optimizer.model != OrbitModel.SGP4:
-        raise ValueError("phase initialization requires SGP4")
-    mapping = data.observations.contact_to_pass_idx
-    contacts = sorted(mapping, key=mapping.__getitem__)
+    bias_names = _phase_parameters(data, optimizer)
     specs = {p.name: p for p in optimizer.parameters}
     phase_name = "mean_longitude_deg"
-    bias_names = [f"pass_bias_hz:{cid}" for cid in contacts]
-    for name in (phase_name, *bias_names):
-        if name not in specs or specs[name].role != ParameterRole.ESTIMATE:
-            raise ValueError("phase and pass bias must both be estimated")
-    phase = specs[phase_name]
-    if phase.lower_bound > -30 or phase.upper_bound < 30:
-        raise ValueError("phase bounds must include the complete -30..30 degree scan")
     names = _canonical_parameter_names(data, optimizer.model)
     values = np.array([specs[n].initial if n in specs else 0.0 for n in names])
     phase_index = names.index(phase_name)
@@ -53,7 +127,7 @@ def initialize_sgp4_phase(
     values[bias_indices] = 0.0
     pass_indices = np.array([o.pass_index for o in data.observations.observations])
     evaluate, _ = _sgp4_evaluator(data)
-    scan = np.empty((61, len(contacts) + 2))
+    scan = np.empty((61, len(bias_names) + 2))
     for row, delta in enumerate(range(-30, 31)):
         values[phase_index] = delta
         evaluation = evaluate(values)
@@ -69,14 +143,26 @@ def initialize_sgp4_phase(
     if not np.all(np.isfinite(scan)):
         raise ValueError("phase scan produced nonfinite values")
     best = scan[np.argmin(scan[:, -1])]
-    initial = dict(zip([phase_name, *bias_names], best[:-1], strict=True))
-    return replace(
-        optimizer,
-        parameters=tuple(
-            replace(p, initial=initial.get(p.name, p.initial))
-            for p in optimizer.parameters
-        ),
-    ), scan
+    return _seed_optimizer(optimizer, [phase_name, *bias_names], best[:-1]), scan
+
+
+def _phase_parameters(data: PriorStateData, optimizer: OptimizerContext) -> list[str]:
+    _validate_data(data)
+    _validate_optimizer(data, optimizer)
+    if optimizer.model != OrbitModel.SGP4:
+        raise ValueError("phase initialization requires SGP4")
+    mapping = data.observations.contact_to_pass_idx
+    contacts = sorted(mapping, key=mapping.__getitem__)
+    specs = {p.name: p for p in optimizer.parameters}
+    phase_name = "mean_longitude_deg"
+    bias_names = [f"pass_bias_hz:{cid}" for cid in contacts]
+    for name in (phase_name, *bias_names):
+        if name not in specs or specs[name].role != ParameterRole.ESTIMATE:
+            raise ValueError("phase and pass bias must both be estimated")
+    phase = specs[phase_name]
+    if phase.lower_bound > -30 or phase.upper_bound < 30:
+        raise ValueError("phase bounds must include the complete -30..30 degree scan")
+    return bias_names
 
 
 def _median_biases(

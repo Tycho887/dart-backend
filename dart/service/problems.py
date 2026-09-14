@@ -42,9 +42,9 @@ def problem_response(
     )
 
 
-async def service_problem_handler(
-    request: Request, exc: ServiceProblem
-) -> JSONResponse:
+async def service_problem_handler(request: Request, exc: Exception) -> JSONResponse:
+    if not isinstance(exc, ServiceProblem):
+        raise exc
     return problem_response(
         request,
         status=exc.status,
@@ -55,9 +55,9 @@ async def service_problem_handler(
     )
 
 
-async def validation_problem_handler(
-    request: Request, exc: RequestValidationError
-) -> JSONResponse:
+async def validation_problem_handler(request: Request, exc: Exception) -> JSONResponse:
+    if not isinstance(exc, RequestValidationError):
+        raise exc
     errors = []
     for error in exc.errors():
         errors.append(

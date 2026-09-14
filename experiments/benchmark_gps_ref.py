@@ -26,6 +26,7 @@ from dart.od import (
     resolve_prior,
     resolve_solution,
 )
+from dart.od.initialization import initialize_sgp4_time
 from dart.orbit import OrbitSolution, StateHistory, propagate
 from experiments._benchmark_io import load_inputs, save_json
 
@@ -142,6 +143,8 @@ async def benchmark(
     variance_hz2: float = 1.0,
     min_samples: int = 20,
     epoch: sk.time | None = None,
+    derived_tle_lines: tuple[str, str] | None = None,
+    initialize_time: bool = False,
 ) -> BenchmarkResult:
     """Fit exactly these contacts once and return signed residuals in SI/Hz.
 
@@ -166,16 +169,14 @@ async def benchmark(
         variance_hz2=variance_hz2,
         min_samples=min_samples,
     )
-    first_observation = min(o.time for o in context.observations)
-    if epoch is None:
-        epoch = first_observation - sk.duration(seconds=1)
-    if not isinstance(epoch, sk.time):
-        raise TypeError("initialization epoch must be a satkit.time")
-    if not np.isfinite(epoch.as_unixtime()) or epoch > first_observation:
-        raise ValueError("initialization epoch must be finite and precede observations")
-    prior = PriorStateData(context, ephemeris, epoch)
+    epoch = _initial_epoch(context, epoch)
+    prior = PriorStateData(
+        context, ephemeris, epoch, derived_tle_lines=derived_tle_lines
+    )
     initial = resolve_prior(prior, optimizer.model)
-    output = fit(prior, optimizer)
+    output, optimizer, timing = _fit_with_initialization(
+        prior, optimizer, initialize_time
+    )
     states = _state_errors(initial, reference, epoch, "prior")
     if output.success:
         states = pl.concat(
@@ -192,6 +193,7 @@ async def benchmark(
         "contact_ids": ids,
         "contacts": contacts,
         "initial_ephemeris": ephemeris,
+        "derived_tle_lines": derived_tle_lines,
         "epoch_unix_s": epoch.as_unixtime(),
         "optimizer": optimizer,
         "output": {
@@ -221,6 +223,74 @@ async def benchmark(
             for name in ("dart", "satkit", "oem", "numpy", "scipy", "polars")
         },
     }
+    metadata.update(timing)
     return BenchmarkResult(
         states, _doppler_residuals(context, output), epoch, output, metadata
     )
+
+
+def _initial_epoch(context: ForwardModelContext, epoch: sk.time | None) -> sk.time:
+    first_observation = min(o.time for o in context.observations)
+    if epoch is None:
+        epoch = first_observation - sk.duration(seconds=1)
+    if not isinstance(epoch, sk.time):
+        raise TypeError("initialization epoch must be a satkit.time")
+    if not np.isfinite(epoch.as_unixtime()) or epoch > first_observation:
+        raise ValueError("initialization epoch must be finite and precede observations")
+    return epoch
+
+
+def _fit_with_initialization(
+    prior: PriorStateData, optimizer: OptimizerContext, initialize_time: bool
+) -> tuple[OptimizerOutput, OptimizerContext, dict[str, object]]:
+    if not initialize_time:
+        return fit(prior, optimizer), optimizer, {}
+    optimizer, scan = initialize_sgp4_time(prior, optimizer)
+    timing = _timing_scan_metadata(prior, optimizer, scan)
+    output = fit(prior, optimizer)
+    timing.update(_timing_fit_metadata(optimizer, output))
+    return output, optimizer, {"timing_initialization": timing}
+
+
+def _timing_scan_metadata(
+    prior: PriorStateData, optimizer: OptimizerContext, scan: np.ndarray
+) -> dict[str, object]:
+    mapping = prior.observations.contact_to_pass_idx
+    columns = [
+        "offset_s",
+        *[f"pass_bias_hz:{cid}" for cid in sorted(mapping, key=mapping.__getitem__)],
+        "cost",
+    ]
+    spec = next(p for p in optimizer.parameters if p.name == "time_offset_s")
+    best = scan[np.argmin(scan[:, -1])]
+    return {
+        "columns": columns,
+        "scan": scan,
+        "step_s": 10.0,
+        "zero_offset_cost": float(scan[scan[:, 0] == 0, -1][0]),
+        "coarse_offset_s": float(best[0]),
+        "coarse_cost": float(best[-1]),
+        "lower_bound_s": spec.lower_bound,
+        "upper_bound_s": spec.upper_bound,
+    }
+
+
+def _timing_fit_metadata(
+    optimizer: OptimizerContext, output: OptimizerOutput
+) -> dict[str, object]:
+    spec = next(p for p in optimizer.parameters if p.name == "time_offset_s")
+    offset = float(output.parameters[output.parameter_names.index("time_offset_s")])
+    return {
+        "refined_offset_s": offset,
+        "final_cost": output.cost,
+        "at_bound": bool(
+            np.any(
+                np.isclose(
+                    offset, [spec.lower_bound, spec.upper_bound], rtol=0, atol=1e-6
+                )
+            )
+        ),
+        "success": output.success,
+        "status": output.status,
+        "message": output.message,
+    }

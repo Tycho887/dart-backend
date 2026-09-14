@@ -74,6 +74,7 @@ class PriorStateData:
     ephemeris: EphemerisMetadata
     epoch: satkit.time
     nominal_state_gcrf_si: FloatArray | None = None
+    derived_tle_lines: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)

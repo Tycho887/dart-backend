@@ -113,6 +113,7 @@ def test_public_contract() -> None:
         "ephemeris",
         "epoch",
         "nominal_state_gcrf_si",
+        "derived_tle_lines",
     ]
     hints = get_type_hints(PriorStateData)
     assert hints["observations"] is ForwardModelContext

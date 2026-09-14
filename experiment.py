@@ -1,7 +1,8 @@
 """FOREST optimizer comparison using the shared benchmark and raw snapshots.
 
-Run: uv run python experiment.py --output experiments/results/forest-run
-Replay with another output directory to reuse the default input cache.
+Run: uv run python experiment.py
+Results default to raw_results/forest-<UTC timestamp>/ relative to the repo.
+Rerun to reuse the default input cache; --output selects a custom directory.
 Edit gate_passes() to try another pass gate without reacquiring telemetry.
 Timing-only fits leave physical orbit errors unchanged. Covariance is a local,
 residual-scaled diagnostic, not calibrated accuracy or proof of bad telemetry.
@@ -13,13 +14,16 @@ import json
 import runpy
 from collections.abc import Callable, Iterator
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from textwrap import fill
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import polars as pl
 import satkit as sk
 
+from dart.forward_models import ReepochedTle, ReepochError, reepoch_tle
 from dart.io import ContactMetadata, EphemerisMetadata
 from dart.io.doppler import select_doppler, selection_counts
 from dart.io.load import _contact_ids
@@ -34,6 +38,9 @@ from dart.od import (
 from dart.od.profiles import orbit_bias_profile, sgp4_bias_profile
 from experiments._benchmark_io import load_inputs, save_json
 from experiments.benchmark_gps_ref import BenchmarkResult, _bind_reference, benchmark
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
 ROOT = Path(__file__).resolve().parent
 POSITION = ("dx_m", "dy_m", "dz_m")
@@ -83,23 +90,36 @@ def configurations(
         yield "full_state", group, orbit_bias_profile(OrbitModel.FULL_STATE, group)
 
 
-def scoring_epochs(
-    model: OrbitModel, measurements: pl.DataFrame, prior: EphemerisMetadata
-) -> tuple[sk.time, sk.time]:
-    """Return the scoring center and an earlier forward-propagation epoch."""
+def scoring_epochs(measurements: pl.DataFrame) -> tuple[sk.time, sk.time]:
+    """Common scoring midpoint and an earlier forward-propagation epoch."""
     selected = select_doppler(measurements)
     first = sk.time.from_datetime(selected["timestamp"].min())
     last = sk.time.from_datetime(selected["timestamp"].max())
     center = sk.time.from_unixtime((first.as_unixtime() + last.as_unixtime()) / 2)
-    if model == OrbitModel.SGP4:
-        if prior.tle is None:
-            raise ValueError("selected prior has no TLE")
-        tle = sk.TLE.from_lines(_source_tle_lines(prior.tle))
-        if not isinstance(tle, sk.TLE):
-            raise ValueError("selected prior must contain exactly one TLE")
-        center = tle.epoch
     epoch = min(first, center - sk.duration(seconds=1800)) - sk.duration(seconds=1)
     return center, epoch
+
+
+def _reepoch_prior(
+    prior: EphemerisMetadata,
+    measurements: pl.DataFrame,
+    center: sk.time,
+    epoch: sk.time,
+    time_offset_bound_s: float,
+) -> ReepochedTle:
+    selected = select_doppler(measurements)
+    first = sk.time.from_datetime(selected["timestamp"].min())
+    last = sk.time.from_datetime(selected["timestamp"].max())
+    lines = _source_tle_lines(prior.tle or "")[-2:]
+    return reepoch_tle(
+        (lines[0], lines[1]),
+        center,
+        min(epoch, first - sk.duration(seconds=time_offset_bound_s)),
+        max(
+            center + sk.duration(seconds=1800),
+            last + sk.duration(seconds=time_offset_bound_s),
+        ),
+    )
 
 
 def window_statistics(states: pl.DataFrame, center: sk.time) -> list[Record]:
@@ -282,6 +302,36 @@ def _summary_rows(case: Record) -> list[Record]:
     ]
 
 
+def _retained_inventory(
+    contacts: list[ContactMetadata], measurements: pl.DataFrame, reasons: dict[str, str]
+) -> tuple[list[str], list[Record]]:
+    ordered = sorted(contacts, key=lambda c: (c.start, c.contact_id))
+    ids = [c.contact_id for c in ordered if not reasons[c.contact_id]]
+    inventory = [
+        {
+            "contact_id": c.contact_id,
+            "raw_samples": c.raw_samples,
+            "retained_samples": c.retained_samples,
+            "exclusion_reason": reasons[c.contact_id],
+        }
+        for c in selection_counts(ordered, measurements)
+    ]
+    for cid, reason in reasons.items():
+        if reason:
+            print(f"Excluding {cid}: {reason}", flush=True)
+    return ids, inventory
+
+
+def _finish_case(
+    case: Record, publish: Checkpoint, directory: Path, plot: bool
+) -> None:
+    publish(case)
+    if "unavailable_reason" in case:
+        print(f"{case['name']}: {case['unavailable_reason']}", flush=True)
+    if plot:
+        plot_accuracy(directory)
+
+
 async def experiment(
     contact_ids: list[str],
     oem_path: Path,
@@ -305,8 +355,7 @@ async def experiment(
     )
     _bind_reference(reference, contacts, spacecraft_id)
     reasons = gate_passes(contacts, measurements, min_samples)
-    ordered = sorted(contacts, key=lambda c: (c.start, c.contact_id))
-    ids = [c.contact_id for c in ordered if not reasons[c.contact_id]]
+    ids, inventory = _retained_inventory(contacts, measurements, reasons)
     case: Record = {
         "name": reference.object_id,
         "spacecraft_id": spacecraft_id,
@@ -317,27 +366,32 @@ async def experiment(
         "snapshot_dir": snapshot_dir,
         "min_samples": min_samples,
         "max_bias_variance_hz2": max_bias_variance_hz2,
-        "inventory": [
-            {
-                "contact_id": c.contact_id,
-                "raw_samples": c.raw_samples,
-                "retained_samples": c.retained_samples,
-                "exclusion_reason": reasons[c.contact_id],
-            }
-            for c in selection_counts(ordered, measurements)
-        ],
+        "inventory": inventory,
         "runs": [],
     }
     publish(case)
-    for cid, reason in reasons.items():
-        if reason:
-            print(f"{reference.object_id}: excluding {cid}: {reason}", flush=True)
     if not ids:
         case["unavailable_reason"] = "no passes satisfy the gate"
-        publish(case)
-        if _checkpoint is None:
-            plot_accuracy(output_dir)
+        _finish_case(case, publish, output_dir, _checkpoint is None)
         return
+
+    selected = measurements.filter(pl.col("contact_id").is_in(ids))
+    center, epoch = scoring_epochs(selected)
+    case["scoring_center_unix_s"] = center.as_unixtime()
+    case["initial_ephemeris"] = prior
+    try:
+        derived = _reepoch_prior(prior, selected, center, epoch, time_offset_bound_s)
+    except ReepochError as exc:
+        case["reepoching"] = {
+            "accepted": False,
+            "reason": str(exc),
+            "diagnostics": exc.diagnostics,
+        }
+        case["unavailable_reason"] = f"TLE re-epoching rejected: {exc}"
+        _finish_case(case, publish, output_dir, _checkpoint is None)
+        return
+    case["reepoching"] = {"accepted": True, "diagnostics": derived}
+    publish(case)
 
     async def run_case(
         stage: str,
@@ -357,6 +411,8 @@ async def experiment(
             reference_spacecraft_id=spacecraft_id,
             min_samples=min_samples,
             epoch=epoch,
+            derived_tle_lines=derived.tle_lines,
+            initialize_time=stage == "timing",
         )
         bounds = active_bounds(result.output, optimizer)
         case["runs"].append(
@@ -381,8 +437,6 @@ async def experiment(
 
     # The generator always ends with the all-pass full-state fit.
     for stage, group, optimizer in configurations(ids, time_offset_bound_s):
-        frame = measurements.filter(pl.col("contact_id").is_in(group))
-        center, epoch = scoring_epochs(optimizer.model, frame, prior)
         result = await run_case(stage, group, optimizer, center, epoch)
     diagnostic = covariance_diagnostics(result.output, optimizer)
     case["runs"][-1]["covariance"] = diagnostic
@@ -407,8 +461,7 @@ async def experiment(
             center,
             epoch,
         )
-    if _checkpoint is None:
-        plot_accuracy(output_dir)
+    _finish_case(case, publish, output_dir, _checkpoint is None)
 
 
 def _validate_settings(
@@ -430,7 +483,15 @@ def plot_accuracy(directory: Path) -> None:
     import matplotlib.pyplot as plt
 
     document = json.loads((directory / "experiment.json").read_text())
-    cases = document["spacecraft"]
+    fig = accuracy_figure(document["spacecraft"])
+    fig.savefig(directory / "accuracy.png", dpi=150)
+    plt.close(fig)
+
+
+def accuracy_figure(cases: list[Record]) -> "Figure":
+    """Build the shared accuracy overview without selecting a backend or saving."""
+    import matplotlib.pyplot as plt
+
     fig, axes = plt.subplots(
         len(cases), 2, figsize=(11, 3.5 * len(cases)), squeeze=False
     )
@@ -441,8 +502,7 @@ def plot_accuracy(directory: Path) -> None:
             _plot_panel(panel, case, kind, unit)
     fig.suptitle("One-hour OEM errors; partial coverage uses open markers")
     fig.tight_layout()
-    fig.savefig(directory / "accuracy.png", dpi=150)
-    plt.close(fig)
+    return fig
 
 
 def _plot_panel(panel: Any, case: Record, kind: str, unit: str) -> None:
@@ -464,6 +524,16 @@ def _plot_panel(panel: Any, case: Record, kind: str, unit: str) -> None:
     panel.xaxis.set_major_locator(MaxNLocator(integer=True))
     if panel.lines:
         panel.legend(fontsize="small")
+    elif "unavailable_reason" in case:
+        panel.text(
+            0.5,
+            0.5,
+            fill(case["unavailable_reason"], width=45),
+            ha="center",
+            va="center",
+            fontsize="small",
+            transform=panel.transAxes,
+        )
 
 
 def _plot_curve(
@@ -505,7 +575,14 @@ async def main() -> None:
         choices=(16, 17, 18, 19),
         default=[16, 17, 18, 19],
     )
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=ROOT
+        / "raw_results"
+        / datetime.now(UTC).strftime("forest-%Y%m%dT%H%M%S.%fZ"),
+        help="Results directory (default: repo-relative raw_results/forest-<UTC timestamp>/)",
+    )
     parser.add_argument(
         "--cache", type=Path, default=ROOT / "experiments/results/forest-inputs"
     )
@@ -517,6 +594,7 @@ async def main() -> None:
         args.min_samples, args.time_offset_bound_s, args.max_bias_variance_hz2
     )
     publish = _checkpoint_writer(args.output)
+    print(f"Results: {args.output}", flush=True)
     cases = [
         runpy.run_path(str(ROOT / f"tests/live-data/forest{n}.py"))
         for n in dict.fromkeys(args.forest)

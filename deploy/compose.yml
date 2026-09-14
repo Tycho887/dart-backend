@@ -1,0 +1,55 @@
+services:
+  grafana:
+    environment:
+      DART_RESULTS_GRAFANA_PASSWORD: ${DART_RESULTS_GRAFANA_PASSWORD:?required}
+    volumes:
+      - ./grafana/provisioning/datasources/results.yaml:/etc/grafana/provisioning/datasources/results.yaml:ro
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: results
+    ports: ["127.0.0.1:${DART_RESULTS_DB_PORT:-5434}:5432"]
+    volumes: ["results_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "results"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  api:
+    build: .
+    image: dart-estimates:local
+    environment:
+      DART_DATABASE_URL: ${DART_RESULTS_APP_URL:?required}
+      DART_GATEWAY_TOKEN: ${DART_GATEWAY_TOKEN:?required}
+    depends_on:
+      timescaledb: {condition: service_healthy}
+    restart: unless-stopped
+  worker:
+    image: dart-estimates:local
+    command: dart-worker
+    environment:
+      DART_DATABASE_URL: ${DART_RESULTS_APP_URL:?required}
+      KOGS_API_KEY: ${KOGS_API_KEY:-}
+      AZURE_ADX_CLUSTER_ENDPOINT: ${AZURE_ADX_CLUSTER_ENDPOINT:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      DART_CTRL_CONFIG_V2_DIR: /app/ctrl-config/v2
+    volumes: ["../ctrl-config/v2:/app/ctrl-config/v2:ro"]
+    depends_on:
+      timescaledb: {condition: service_healthy}
+    restart: unless-stopped
+  gateway:
+    image: dart-estimates:local
+    command: ["uvicorn", "dart.service.gateway:app", "--host", "0.0.0.0", "--port", "8001"]
+    environment:
+      DART_GATEWAY_TOKEN: ${DART_GATEWAY_TOKEN:?required}
+      DART_PUBLIC_ORIGINS: ${DART_PUBLIC_ORIGINS:-http://localhost:3001,http://127.0.0.1:3001}
+    depends_on: [api, grafana]
+    restart: unless-stopped
+volumes:
+  results_data:
+    name: dart_estimates_results

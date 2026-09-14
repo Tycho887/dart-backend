@@ -12,7 +12,7 @@ from .worker import Worker
 
 
 def api() -> None:
-    uvicorn.run("dart.service.api:app", host="0.0.0.0", port=8000, factory=False)
+    uvicorn.run("dart.service.api:app", host="127.0.0.1", port=8000, factory=False)
 
 
 def migrate() -> None:
@@ -29,7 +29,7 @@ def worker() -> None:
     settings = ServiceSettings.from_env()
     database = Database(settings)
     try:
-        database.migrate()
+        database.healthcheck()
         Worker(database, settings).run_forever()
     finally:
         database.close()

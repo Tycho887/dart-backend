@@ -1,30 +1,22 @@
-"""FastAPI application for validation, submission, cancellation, and discovery."""
+"""Submission commands and profile discovery; Grafana reads SQL views."""
 
-from __future__ import annotations
-
+import hmac
 from contextlib import asynccontextmanager
-from typing import Annotated, Any
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, Header, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-
-from dart import __version__
 
 from .config import ServiceSettings
 from .database import Database, IdempotencyConflict, JobNotFound, JobOwnershipConflict
 from .metrics import JOBS_SUBMITTED
 from .models import (
-    ActorType,
     CancelResponse,
-    SolveJobAccepted,
-    SolveJobRequest,
-    Strategy,
-    TdmJobRequest,
-    TdmValidationResponse,
-    TimeShiftSolver,
+    EstimateAccepted,
+    EstimateRequest,
+    ResolvedEstimateConfiguration,
     ValidationResponse,
 )
 from .problems import (
@@ -32,299 +24,226 @@ from .problems import (
     service_problem_handler,
     validation_problem_handler,
 )
-from .profiles import capabilities_document, profile_documents, resolve_profile
-from .tdm_profiles import load_tdm_profile_documents, validate_tdm_profile
+from .profiles import capabilities_document, resolve_configuration
 
 
-def get_db(request: Request) -> Any:
-    """Return the lifespan-owned database without a local forward reference."""
+def get_db(request: Request) -> Database:
     return request.app.state.database
 
 
-class Actor:
-    def __init__(self, actor_id: str, actor_type: ActorType):
-        self.id = actor_id
-        self.type = actor_type
-
-
-def trusted_actor(
-    actor_id: Annotated[
-        str, Header(alias="X-DART-Actor-ID", min_length=1, max_length=200)
-    ],
-    actor_type: Annotated[ActorType, Header(alias="X-DART-Actor-Type")],
-) -> Actor:
-    return Actor(actor_id, actor_type)
-
-
-def _validate_semantics(request: SolveJobRequest) -> tuple[dict, dict]:
-    if request.strategy == Strategy.JOINT:
+def trusted_gateway(
+    request: Request, token: Annotated[str, Header(alias="X-DART-Gateway-Token")] = ""
+) -> None:
+    expected = request.app.state.settings.gateway_token
+    if not expected:
         raise ServiceProblem(
-            409,
-            "capability_unavailable",
-            "Capability unavailable",
-            "The joint strategy is reserved but unavailable in v1.",
+            503,
+            "gateway_not_configured",
+            "Gateway unavailable",
+            "The service gateway is not configured.",
         )
-    if (
-        isinstance(request.solver, TimeShiftSolver)
-        and request.solver.optimizer.overrides.loss == "log_cosh"
-    ):
+    if not hmac.compare_digest(token, expected):
         raise ServiceProblem(
-            422,
-            "unsupported_optimizer_setting",
-            "Unsupported optimizer setting",
-            "sgp4_time_shift does not expose log_cosh because scipy approximates it as soft_l1.",
+            403,
+            "untrusted_gateway",
+            "Untrusted gateway",
+            "Requests must pass through the authenticated gateway.",
         )
+
+
+def _configuration(
+    request: EstimateRequest, database: Database
+) -> ResolvedEstimateConfiguration:
     try:
-        return resolve_profile(request)
+        model, optimizer = database.resolve_profiles(
+            request.forward_model.name,
+            request.forward_model.version,
+            request.optimizer.name,
+            request.optimizer.version,
+        )
+        return resolve_configuration(request, model, optimizer)
     except KeyError as exc:
         raise ServiceProblem(
             422,
-            "optimizer_profile_not_found",
-            "Optimizer profile not found",
-            str(exc),
+            "profile_not_found",
+            "Profile unavailable",
+            "The selected profile version does not exist.",
         ) from exc
-
-
-def _validate_tdm_semantics(request: TdmJobRequest, db: Any) -> dict:
-    try:
-        document = db.get_tdm_profile(request.profile.name, request.profile.version)
-        return validate_tdm_profile(request, document).model_dump(mode="json")
-    except (KeyError, ValueError) as exc:
+    except ValueError as exc:
         raise ServiceProblem(
-            422,
-            "tdm_profile_not_found",
-            "TDM profile unavailable",
-            str(exc),
+            422, "profile_incompatible", "Incompatible profiles", str(exc)
         ) from exc
+
+
+router = APIRouter()
+
+
+@router.get("/health/live")
+def live() -> dict:
+    return {"status": "ok"}
+
+
+@router.get("/health/ready")
+def ready(db: Annotated[Database, Depends(get_db)]) -> dict:
+    try:
+        db.healthcheck()
+    except Exception as exc:
+        raise ServiceProblem(
+            503,
+            "database_unavailable",
+            "Database unavailable",
+            "Results storage is unavailable.",
+            True,
+        ) from exc
+    return {"status": "ready"}
+
+
+@router.get("/metrics", include_in_schema=False)
+def metrics() -> Response:
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@router.get("/v1/capabilities", dependencies=[Depends(trusted_gateway)])
+def capabilities() -> dict:
+    return capabilities_document()
+
+
+@router.get("/v1/forward-model-profiles", dependencies=[Depends(trusted_gateway)])
+def model_profiles(db: Annotated[Database, Depends(get_db)]) -> list[dict]:
+    return db.list_profiles("forward_model")
+
+
+@router.get("/v1/optimizer-profiles", dependencies=[Depends(trusted_gateway)])
+def optimizer_profiles(db: Annotated[Database, Depends(get_db)]) -> list[dict]:
+    return db.list_profiles("optimizer")
+
+
+@router.post(
+    "/v1/estimate-jobs/validate",
+    response_model=ValidationResponse,
+    dependencies=[Depends(trusted_gateway)],
+)
+def validate(
+    request: EstimateRequest, db: Annotated[Database, Depends(get_db)]
+) -> ValidationResponse:
+    return ValidationResponse(configuration=_configuration(request, db))
+
+
+@router.post(
+    "/v1/estimate-jobs",
+    status_code=202,
+    response_model=EstimateAccepted,
+    dependencies=[Depends(trusted_gateway)],
+)
+def submit(
+    db: Annotated[Database, Depends(get_db)],
+    request: EstimateRequest,
+    actor_id: Annotated[
+        str, Header(alias="X-DART-Actor-ID", min_length=1, max_length=200)
+    ],
+    actor_type: Annotated[
+        Literal["human", "service"], Header(alias="X-DART-Actor-Type")
+    ],
+    idempotency_key: Annotated[
+        str, Header(alias="Idempotency-Key", min_length=1, max_length=200)
+    ],
+) -> EstimateAccepted:
+    configuration = _configuration(request, db)
+    try:
+        accepted = db.submit_estimate(
+            configuration, actor_id, actor_type, idempotency_key
+        )
+    except IdempotencyConflict as exc:
+        raise ServiceProblem(
+            409,
+            "idempotency_key_reused",
+            "Idempotency key reused",
+            "This key was already used for a different request.",
+        ) from exc
+    if not accepted.idempotent_replay:
+        JOBS_SUBMITTED.labels(model=configuration.forward_model.name).inc()
+    return accepted
+
+
+@router.post(
+    "/v1/jobs/{job_id}/cancel",
+    response_model=CancelResponse,
+    dependencies=[Depends(trusted_gateway)],
+)
+def cancel(
+    db: Annotated[Database, Depends(get_db)],
+    job_id: UUID,
+    actor_id: Annotated[
+        str, Header(alias="X-DART-Actor-ID", min_length=1, max_length=200)
+    ],
+) -> CancelResponse:
+    try:
+        return CancelResponse(**db.cancel_job(job_id, actor_id))
+    except JobNotFound as exc:
+        raise ServiceProblem(
+            404, "job_not_found", "Job not found", "Unknown estimate job."
+        ) from exc
+    except JobOwnershipConflict as exc:
+        raise ServiceProblem(
+            403,
+            "job_actor_mismatch",
+            "Actor mismatch",
+            "Only the submitting actor may cancel this job.",
+        ) from exc
+
+
+@router.post(
+    "/v1/solve-jobs",
+    dependencies=[Depends(trusted_gateway)],
+    include_in_schema=False,
+)
+@router.post(
+    "/v1/tdm-jobs", dependencies=[Depends(trusted_gateway)], include_in_schema=False
+)
+def historical_submission() -> None:
+    raise ServiceProblem(
+        410,
+        "historical_contract_retired",
+        "Historical API retired",
+        "Use /v1/estimate-jobs. Product generation is deferred.",
+    )
 
 
 def create_app(
     *,
     settings: ServiceSettings | None = None,
-    database: Any | None = None,
-    migrate_on_start: bool = True,
+    database: Database | None = None,
+    migrate_on_start: bool = False,
 ) -> FastAPI:
     settings = settings or ServiceSettings.from_env()
     owns_database = database is None
-    db = database or Database(settings, open_pool=False)
+    db = database if database is not None else Database(settings, open_pool=False)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if owns_database:
             db.open()
-        if migrate_on_start:
-            db.migrate()
         app.state.database = db
+        app.state.settings = settings
         try:
+            if migrate_on_start:
+                db.migrate()
             yield
         finally:
             if owns_database:
                 db.close()
 
     app = FastAPI(
-        title="DART Asynchronous Processing API",
-        version=__version__,
+        title="DART Estimates",
+        version="1",
         lifespan=lifespan,
         openapi_url="/v1/openapi.json",
         docs_url="/v1/docs",
     )
     app.add_exception_handler(ServiceProblem, service_problem_handler)
     app.add_exception_handler(RequestValidationError, validation_problem_handler)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=[
-            "Content-Type",
-            "Idempotency-Key",
-            "X-DART-Actor-ID",
-            "X-DART-Actor-Type",
-        ],
-    )
 
-    @app.get("/health/live", operation_id="healthLive", tags=["operations"])
-    def health_live() -> dict:
-        return {"status": "ok"}
-
-    @app.get("/health/ready", operation_id="healthReady", tags=["operations"])
-    def health_ready(db: Annotated[Any, Depends(get_db)]) -> dict:
-        try:
-            db.healthcheck()
-        except Exception as exc:
-            raise ServiceProblem(
-                503,
-                "database_unavailable",
-                "Database unavailable",
-                str(exc),
-                retryable=True,
-            ) from exc
-        return {"status": "ready"}
-
-    @app.get("/metrics", include_in_schema=False)
-    def metrics() -> Response:
-        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
-    @app.get("/v1/capabilities", operation_id="getCapabilities", tags=["discovery"])
-    def get_capabilities() -> dict:
-        return capabilities_document()
-
-    @app.get(
-        "/v1/optimizer-profiles",
-        operation_id="listOptimizerProfiles",
-        tags=["discovery"],
-    )
-    def list_optimizer_profiles(db: Annotated[Any, Depends(get_db)]) -> list[dict]:
-        try:
-            return db.list_profiles()
-        except AttributeError:
-            return profile_documents()
-
-    @app.get(
-        "/v1/tdm-profiles",
-        operation_id="listTdmProfiles",
-        tags=["discovery"],
-    )
-    def list_tdm_profiles(db: Annotated[Any, Depends(get_db)]) -> list[dict]:
-        try:
-            return db.list_tdm_profiles()
-        except AttributeError:
-            return load_tdm_profile_documents(settings.tdm_profile_dir)
-
-    @app.post(
-        "/v1/solve-jobs/validate",
-        response_model=ValidationResponse,
-        operation_id="validateSolveJob",
-        tags=["jobs"],
-    )
-    def validate_solve_job(
-        request: SolveJobRequest,
-        actor: Annotated[Actor, Depends(trusted_actor)],
-    ) -> ValidationResponse:
-        del actor
-        profile, effective = _validate_semantics(request)
-        return ValidationResponse(
-            resolved_profile=profile,
-            effective_settings=effective,
-            frequency_source=(
-                "request"
-                if request.solver.nominal_center_frequency_hz is not None
-                else "control_config_deferred"
-            ),
-        )
-
-    @app.post(
-        "/v1/solve-jobs",
-        status_code=202,
-        response_model=SolveJobAccepted,
-        operation_id="submitSolveJob",
-        tags=["jobs"],
-    )
-    def submit_solve_job(
-        request: SolveJobRequest,
-        actor: Annotated[Actor, Depends(trusted_actor)],
-        idempotency_key: Annotated[
-            str, Header(alias="Idempotency-Key", min_length=1, max_length=200)
-        ],
-        db: Annotated[Any, Depends(get_db)],
-    ) -> SolveJobAccepted:
-        _validate_semantics(request)
-        body = request.model_dump(mode="json")
-        try:
-            job_id, replay = db.submit_job(
-                request_json=body,
-                actor_id=actor.id,
-                actor_type=actor.type.value,
-                idempotency_key=idempotency_key,
-                max_attempts=settings.max_attempts,
-                operation="solve",
-            )
-        except IdempotencyConflict as exc:
-            raise ServiceProblem(
-                409,
-                "idempotency_key_reused",
-                "Idempotency key reused",
-                "This actor already used the key with a different request.",
-            ) from exc
-        JOBS_SUBMITTED.labels(solver_kind=request.solver.kind).inc()
-        return SolveJobAccepted(job_id=job_id, idempotent_replay=replay)
-
-    @app.post(
-        "/v1/tdm-jobs/validate",
-        response_model=TdmValidationResponse,
-        operation_id="validateTdmJob",
-        tags=["jobs"],
-    )
-    def validate_tdm_job(
-        request: TdmJobRequest,
-        actor: Annotated[Actor, Depends(trusted_actor)],
-        db: Annotated[Any, Depends(get_db)],
-    ) -> TdmValidationResponse:
-        del actor
-        return TdmValidationResponse(
-            resolved_profile=_validate_tdm_semantics(request, db)
-        )
-
-    @app.post(
-        "/v1/tdm-jobs",
-        status_code=202,
-        response_model=SolveJobAccepted,
-        operation_id="submitTdmJob",
-        tags=["jobs"],
-    )
-    def submit_tdm_job(
-        request: TdmJobRequest,
-        actor: Annotated[Actor, Depends(trusted_actor)],
-        idempotency_key: Annotated[
-            str, Header(alias="Idempotency-Key", min_length=1, max_length=200)
-        ],
-        db: Annotated[Any, Depends(get_db)],
-    ) -> SolveJobAccepted:
-        _validate_tdm_semantics(request, db)
-        try:
-            job_id, replay = db.submit_job(
-                request_json=request.model_dump(mode="json"),
-                actor_id=actor.id,
-                actor_type=actor.type.value,
-                idempotency_key=idempotency_key,
-                max_attempts=settings.max_attempts,
-                operation="tdm_export",
-            )
-        except IdempotencyConflict as exc:
-            raise ServiceProblem(
-                409,
-                "idempotency_key_reused",
-                "Idempotency key reused",
-                "This actor already used the key with a different request.",
-            ) from exc
-        JOBS_SUBMITTED.labels(solver_kind=f"tdm_{request.product}").inc()
-        return SolveJobAccepted(job_id=job_id, idempotent_replay=replay)
-
-    @app.post(
-        "/v1/jobs/{job_id}/cancel",
-        response_model=CancelResponse,
-        operation_id="cancelJob",
-        tags=["jobs"],
-    )
-    def cancel_job(
-        job_id: UUID,
-        actor: Annotated[Actor, Depends(trusted_actor)],
-        db: Annotated[Any, Depends(get_db)],
-    ) -> CancelResponse:
-        try:
-            return CancelResponse(**db.cancel_job(job_id, actor.id))
-        except JobNotFound as exc:
-            raise ServiceProblem(
-                404, "job_not_found", "Job not found", str(exc)
-            ) from exc
-        except JobOwnershipConflict as exc:
-            raise ServiceProblem(
-                403,
-                "job_actor_mismatch",
-                "Job actor mismatch",
-                "Only the submitting actor may cancel this job.",
-            ) from exc
-
+    app.include_router(router)
     return app
 
 

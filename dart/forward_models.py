@@ -1,14 +1,14 @@
 """Python boundary for DART's authoritative Rust forward models.
 
-The functions in this module are intentionally evaluators, not optimizers.
-Their outputs can be passed directly to SciPy, an MCP controller, or another
-estimation loop without duplicating the numerical model in Python.
+Evaluators feed SciPy or other estimation loops without duplicating the
+numerical model in Python. TLE re-epoching delegates fitting and preservation
+checks to Rust using the published satkit fitter.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from importlib import import_module
 from typing import TypeAlias
 
@@ -21,6 +21,65 @@ from .io import ForwardModelContext
 _native = import_module("dart._forward_models")
 
 FloatArray: TypeAlias = NDArray[np.float64]
+
+
+@dataclass(frozen=True, slots=True)
+class ReepochedTle:
+    """Serialized candidate and its preservation diagnostics in SI units."""
+
+    original_tle_lines: tuple[str, str]
+    tle_lines: tuple[str, str]
+    epoch_unix_s: float
+    serialized_epoch_unix_s: float
+    window_start_unix_s: float
+    window_stop_unix_s: float
+    fit_status: str
+    converged: bool
+    position_rms_m: float
+    position_max_m: float
+    velocity_rms_m_s: float
+    velocity_max_m_s: float
+
+
+class ReepochError(ValueError):
+    """Rejected re-epoching; diagnostics exist when a candidate was validated."""
+
+    def __init__(self, message: str, diagnostics: ReepochedTle | None = None):
+        super().__init__(message)
+        self.diagnostics = diagnostics
+
+
+def _reepoch_result(native: object) -> ReepochedTle:
+    values = {field.name: getattr(native, field.name) for field in fields(ReepochedTle)}
+    for name in ("original_tle_lines", "tle_lines"):
+        values[name] = tuple(values[name])
+    return ReepochedTle(**values)
+
+
+def reepoch_tle(
+    tle_lines: tuple[str, str],
+    epoch: sk.time,
+    window_start: sk.time,
+    window_stop: sk.time,
+) -> ReepochedTle:
+    """Fit with stock Rust satkit and reject nonconvergence or preservation loss.
+
+    Checks 241 epochs after serialization: position RMS/max <10/20 m and
+    velocity RMS/max <0.01/0.02 m/s. No observations or OEM enter this fit.
+    """
+    if len(tle_lines) != 2:
+        raise ReepochError("tle_lines must contain line 1 and line 2")
+    try:
+        native = _native.reepoch_tle(
+            tle_lines,
+            _unix_seconds(epoch),
+            _unix_seconds(window_start),
+            _unix_seconds(window_stop),
+        )
+    except ValueError as exc:
+        diagnostics = _reepoch_result(exc.args[1]) if len(exc.args) == 2 else None
+        raise ReepochError(str(exc.args[0]), diagnostics) from exc
+    return _reepoch_result(native)
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,11 +315,15 @@ def transform_states(
     return np.asarray(
         _native.transform_states(
             values.tolist(), [_unix_seconds(t) for t in epochs], from_frame, to_frame
-        ), dtype=np.float64,
+        ),
+        dtype=np.float64,
     )
 
 
 __all__ = [
+    "ReepochedTle",
+    "ReepochError",
+    "reepoch_tle",
     "clear_frame_cache",
     "transform_states",
     "ForwardModelEvaluation",

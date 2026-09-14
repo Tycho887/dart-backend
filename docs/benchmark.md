@@ -122,9 +122,14 @@ The root [experiment.py](../experiment.py) contains the complete FOREST runner,
 including its pass gate, configurations, statistics, covariance, and plotting:
 
 ```bash
-uv run python experiment.py --output experiments/results/forest-run
-uv run python experiment.py --forest 16 --output experiments/results/forest16-gated --min-samples 40
+uv run python experiment.py
+uv run python experiment.py --forest 16 --output raw_results/forest16-gated --min-samples 40
 ```
+
+Results default to `raw_results/forest-<UTC timestamp>/` relative to the repository,
+with a fresh timestamp for each invocation. The selected directory is printed at
+startup. Use `--output` to select another directory; existing run directories are
+never overwritten. Generated files under `raw_results/` are ignored by Git.
 
 All selected spacecraft are cached before fitting, using the recovered contact
 inventories and priors in `tests/live-data/forest16.py` through `forest19.py`.
@@ -139,9 +144,12 @@ For each spacecraft the runner fits single-pass timing plus Doppler bias,
 sliding three-pass SGP4 mean longitude/mean motion plus per-pass biases, then
 full-state corrections plus per-pass biases for chronological prefixes from one
 pass through all retained passes. Fits use linear loss, existing profile
-bounds/scales, and 1,000 evaluations. Timing starts at zero and is bounded by
-`--time-offset-bound-s` (default 600 seconds). No phase scan or historical tuned
-loss is applied.
+bounds/scales, and 1,000 evaluations. Timing scans the bounds configured by
+`--time-offset-bound-s` (default ±600 seconds) at 10-second spacing, including
+both endpoints and zero. Each candidate fits bounded pass biases with SciPy
+linear least squares using Rust residuals and Jacobians. The lowest-cost
+candidate initializes timing-only refinement. The estimates are independent
+of subsequent L+n and full-state fits and are not applied as orbit corrections.
 
 It writes one combined `experiment.json`, `summary.csv`, and `accuracy.png`.
 The JSON checkpoints every fit and contains column-oriented state/Doppler
@@ -151,13 +159,42 @@ plus signed component means/variances. Units are metres and metres/second;
 variance units are their squares. Empty scores are null/blank, never zero.
 Use a new output directory for every run; cached inputs are reusable offline.
 
-Scoring uses TLE epoch ±30 minutes for SGP4 and the retained observation range's
-midpoint ±30 minutes for full-state fitting. Initialization precedes both the
-first observation and the scoring window; the midpoint is the **scoring center**,
-not the initial Cartesian state epoch. Actual OEM samples are used, with partial
-coverage labeled and drawn as open markers. Timing-only fitting leaves the
-physical orbit errors unchanged. Full-state prefixes can have different scoring
-centers, so their plot compares both pass count and observation interval.
+All stages share the midpoint of **all retained observations for the spacecraft**
+as their scoring center, with a ±30-minute window. Cartesian initialization is
+one second before the earlier of the first observation and scoring-window start.
+Actual OEM samples retain coverage labels; partial coverage uses open markers.
+Timing-only fitting leaves physical orbit errors unchanged.
+
+The original TLE is re-epoched once at that midpoint through
+`dart.forward_models.reepoch_tle(tle_lines, epoch, window_start, window_stop)`.
+Rust propagates 121 evenly spaced original-TLE GCRF states and calls the published
+satkit `TLE::fit_from_states` directly. The interval covers retained observations
+expanded by the timing bounds, the initialization epoch, and the scoring window.
+No observed Doppler or OEM data enters re-epoching. Satkit remains unmodified:
+its fitter uses WGS84/IMPROVED; DART propagation uses WGS72/IMPROVED.
+
+After preserving spacecraft identifier columns, the candidate is serialized,
+reloaded, and compared with the original using DART propagation at all fit nodes
+and 120 interleaved epochs. Acceptance requires convergence, position RMS <10 m
+and maximum <20 m, and velocity RMS <0.01 m/s and maximum <0.02 m/s. These are
+sampled preservation checks over the declared interval. Epoch and element
+rounding are included in the validation; no custom fitter or rounding search is
+used. `ReepochError` rejects failures and retains candidate diagnostics when
+available. The experiment records the rejection and skips that spacecraft's
+stages while continuing other spacecraft; it never substitutes the old prior.
+
+`PriorStateData.derived_tle_lines` and `benchmark(derived_tle_lines=...)` pass the
+same serialized prior to every stage while retaining original KOGS metadata and
+snapshot hashes. The case's `reepoching` record includes acceptance and, when
+available, original/derived lines, requested/serialized epochs, validation
+interval, fitter status, and position/velocity preservation errors.
+
+`initialize_sgp4_time(prior, optimizer, step_s=10)` in `dart.od.initialization`
+returns optimizer settings and scan columns `[offset_s, bias per pass, cost]`,
+with biases in pass-index order. It requires linear loss and estimation of only
+timing and all pass biases; other configured parameters stay fixed.
+`benchmark(initialize_time=True)` saves column names, scan, zero/coarse/final
+costs, refined offset, bounds and convergence under `timing_initialization`.
 
 The last full-state fit supplies residual-scaled Jacobian covariance, evaluated
 with SVD in scaled parameter coordinates and returned in physical units. This
@@ -172,3 +209,26 @@ the original all-pass prior, initialization epoch, and scoring window.
 The runner does not issue antenna commands or create service jobs. FOREST-19
 keeps its candidate-reference label. The restored quality reports remain the
 source for reference acceptance status.
+
+### Visualizing saved results
+
+```bash
+uv run python visualize.py raw_results/<run-directory>
+uv run python visualize.py raw_results/<run-directory> --forest 16 --run-id full_state-024
+```
+
+`visualize.py` reads `experiment.json` once and saves an accuracy overview plus
+orbit-error and Doppler-residual figures under the run's `plots/` directory.
+Detail plots default to the last recorded fit for each spacecraft. `--forest`
+selects one spacecraft; `--run-id` requires that selection. Use `--show` to also
+open plotting windows when a graphical environment is available.
+
+The orbit figures show all six signed GCRF error components against UTC time,
+with prior/fitted states and the one-hour scoring interval. Doppler points are
+colored by contact. All recorded samples are plotted without connecting gaps.
+Timing detail plots include the saved scan cost curve and refined offset; each
+spacecraft also gets a timing overview alongside Doppler residual RMS. Missing
+fits retain their unavailability reason, including re-epoching rejection.
+Titles preserve convergence and candidate-reference status; unavailable fitted
+states are labeled. Repeated visualization replaces generated plots, preserving
+the source JSON, CSV, and the experiment's original `accuracy.png`.

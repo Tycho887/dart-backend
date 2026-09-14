@@ -89,8 +89,10 @@ cargo test --manifest-path crates/forward-models/Cargo.toml
 ```
 
 See [the suite architecture](docs/dart-suite-architecture.md) for the target
-module boundaries. TDM, service, and control consumers are retained as
-migration work and are not part of the current IO/OD contracts.
+module boundaries. TDM and control consumers retain migration work outside the current IO/OD contracts.
+The [estimate service](docs/async-api.md) now connects the current OD interface
+to TimescaleDB and Grafana: `scripts/start_results.sh` starts the local stack,
+and `/d/dart-estimates/estimates` opens the result workflow on port 3001.
 
 ## GPS orbit fitting and CCSDS OEM
 

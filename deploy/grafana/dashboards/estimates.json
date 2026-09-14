@@ -1,0 +1,558 @@
+{
+  "id": 918834487607296,
+  "panels": [
+    {
+      "gridPos": {
+        "h": 20,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "elementValueChanged": "globalThis.dartEstimateForm?.change(context);",
+        "elements": [
+          {
+            "id": "contact_ids",
+            "labelWidth": 24,
+            "title": "Contact UUIDs",
+            "tooltip": "Comma or whitespace separated; one or multiple contacts from the same spacecraft.",
+            "type": "string",
+            "uid": "contact_ids",
+            "value": ""
+          },
+          {
+            "id": "ephemeris_id",
+            "labelWidth": 24,
+            "title": "Prior ephemeris",
+            "tooltip": "Explicit KOGS TLE ephemeris for the selected spacecraft.",
+            "type": "string",
+            "uid": "ephemeris_id",
+            "value": ""
+          },
+          {
+            "getOptions": "return globalThis.dartEstimateForm?.modelOptions() ?? [];",
+            "id": "forward_model",
+            "labelWidth": 24,
+            "options": [],
+            "optionsSource": "Code",
+            "title": "Forward model",
+            "type": "select",
+            "uid": "forward_model",
+            "value": "lofi-time@1"
+          },
+          {
+            "getOptions": "return globalThis.dartEstimateForm?.optimizerOptions(context.panel.elements) ?? [];",
+            "id": "optimizer",
+            "labelWidth": 24,
+            "options": [],
+            "optionsSource": "Code",
+            "title": "Optimizer",
+            "type": "select",
+            "uid": "optimizer",
+            "value": "least-squares@1"
+          },
+          {
+            "id": "summary",
+            "labelWidth": 24,
+            "title": "Effective settings",
+            "type": "disabledTextarea",
+            "uid": "summary",
+            "value": ""
+          },
+          {
+            "id": "label",
+            "labelWidth": 24,
+            "title": "Label (optional)",
+            "type": "string",
+            "uid": "label",
+            "value": ""
+          },
+          {
+            "id": "advanced",
+            "labelWidth": 24,
+            "options": [
+              {
+                "id": "show",
+                "label": "Show settings",
+                "type": "string",
+                "value": "show"
+              }
+            ],
+            "optionsSource": "Custom",
+            "title": "Advanced",
+            "type": "checkboxList",
+            "uid": "advanced",
+            "value": []
+          },
+          {
+            "id": "min_elevation_deg",
+            "labelWidth": 24,
+            "showIf": "return context.panel.elements.find(e => e.id === 'advanced')?.value?.includes('show') ?? false;",
+            "title": "Min. elevation (deg)",
+            "type": "number",
+            "uid": "min_elevation_deg",
+            "value": 1
+          },
+          {
+            "id": "min_ebn0_db",
+            "labelWidth": 24,
+            "showIf": "return context.panel.elements.find(e => e.id === 'advanced')?.value?.includes('show') ?? false;",
+            "title": "Min. Eb/N0 (dB)",
+            "type": "string",
+            "uid": "min_ebn0_db",
+            "value": ""
+          },
+          {
+            "id": "min_abs_doppler_hz",
+            "labelWidth": 24,
+            "showIf": "return context.panel.elements.find(e => e.id === 'advanced')?.value?.includes('show') ?? false;",
+            "title": "Min. |Doppler| (Hz)",
+            "type": "number",
+            "uid": "min_abs_doppler_hz",
+            "value": 0
+          },
+          {
+            "id": "max_abs_doppler_hz",
+            "labelWidth": 24,
+            "showIf": "return context.panel.elements.find(e => e.id === 'advanced')?.value?.includes('show') ?? false;",
+            "title": "Max. |Doppler| (Hz)",
+            "type": "number",
+            "uid": "max_abs_doppler_hz",
+            "value": 100000
+          },
+          {
+            "id": "min_samples_per_contact",
+            "labelWidth": 24,
+            "showIf": "return context.panel.elements.find(e => e.id === 'advanced')?.value?.includes('show') ?? false;",
+            "title": "Min. samples/contact",
+            "type": "number",
+            "uid": "min_samples_per_contact",
+            "value": 20
+          },
+          {
+            "id": "doppler_sigma_hz",
+            "labelWidth": 24,
+            "showIf": "return context.panel.elements.find(e => e.id === 'advanced')?.value?.includes('show') ?? false;",
+            "title": "Doppler sigma (Hz)",
+            "type": "number",
+            "uid": "doppler_sigma_hz",
+            "value": 1
+          },
+          {
+            "id": "nominal_center_frequency_hz",
+            "labelWidth": 24,
+            "showIf": "return context.panel.elements.find(e => e.id === 'advanced')?.value?.includes('show') ?? false;",
+            "title": "Nominal frequency (Hz)",
+            "type": "string",
+            "uid": "nominal_center_frequency_hz",
+            "value": ""
+          },
+          {
+            "id": "max_evaluations",
+            "labelWidth": 24,
+            "showIf": "return context.panel.elements.find(e => e.id === 'advanced')?.value?.includes('show') ?? false;",
+            "title": "Evaluation limit",
+            "type": "string",
+            "uid": "max_evaluations",
+            "value": ""
+          }
+        ],
+        "initial": {
+          "code": "// Business Forms code shared by initial load, selection changes, and submission.\nglobalThis.dartEstimateForm ??= (() => {\n  const state = {models: [], optimizers: [], busy: false, accepted: null};\n  const value = (elements, id) => elements.find(e => e.id === id)?.value;\n  const scalar = v => Array.isArray(v) ? v[0] : v;\n  const ref = v => { const [name, version] = String(scalar(v)).split('@'); return {name, version: Number(version)}; };\n  const absent = v => v === null || v === undefined || (typeof v === 'string' && v.trim() === '');\n  function payload(elements) {\n    const read = id => value(elements, id);\n    const number = id => { const parsed = Number(read(id)); if (!Number.isFinite(parsed)) throw new Error(`Invalid number: ${id}`); return parsed; };\n    const body = {\n      contact_ids: String(read('contact_ids') ?? '').split(/[\\s,]+/).filter(Boolean),\n      ephemeris_id: String(read('ephemeris_id') ?? '').trim(),\n      forward_model: ref(read('forward_model')), optimizer: ref(read('optimizer')),\n      measurement_selection: {}, optimizer_overrides: {},\n    };\n    for (const id of ['min_elevation_deg', 'min_ebn0_db', 'min_abs_doppler_hz', 'max_abs_doppler_hz', 'min_samples_per_contact', 'doppler_sigma_hz']) {\n      if (!absent(read(id))) body.measurement_selection[id] = number(id);\n    }\n    if (!absent(read('max_evaluations'))) body.optimizer_overrides.max_evaluations = number('max_evaluations');\n    if (!absent(read('nominal_center_frequency_hz'))) body.nominal_center_frequency_hz = number('nominal_center_frequency_hz');\n    if (!absent(read('label'))) body.label = String(read('label')).trim();\n    return body;\n  }\n  async function request(path, body, key) {\n    const response = await fetch('/dart/v1/' + path, {\n      method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin',\n      headers: {'Content-Type': 'application/json', ...(key ? {'Idempotency-Key': key} : {})},\n      body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30000),\n    });\n    const text = await response.text();\n    let result; try { result = JSON.parse(text); } catch { result = {}; }\n    if (!response.ok) {\n      const detail = result.errors?.map(e => `${e.location}: ${e.message}`).join('; ');\n      throw new Error(detail || result.detail || text || `HTTP ${response.status}`);\n    }\n    return result;\n  }\n  function change(context) {\n    const elements = context.panel.elements;\n    const model = state.models.find(p => `${p.name}@${p.version}` === String(scalar(value(elements, 'forward_model'))));\n    if (!model) { context.panel.disableSubmit(); return; }\n    const compatible = state.optimizers.filter(p => p.compatible_models.includes(model?.name));\n    const current = String(scalar(value(elements, 'optimizer')));\n    const selected = compatible.find(p => `${p.name}@${p.version}` === current) || compatible[0];\n    const updated = elements.map(e => {\n      if (e.id === 'optimizer') return {...e, value: selected ? `${selected.name}@${selected.version}` : '', options: compatible.map(option)};\n      if (e.id === 'summary') return {...e, value: model ? `${model.description} ${selected?.label ?? ''}. Locked samples only.` : 'Loading profiles\u2026'};\n      return e;\n    });\n    context.panel.onChangeElements(updated);\n    let serialized;\n    try { serialized = JSON.stringify(payload(updated)); }\n    catch (error) {\n      context.panel.onChangeElements(updated.map(e => e.id === 'summary' ? {...e, value: error.message} : e));\n      context.panel.disableSubmit();\n      return;\n    }\n    if (model && selected && !state.busy && serialized !== state.accepted) context.panel.enableSubmit();\n    else context.panel.disableSubmit();\n  }\n  const option = p => ({id: `${p.name}@${p.version}`, label: `${p.label} (v${p.version})`, value: `${p.name}@${p.version}`, type: 'string'});\n  async function load(context) {\n    context.panel.disableSubmit();\n    try {\n      [state.models, state.optimizers] = await Promise.all([request('forward-model-profiles'), request('optimizer-profiles')]);\n      const elements = context.panel.elements.map(e => e.id === 'forward_model' ? {...e, options: state.models.map(option)} : e);\n      change({...context, panel: {...context.panel, elements}});\n    } catch (error) { context.grafana.notifyError(['Profiles unavailable', error.message]); }\n  }\n  async function submit(context) {\n    if (state.busy) return;\n    state.busy = true; context.panel.disableSubmit();\n    try {\n      const body = payload(context.panel.elements);\n      const serialized = JSON.stringify(body);\n      if (serialized === state.accepted) return;\n      const validated = await request('estimate-jobs/validate', body);\n      if (!validated.valid) throw new Error('Request validation failed');\n      const storageKey = 'dart.pendingEstimate';\n      const pending = JSON.parse(sessionStorage.getItem(storageKey) || 'null');\n      const key = pending?.body === serialized ? pending.key : crypto.randomUUID();\n      sessionStorage.setItem(storageKey, JSON.stringify({body: serialized, key}));\n      const result = await request('estimate-jobs', body, key);\n      if (!result.estimate_uuid || !result.job_id) throw new Error('Submission response is incomplete; retry safely with the same request.');\n      state.accepted = serialized; sessionStorage.removeItem(storageKey);\n      context.grafana.locationService.partial({'var-estimate_uuid': result.estimate_uuid}, true);\n      context.grafana.notifySuccess(['Estimate submitted', `${result.estimate_uuid} \u00b7 ${result.status}`]);\n      context.grafana.refresh();\n    } catch (error) { context.grafana.notifyError(['Submission failed', error.message]); }\n    finally { state.busy = false; change(context); }\n  }\n  const modelOptions = () => state.models.map(option);\n  const optimizerOptions = elements => state.optimizers.filter(p => p.compatible_models.includes(ref(value(elements, 'forward_model')).name)).map(option);\n  return {payload, load, change, submit, modelOptions, optimizerOptions};\n})();\n\nreturn globalThis.dartEstimateForm.load(context);",
+          "method": "-"
+        },
+        "layout": {
+          "padding": 12,
+          "variant": "single"
+        },
+        "reset": {
+          "variant": "hidden"
+        },
+        "saveDefault": {
+          "variant": "hidden"
+        },
+        "submit": {
+          "icon": "play",
+          "text": "Run estimate",
+          "variant": "primary"
+        },
+        "sync": false,
+        "update": {
+          "code": "return globalThis.dartEstimateForm.submit(context);",
+          "confirm": false,
+          "method": "-",
+          "payloadMode": "custom"
+        },
+        "updateEnabled": "manual"
+      },
+      "title": "Submit estimate",
+      "type": "volkovlabs-form-panel"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dart-estimates-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          },
+          "noValue": "Unavailable"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "estimate_uuid"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Inspect estimate",
+                    "url": "/d/dart-estimates/estimates?var-estimate_uuid=${__value.raw}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dart-estimates-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT created_at,estimate_uuid,status,spacecraft_name,contact_ids,forward_model_name,optimizer_name,label FROM dart.estimates_v1 WHERE $__timeFilter(created_at) ORDER BY created_at DESC LIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent estimates",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dart-estimates-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          },
+          "noValue": "Unavailable"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "id": 3,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dart-estimates-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT estimate_uuid,job_id,status,stage,cancel_requested,spacecraft_name,prior_ephemeris_id,epoch,terminal_error FROM dart.estimates_v1 WHERE estimate_uuid::text = ${estimate_uuid:sqlstring}",
+          "refId": "A"
+        }
+      ],
+      "title": "Selected estimate",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dart-estimates-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          },
+          "noValue": "Unavailable"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dart-estimates-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT parameter_name,role,value,unit,standard_uncertainty,initial_value,lower_bound,upper_bound,contact_id FROM dart.estimate_parameters_v1 WHERE estimate_uuid::text = ${estimate_uuid:sqlstring} ORDER BY ordinal",
+          "refId": "A"
+        }
+      ],
+      "title": "Fitted parameters",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dart-estimates-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          },
+          "noValue": "Unavailable"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
+      "id": 5,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dart-estimates-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT success,message,objective,optimality,function_evaluations,observation_count,residual_rms_hz,whitened_residual_rms,covariance_rank,warnings FROM dart.estimate_diagnostics_v1 WHERE estimate_uuid::text = ${estimate_uuid:sqlstring}",
+          "refId": "A"
+        }
+      ],
+      "title": "Fit diagnostics",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dart-estimates-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          },
+          "noValue": "Unavailable"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 51
+      },
+      "id": 6,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dart-estimates-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT prior_ephemeris_id,epoch,configuration,software_version FROM dart.estimates_v1 WHERE estimate_uuid::text = ${estimate_uuid:sqlstring}",
+          "refId": "A"
+        }
+      ],
+      "title": "Prior and profiles",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dart-estimates-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          },
+          "noValue": "Unavailable"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 57
+      },
+      "id": 7,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dart-estimates-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT created_at,event_type,to_status,diagnostic FROM dart.estimate_events_v1 WHERE estimate_uuid::text = ${estimate_uuid:sqlstring} ORDER BY created_at DESC,id DESC LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "Job events",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dart-estimates-db"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 64
+      },
+      "id": 8,
+      "options": {
+        "elements": [],
+        "initial": {
+          "code": "const status=context.panel.data.series[0]?.fields.find(f=>f.name==='status')?.values[0]; if(['queued','resolving_inputs','loading_telemetry','running'].includes(status)) context.panel.enableSubmit(); else context.panel.disableSubmit();",
+          "method": "-"
+        },
+        "layout": {
+          "variant": "none"
+        },
+        "reset": {
+          "variant": "hidden"
+        },
+        "saveDefault": {
+          "variant": "hidden"
+        },
+        "submit": {
+          "icon": "times",
+          "text": "Cancel estimate",
+          "variant": "destructive"
+        },
+        "update": {
+          "code": "return (async()=>{context.panel.disableSubmit(); try {const id=context.panel.data.series[0]?.fields.find(f=>f.name==='job_id')?.values[0]; if(!id) throw new Error('Select an active estimate'); const r=await fetch('/dart/v1/jobs/'+encodeURIComponent(id)+'/cancel',{method:'POST',credentials:'same-origin',signal:AbortSignal.timeout(30000)}); if(!r.ok) throw new Error(await r.text()); context.grafana.refresh(); context.grafana.notifySuccess(['Cancellation requested',id]);}catch(e){context.grafana.notifyError(['Cancellation failed',e.message]);}})();",
+          "confirm": false,
+          "method": "-"
+        },
+        "updateEnabled": "manual"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dart-estimates-db"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT job_id::text,status FROM dart.estimates_v1 WHERE estimate_uuid::text = ${estimate_uuid:sqlstring}",
+          "refId": "A"
+        }
+      ],
+      "title": "Cancel selected estimate",
+      "type": "volkovlabs-form-panel"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": [
+    "DART"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "dart-estimates-db"
+        },
+        "includeAll": false,
+        "label": "Estimate UUID",
+        "multi": false,
+        "name": "estimate_uuid",
+        "options": [],
+        "query": "WITH recent AS (SELECT estimate_uuid::text AS __value, COALESCE(label,spacecraft_name,'Estimate') || ' \u00b7 ' || estimate_uuid::text AS __text, created_at FROM dart.estimates_v1 ORDER BY created_at DESC LIMIT 200) SELECT __value,__text FROM recent UNION ALL SELECT '', 'No estimates yet' WHERE NOT EXISTS (SELECT 1 FROM recent) ORDER BY __text",
+        "refresh": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timezone": "utc",
+  "title": "Estimates",
+  "uid": "dart-estimates",
+  "version": 4
+}

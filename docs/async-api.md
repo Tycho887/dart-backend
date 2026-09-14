@@ -1,106 +1,180 @@
-# DART asynchronous processing API
+# Estimate service and Grafana
 
-> Historical 0.9 service notes. The service has not yet been migrated to the
-> current `dart.io` interface.
+DART runs estimates through `dart.od.fit`. FastAPI queues work; a separate
+worker acquires contact-bounded inputs and executes the fit. Grafana reads
+versioned SQL views using a dedicated read-only role. Its authenticated
+same-origin gateway supplies the engineer's identity to the command API.
 
-The v1 service accepts one contact UUID, stores a durable job in the `results`
-database, and lets a separate worker resolve KOGS metadata, load ADX telemetry,
-run a selected solver, and persist replayable artifacts. It never runs solver
-work as a FastAPI background task.
+## Start the local integration
 
-## Processes and configuration
-
-Install/build the project with `uv sync`, then configure:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `DART_DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/results` | PostgreSQL/TimescaleDB connection |
-| `DART_DATABASE_SCHEMA` | `dart` | Table and view schema |
-| `DART_CTRL_CONFIG_V2_DIR` | `ctrl-config/v2` | Required V2 configuration root |
-| `KOGS_API_KEY` | empty | KOGS authorization header value used only by workers |
-| `DART_WORKER_ID` | process-specific | Lease owner identity |
-| `DART_LEASE_SECONDS` | `300` | Worker lease duration |
-| `DART_HEARTBEAT_SECONDS` | `30` | Lease heartbeat interval |
-| `DART_POLL_SECONDS` | `5` | Poll fallback after `LISTEN/NOTIFY` |
-| `DART_MAX_ATTEMPTS` | `3` | Total attempts for transient failures |
-| `DART_TDM_PROFILE_DIR` | `config/tdm-profiles` | Reviewed versioned TRACK/ANGLE profiles |
-
-Apply migrations and run the two processes separately:
+`deploy/compose.grafana.yml` reuses the existing `dart-test_grafana_data`
+volume. Set `DART_GRAFANA_VOLUME` to another existing volume when needed.
+The new `dart_estimates_results` volume is separate from historical databases.
 
 ```bash
-uv run dart-migrate
-uv run dart-api
-uv run dart-worker
+uv sync
+DART_SECRETS_ENV=/opt/dart/secrets/test.env scripts/start_results.sh
 ```
 
-The API also migrates on startup. Production deployments should normally run
-`dart-migrate` as a deployment step before starting replicas.
+The source secret file must supply `POSTGRES_PASSWORD` and
+`GF_SECURITY_ADMIN_PASSWORD`, plus KOGS/ADX credentials for live acquisition.
+The script creates a private runtime env file at `/tmp/dart-results.env` (mode
+0600) with independently generated application, Grafana database, and gateway
+credentials. Set `DART_RUNTIME_ENV` to a protected persistent path for a managed
+deployment. Never commit this file or print Compose's expanded configuration.
 
-## HTTP contract
+Grafana is at `http://localhost:3001`; the results database is bound to
+`127.0.0.1:5434`. API, worker and gateway remain on the internal Docker network.
+Use an external HTTPS ingress and configure `DART_PUBLIC_ORIGINS` for remote
+access. Grafana Editors/Admins may submit and cancel their own jobs; Viewers
+can inspect results. All authorized members of this Grafana organization see
+the results views. This is an engineering-team deployment, not tenant isolation.
 
-Every operation except health and metrics is intended for a trusted network.
-Submission requires `Idempotency-Key`, `X-DART-Actor-ID`, and
-`X-DART-Actor-Type` (`human` or `service`). Validation and cancellation require
-the actor headers. In 0.9 these are trusted-network assertions and can be sent
-directly by Grafana; an untrusted deployment must use a gateway that prevents
-clients from forging them.
+The build uses a platform wheel and locked Python dependencies. The Python
+image is pinned; pin the Timescale/Grafana images to reviewed digests for your
+release process. A wheel SHA-256 is included in each stored software snapshot.
 
-The dispatch surface is:
+Migrations are an explicit bootstrap step, run as the database owner.
+`dart_app` can operate the queue and results tables but cannot alter the schema
+or profile definitions. `dart_grafana` can select only the six estimate views.
+The API and worker do not migrate on startup.
 
-- `POST /v1/solve-jobs/validate`
-- `POST /v1/solve-jobs`
-- `POST /v1/tdm-jobs/validate`
-- `POST /v1/tdm-jobs`
-- `POST /v1/jobs/{job_id}/cancel`
-- `GET /v1/capabilities`
-- `GET /v1/optimizer-profiles`
-- `GET /v1/tdm-profiles`
-- `GET /health/live`, `GET /health/ready`, and `GET /metrics`
+## Database contract
 
-Job submission returns `202` with the UUID and whether the response was an
-idempotent replay. Each TDM job generates one TRACK mode-4 or ANGLE AZEL
-artifact using a versioned server profile. V1 deliberately has no REST polling or result endpoint;
-therefore the response has no `Location` header. Request errors use RFC 9457
-problem documents with stable `code` and `retryable` fields.
+One `estimate_uuid` identifies one logical fit, allocated at submission and
+stable across automatic retries. Jobs have a new `job_runs.id` for each
+attempt. A heartbeat and every worker mutation require the current attempt,
+worker identity and an unexpired lease. A stale attempt cannot publish or
+change a recovered job, even when the worker ID is reused.
 
-The two solver kinds have separate public parameterizations:
+- `estimates` stores the selected prior ID, frozen configuration, full
+  normalized prior, initialization epoch, software versions and published run.
+  Outcome and progress are authoritative in its owning `jobs` row.
+- `estimate_contacts` preserves request/pass order, contact UUIDs and metadata.
+- `estimate_parameters` stores ordered named corrections, roles, units, final
+  and initialized values, bounds, scales, uncertainties and pass-bias contacts.
+- `estimate_diagnostics` separates optimizer termination, objective, whitened
+  residual RMS and RMS in Hz. Covariance and parameter ordering are explicit;
+  unavailable uncertainty stays NULL. Optimizer success is not an accuracy claim.
+- `estimate_artifacts` stores exact bytes, media type, filename, SHA-256,
+  generated byte count, attempt, kind and provenance. Raw Parquet, normalized
+  prior, initialized optimizer/scan and complete output are retained.
 
-- `sgp4_mean_elements`: `mean_anomaly`, `mean_anomaly_mean_motion`, or
-  `mean_anomaly_mean_motion_frequency`.
-- `sgp4_time_shift`: `time_shift`, `time_shift_bias`, or
-  `time_shift_bias_frequency`.
+All are regular PostgreSQL tables inside TimescaleDB. No retention or
+hypertable policy is enabled. Result parameters, diagnostics, output artifacts
+and terminal outcome commit together. A nonconverged optimizer publishes its
+available diagnostics with a failed outcome; canceled execution publishes no
+fit rows. Once inputs are frozen, retries reuse them without reacquiring ADX.
 
-Frequency variants fit a bounded delta around the request's optional
-`nominal_center_frequency_hz`, or around
-`links.s_band_downlink_p1_1.frequency` from the spacecraft's V2 YAML file.
-`/v1/capabilities` is authoritative for current fields, units, defaults, and
-bounds.
+Replay a saved normalized prior and initialized optimizer with
+`dart.service.serialization.restore_prior` / `restore_optimizer`, then
+`dart.od.fit`. Service artifact JSON uses `format_version=1` for normalized
+priors and preserves native numerical units; it is separate from the historical
+MessagePack contract.
 
-## Storage and Grafana
+TDM/OEM kinds and provenance fit the artifact schema, but generation/download
+APIs are deferred. KSAT TDM comes from raw tracking data. OEM requires a typed
+orbit solution and explicit export metadata; timing/frequency/bias parameters
+are measurement corrections, not orbital corrections.
 
-Migrations create regular tables under schema `dart`; V1 does not require a
-Timescale hypertable. Grant Grafana read-only access to these stable views:
+## Profiles and HTTP commands
 
-```sql
-SELECT * FROM dart.job_status_v1 ORDER BY created_at DESC;
-SELECT * FROM dart.job_results_v1 WHERE status = 'succeeded';
-SELECT * FROM dart.job_events_v1 WHERE job_id = $1 ORDER BY created_at, id;
-SELECT * FROM dart.tdm_artifacts_v1 WHERE job_id = $1;
+Forward-model profiles are versioned separately from optimizer profiles:
+
+| Model profile | Parameters |
+| --- | --- |
+| `lofi-time` | Global time offset and one bias per contact |
+| `lofi-time-frequency` | Time offset, center-frequency offset and contact biases |
+| `lofi-elements` | SGP4 mean longitude, mean motion and contact biases |
+| `hifi` | Six GCRF Cartesian corrections and contact biases |
+
+Omitted corrections are zero. Every current profile requires an explicitly
+selected same-spacecraft TLE prior; full state is initialized from that TLE.
+The Cartesian epoch is one second before the earliest retained observation,
+leaving room for the numerical model's time derivatives. Parameter units are
+seconds, Hz, degrees, rev/day, metres and metres/second as appropriate.
+
+Model profiles own physical bounds/scales. The timing bound is ±600 seconds;
+frequency correction is bounded to ±1 MHz. Orbital and pass-bias settings reuse
+`dart.od.profiles`. These are search bounds, not prior uncertainty estimates.
+
+Optimizer profiles are `least-squares`, `robust` (soft L1), `timing-scan` and
+`phase-scan`. Timing scan supports `lofi-time`; phase scan supports
+`lofi-elements`. Robust loss scale is in whitened residual units. Physical
+regularization is unavailable. Overrides are bounded and incompatible or
+ineffective settings are rejected. Increment profile versions to change them;
+bootstrap refuses to overwrite an existing version with a different definition.
+
+The following paths are available through `/dart` in Grafana's origin:
+
+| Method/path | Behavior |
+| --- | --- |
+| `GET /v1/capabilities` | Supported operations and override schema |
+| `GET /v1/forward-model-profiles` | Model catalog |
+| `GET /v1/optimizer-profiles` | Optimizer catalog and compatibility |
+| `POST /v1/estimate-jobs/validate` | Resolve settings without provider access |
+| `POST /v1/estimate-jobs` | Queue one single/multipass fit |
+| `POST /v1/jobs/{job_id}/cancel` | Cooperative owner-only cancellation |
+
+Submission needs `Idempotency-Key`; returns HTTP 202 with `job_id`,
+`estimate_uuid`, current `status`, and `idempotent_replay`. Replaying a terminal
+request returns its actual terminal status. Changing the request under the
+same actor/key returns 409. Validation of live contact identity and data
+availability happens in the worker. Errors use RFC 9457 problem documents.
+
+```json
+{
+  "contact_ids": ["00000000-0000-0000-0000-000000000001"],
+  "ephemeris_id": "00000000-0000-0000-0000-000000000002",
+  "forward_model": {"name": "lofi-time", "version": 1},
+  "optimizer": {"name": "least-squares", "version": 1},
+  "label": "Timing check"
+}
 ```
 
-The underlying tables retain requests, configuration and KOGS provenance,
-state history, runs, compact results, and SHA-256-addressed JSON/MessagePack
-artifacts. No automatic retention policy is applied. Do not grant the Grafana
-role write access or access to deployment secret stores.
+These UUIDs illustrate the contract; they are not live test contacts.
+Carrier lock is required. Optional filters and frequency override belong under
+Advanced. The default frequency comes from the spacecraft's reviewed V2
+ctrl-config link. No source credentials appear in requests, artifacts or
+persisted provider error messages.
 
-## Testing
+`/health/live`, `/health/ready`, and `/metrics` are internal operational
+endpoints. The API requires a gateway token and injected actor headers;
+clients cannot supply trusted identity through ingress. Historical solve/TDM
+submission paths return 410 rather than interpreting old requests as estimates.
+There is no REST results/search API.
 
-The normal suite uses fakes and does not require a database. The database suite
-starts and removes an isolated TimescaleDB container:
+## Dashboard and verification
+
+`python scripts/build_estimates_dashboard.py` builds
+`deploy/grafana/dashboards/estimates.json` from the readable form code and panel
+queries. The dashboard UID is `dart-estimates`, datasource UID
+`dart-estimates-db`. Apply through the Grafana skill helper after exporting the
+current version; keep the version field current and supply a backup path.
+The first import can use Grafana's Import screen or the HTTP API.
+
+The form loads profile catalogs, filters compatible optimizers, keeps advanced
+settings collapsed, preserves zeros and keeps a pending idempotency key in
+session storage across uncertain responses. Tables refresh every five seconds
+with bounded queries. Select an estimate to inspect parameters, diagnostics,
+provenance and audit events, or cancel an active owned job.
 
 ```bash
-uv run pytest -q
-DART_RUN_DATABASE_TESTS=1 uv run pytest -q tests/test_service_database.py
+uv run pytest -q tests/test_service.py tests/test_service_gateway.py
+DART_TEST_DATABASE_URL=postgresql://... uv run pytest -q tests/test_service_database.py
+node --test --test-isolation=none tests/test_grafana_form.cjs
 ```
 
-Live KOGS/ADX tests retain their existing secret and VPN requirements.
+Database tests create and remove unique schemas in the specified isolated test
+database. They verify duplicate submissions/claims, stale-worker rejection,
+transaction rollback, cancellation, frozen-input retries and numerical parity
+for all profiles. Do not point them at an operational database.
+
+Back up the `results` database with `pg_dump -Fc` and test restoration into a
+separate database before release. Preserve the Grafana volume and export
+reviewed dashboards. Schema changes are additive: rollback means stopping new
+API/worker processes and reverting dashboard exports, without dropping result
+tables or volumes. Monitor queue age, worker outcomes, stage latency, storage
+availability and database disk usage. Live KOGS/ADX submissions require
+explicitly authorized contact IDs; UI/query verification alone does not submit
+work.

@@ -226,3 +226,7 @@ __marimo__/
 
 # Local benchmark input snapshots and exported residuals.
 experiments/results/
+/raw_results/
+
+# Results service deployment wheel artifacts (contains no runtime credentials).
+/deploy/wheels/

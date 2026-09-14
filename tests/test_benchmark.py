@@ -3,6 +3,7 @@
 import asyncio
 import json
 from dataclasses import replace
+from functools import partial
 
 import numpy as np
 import polars as pl
@@ -10,9 +11,10 @@ import pytest
 import satkit as sk
 from polars.testing import assert_frame_equal
 
+from dart.io.doppler import prepare_doppler
 from dart.io.load import LoadError
 from dart.io.oem import OemMetadata, write_oem
-from dart.od import OptimizerContext, OrbitModel, ParameterSpec
+from dart.od import OptimizerContext, OrbitModel, ParameterSpec, PriorStateData
 from dart.od.profiles import orbit_bias_profile
 from experiments import _benchmark_io as storage
 from experiments import benchmark_gps_ref as bench
@@ -397,14 +399,11 @@ def test_experiment_groups_and_parameter_sets():
             assert len(names - biases) == 6
 
 
-def test_experiment_scoring_epochs_use_tle_text_and_observed_midpoint(data):
+def test_experiment_scoring_epochs_use_observed_midpoint(data):
     import experiment as study
 
     _, frame, prior, _ = data
-    center, epoch = study.scoring_epochs(OrbitModel.SGP4, frame, prior)
-    assert center == sk.time(2026, 5, 3)
-    assert epoch == center - sk.duration(seconds=1801)
-    center, epoch = study.scoring_epochs(OrbitModel.FULL_STATE, frame, prior)
+    center, epoch = study.scoring_epochs(frame)
     first = sk.time.from_datetime(frame["timestamp"].min()).as_unixtime()
     last = sk.time.from_datetime(frame["timestamp"].max()).as_unixtime()
     assert center.as_unixtime() == pytest.approx((first + last) / 2)
@@ -516,8 +515,35 @@ def test_experiment_replays_gates_exports_and_refits_once(monkeypatch, data, tmp
     get_prior.reset_mock()
     fetch.reset_mock()
     calls = []
+    from dart.forward_models import ReepochedTle
+
+    original = tuple(data[2].tle.splitlines()[-2:])
+    reepoch_calls = []
+
+    def reepoch(lines, center, start, stop):
+        reepoch_calls.append((lines, center, start, stop))
+        return ReepochedTle(
+            lines,
+            original,
+            center.as_unixtime(),
+            center.as_unixtime(),
+            start.as_unixtime(),
+            stop.as_unixtime(),
+            "CostConverged",
+            True,
+            1,
+            2,
+            0.001,
+            0.002,
+        )
+
+    monkeypatch.setattr(study, "reepoch_tle", reepoch)
 
     async def fit_case(ids, path, *, optimizer, epoch, snapshot_dir, **kwargs):
+        assert kwargs["derived_tle_lines"] == original
+        assert kwargs["initialize_time"] == (
+            optimizer.parameters[0].name == "time_offset_s"
+        )
         assert (snapshot_dir / "manifest.json").is_file()
         assert get_prior.call_count == 1 and fetch.call_count == 2
         count = len(optimizer.parameters)
@@ -559,23 +585,33 @@ def test_experiment_replays_gates_exports_and_refits_once(monkeypatch, data, tmp
     monkeypatch.setattr(study, "benchmark", fit_case)
     monkeypatch.setenv("MPLCONFIGDIR", str(tmp_path / "matplotlib"))
     ids = [c.contact_id for c in data[0]]
-    kwargs = dict(
+    snapshot = tmp_path / "cache"
+    study_case = partial(
+        study.experiment,
         ephemeris_id=data[2].ephemeris_id,
         spacecraft_id=data[2].spacecraft_id,
         center_frequency_hz=400e6,
-        snapshot_dir=tmp_path / "cache",
+        snapshot_dir=snapshot,
     )
     directory = tmp_path / "study"
     asyncio.run(
-        study.experiment(
-            ids, data[3].path, output_dir=directory, max_bias_variance_hz2=10, **kwargs
+        study_case(
+            ids,
+            data[3].path,
+            output_dir=directory,
+            max_bias_variance_hz2=10,
         )
     )
     assert len(calls) == 5  # two timing, two prefix fits, one pruned refit
+    assert len(reepoch_calls) == 1
+    assert len({call[2].as_unixtime() for call in calls}) == 1
     assert calls[-1][0] == ids[1:]
     assert calls[-1][2] == calls[-2][2]
     report = json.loads((directory / "experiment.json").read_text())["spacecraft"][0]
     assert len(report["runs"]) == 5
+    assert len({r["scoring_center_unix_s"] for r in report["runs"]}) == 1
+    assert reepoch_calls[0][2] <= calls[0][2]
+    assert report["initial_ephemeris"]["tle"] == data[2].tle
     assert report["pruning"]["removed_contact_ids"] == ids[:1]
     assert report["runs"][0]["statistics"][1]["position_rmse_m"] is None
     assert (
@@ -585,21 +621,30 @@ def test_experiment_replays_gates_exports_and_refits_once(monkeypatch, data, tmp
     assert pl.read_csv(directory / "summary.csv").height == 10
     assert (directory / "accuracy.png").read_bytes().startswith(b"\x89PNG")
     with pytest.raises(FileExistsError):
-        asyncio.run(study.experiment(ids, data[3].path, output_dir=directory, **kwargs))
+        asyncio.run(
+            study_case(
+                ids,
+                data[3].path,
+                output_dir=directory,
+            )
+        )
     monkeypatch.setattr(
         storage, "_acquire", lambda *a: pytest.fail("unexpected provider access")
     )
     gated = tmp_path / "gated"
     asyncio.run(
-        study.experiment(ids, data[3].path, output_dir=gated, min_samples=31, **kwargs)
+        study_case(
+            ids,
+            data[3].path,
+            output_dir=gated,
+            min_samples=31,
+        )
     )
     assert len(calls) == 5
     rejected = json.loads((gated / "experiment.json").read_text())["spacecraft"][0]
     assert rejected["unavailable_reason"] == "no passes satisfy the gate"
     assert all(c["exclusion_reason"] for c in rejected["inventory"])
-    assert_frame_equal(
-        pl.read_parquet(kwargs["snapshot_dir"] / "raw-measurements.parquet"), data[1]
-    )
+    assert_frame_equal(pl.read_parquet(snapshot / "raw-measurements.parquet"), data[1])
 
 
 def test_experiment_cli_caches_all_spacecraft_before_fitting(monkeypatch, tmp_path):
@@ -634,3 +679,137 @@ def test_experiment_cli_caches_all_spacecraft_before_fitting(monkeypatch, tmp_pa
     assert [event[0] for event in events] == ["cache"] * 4 + ["fit"] * 4
     report = json.loads((tmp_path / "combined/experiment.json").read_text())
     assert len(report["spacecraft"]) == 4
+
+
+def test_derived_prior_and_timing_metadata_preserve_original_snapshot(
+    monkeypatch, data, tmp_path
+):
+    from dart.od import _canonical_tle
+
+    install_providers(monkeypatch, data)
+    snapshot = tmp_path / "snapshot"
+    baseline = run(data, snapshot_dir=snapshot)
+    before = {p.name: p.read_bytes() for p in snapshot.iterdir()}
+    tle = sk.TLE.from_lines(data[2].tle.splitlines())
+    tle.mean_anomaly += 0.01
+    lines = tuple(tle.to_2line())
+    optimizer = OptimizerContext(
+        OrbitModel.SGP4,
+        (
+            ParameterSpec("time_offset_s", 0, -600, 600, 1),
+            *[
+                ParameterSpec(f"pass_bias_hz:{c.contact_id}", 0, -500, 500, 100)
+                for c in data[0]
+            ],
+        ),
+    )
+    result = run(
+        data,
+        snapshot_dir=snapshot,
+        derived_tle_lines=lines,
+        optimizer=optimizer,
+        initialize_time=True,
+    )
+    assert result.metadata["initial_ephemeris"] == data[2]
+    assert result.metadata["derived_tle_lines"] == lines
+    assert result.metadata["input_sha256"] == baseline.metadata["input_sha256"]
+    assert before == {p.name: p.read_bytes() for p in snapshot.iterdir()}
+    assert (
+        _canonical_tle(
+            PriorStateData(
+                prepare_doppler(
+                    data[0], data[1], center_frequency_hz=400e6, variance_hz2=1
+                )[0],
+                data[2],
+                result.epoch,
+                derived_tle_lines=lines,
+            )
+        )
+        == lines
+    )
+    timing = result.metadata["timing_initialization"]
+    assert np.asarray(timing["scan"]).shape == (121, 4)
+    assert timing["final_cost"] == result.output.cost
+    assert timing["success"] == result.output.success
+    assert timing["refined_offset_s"] == result.output.parameters[0]
+    assert timing["zero_offset_cost"] > timing["final_cost"]
+    assert not timing["at_bound"]
+
+
+def test_experiment_rejected_reepoch_has_no_downstream_fits(
+    monkeypatch, data, tmp_path
+):
+    import experiment as study
+
+    install_providers(monkeypatch, data)
+    monkeypatch.setattr(
+        study, "benchmark", lambda *args, **kwargs: pytest.fail("rejected prior used")
+    )
+    monkeypatch.setenv("MPLCONFIGDIR", str(tmp_path / "mpl"))
+    directory = tmp_path / "rejected"
+    asyncio.run(
+        study.experiment(
+            [c.contact_id for c in data[0]],
+            data[3].path,
+            ephemeris_id=data[2].ephemeris_id,
+            spacecraft_id=data[2].spacecraft_id,
+            center_frequency_hz=400e6,
+            output_dir=directory,
+            snapshot_dir=tmp_path / "snapshot",
+        )
+    )
+    case = json.loads((directory / "experiment.json").read_text())["spacecraft"][0]
+    assert case["runs"] == []
+    assert case["reepoching"]["accepted"] is False
+    assert (
+        case["reepoching"]["diagnostics"]["original_tle_lines"]
+        == data[2].tle.splitlines()
+    )
+    assert "rejected" in case["unavailable_reason"]
+    assert (directory / "accuracy.png").is_file()
+    import visualize
+
+    visualize.plot_results(directory, [case], None, False)
+    assert (directory / "plots" / f"{case['name']}_accuracy.png").is_file()
+
+
+def test_timing_visualizations_use_saved_diagnostics(monkeypatch, tmp_path):
+    import matplotlib.pyplot as plt
+
+    import visualize
+
+    monkeypatch.setenv("MPLCONFIGDIR", str(tmp_path / "mpl"))
+    timing = {
+        "scan": [[-10, 1, 10], [0, 2, 5], [10, 3, 1]],
+        "refined_offset_s": 8,
+        "zero_offset_cost": 5,
+        "final_cost": 0.1,
+        "at_bound": False,
+        "success": True,
+    }
+    case = {
+        "name": "TEST",
+        "reference_quality": "candidate",
+        "runs": [
+            {
+                "run_id": "timing-000",
+                "contact_ids": ["a"],
+                "metadata": {
+                    "output": {"success": True},
+                    "timing_initialization": timing,
+                },
+                "doppler": {
+                    "timestamp_unix_s": [1e9, 1e9 + 10],
+                    "residual_hz": [1, -1],
+                    "contact_id": ["a", "a"],
+                },
+            }
+        ],
+    }
+    detail = visualize.doppler_figure(case, case["runs"][0])
+    assert len(detail.axes) == 2
+    np.testing.assert_array_equal(detail.axes[1].lines[0].get_xdata(), [-10, 0, 10])
+    overview = visualize.timing_figure(case)
+    assert overview.axes[0].lines[0].get_ydata() == [8]
+    plt.close(detail)
+    plt.close(overview)

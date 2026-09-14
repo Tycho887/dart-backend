@@ -66,6 +66,8 @@ def _source_tle_lines(raw: str) -> list[str]:
 
 
 def _canonical_tle(data: PriorStateData) -> tuple[str, str]:
+    if data.derived_tle_lines is not None:
+        return _derived_tle(data.derived_tle_lines, data.ephemeris.tle or "")
     raw = data.ephemeris.tle
     if raw is None or not raw.strip():
         raise ValueError("source ephemeris does not contain a TLE")
@@ -79,6 +81,17 @@ def _canonical_tle(data: PriorStateData) -> tuple[str, str]:
         parsed = parsed[0]
     lines = parsed.to_2line()
     return str(lines[0]), str(lines[1])
+
+
+def _derived_tle(lines: tuple[str, str], original: str) -> tuple[str, str]:
+    if len(lines) != 2:
+        raise ValueError("derived TLE must contain two lines")
+    _source_tle_lines("\n".join(lines))
+    source = _source_tle_lines(original)[-2:]
+    if lines[0][2:17] != source[0][2:17] or lines[1][2:7] != source[1][2:7]:
+        raise ValueError("derived TLE spacecraft identifiers differ from source")
+    # Do not reserialize a product already validated by the Rust core.
+    return lines
 
 
 def _pass_parameter_names(data: PriorStateData) -> tuple[str, ...]:

@@ -202,3 +202,88 @@ def test_phase_scan_uses_trial_loss(data, monkeypatch):
         phase = next(p for p in seeded.parameters if p.name == "mean_longitude_deg")
         assert phase.initial == scan[np.argmin(scan[:, -1]), 0]
         assert seeded.x_scale == "jac" and seeded.loss == loss
+
+
+def timing_problem(offset):
+    from dart.od.initialization import initialize_sgp4_time
+
+    epoch = sk.TLE.from_lines(ISS_TLE).epoch
+    times = (
+        epoch.as_unixtime()
+        + np.r_[np.linspace(0, 300, 40), np.linspace(5600, 5900, 40)]
+    )
+    empty = context(times.tolist(), np.zeros(80))
+    observations = [
+        replace(o, pass_index=i // 40, noise_cov=((float(1 + i % 3),),))
+        for i, o in enumerate(empty.observations)
+    ]
+    empty = replace(
+        empty, observations=observations, contact_to_pass_idx={"b": 1, "a": 0}
+    )
+    truth = np.zeros(11)
+    truth[7], truth[8], truth[9], truth[10] = offset, 100, 125, -235
+    predicted = evaluate_sgp4_augmented(truth, ISS_TLE, empty).residuals
+    observed = [
+        replace(o, observed=(float(r * np.sqrt(o.noise_cov[0][0])),))
+        for o, r in zip(observations, predicted, strict=True)
+    ]
+    prior = PriorStateData(replace(empty, observations=observed), ephemeris(), epoch)
+    optimizer = OptimizerContext(
+        OrbitModel.SGP4,
+        (
+            ParameterSpec("time_offset_s", 0, -600, 600, 1),
+            ParameterSpec("pass_bias_hz:a", 0, -500, 500, 100),
+            ParameterSpec("pass_bias_hz:b", 0, -500, 500, 100),
+            ParameterSpec(
+                "center_frequency_offset_hz", 100, -1000, 1000, 1, ParameterRole.FIXED
+            ),
+        ),
+    )
+    return prior, optimizer, initialize_sgp4_time
+
+
+@pytest.mark.parametrize("offset", [-70, 70, 73.5])
+def test_timing_scan_and_refinement_recover_known_offsets_and_biases(offset):
+    prior, optimizer, initialize = timing_problem(offset)
+    seeded, scan = initialize(prior, optimizer)
+    np.testing.assert_array_equal(scan[:, 0], np.arange(-600, 601, 10))
+    assert abs(seeded.parameters[0].initial - offset) <= 10
+    assert seeded.parameters[-1] == optimizer.parameters[-1]
+    output = fit(prior, seeded)
+    assert output.success
+    np.testing.assert_allclose(output.parameters, [offset, 125, -235, 100], atol=1e-4)
+    assert output.cost < 1e-8
+    assert scan[60, -1] > 1
+    # Every reported scan cost is the actual whitened Rust objective.
+    x = np.zeros(11)
+    x[8] = 100
+    for row in scan[::20]:
+        x[7], x[9], x[10] = row[:-1]
+        residuals = evaluate_sgp4_augmented(x, ISS_TLE, prior.observations).residuals
+        assert row[-1] == pytest.approx(
+            0.5 * residuals @ residuals, rel=1e-10, abs=1e-8
+        )
+
+
+def test_timing_scan_endpoints_zero_bounded_biases_and_validation():
+    prior, optimizer, initialize = timing_problem(70)
+    timing, a, b, fixed = optimizer.parameters
+    optimizer = replace(
+        optimizer,
+        parameters=(
+            replace(timing, lower_bound=-603, upper_bound=607),
+            replace(a, lower_bound=10, upper_bound=20, initial=15),
+            b,
+            fixed,
+        ),
+    )
+    _, scan = initialize(prior, optimizer)
+    assert scan[0, 0] == -603 and scan[-1, 0] == 607 and 0 in scan[:, 0]
+    assert np.all((scan[:, 1] >= 10) & (scan[:, 1] <= 20))
+    for step in [0, -1, float("nan"), float("inf")]:
+        with pytest.raises(ValueError, match="step"):
+            initialize(prior, optimizer, step_s=step)
+    with pytest.raises(ValueError, match="linear"):
+        initialize(prior, replace(optimizer, loss="huber"))
+    with pytest.raises(ValueError, match="all pass biases"):
+        initialize(prior, replace(optimizer, parameters=optimizer.parameters[:2]))
