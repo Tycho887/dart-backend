@@ -91,7 +91,9 @@ the fitted measurement biases; whitening is undone before export. State and
 Doppler timestamps are independent UTC Unix-second arrays. Each state solution
 retains OEM segment/sample order, with no interpolation or bridging of gaps.
 
-The initialization epoch is one second before the first retained observation.
+The default initialization epoch is one second before the first retained observation.
+An explicit `epoch=satkit.time(...)` may select an earlier initialization for
+reference scoring; it must be finite and no later than the first observation.
 Every actual OEM sample at or after that epoch is evaluated, including samples
 between and after contacts. Measurement time-offset parameters do not shift
 physical orbit-product epochs. Slice the output by timestamp in R, MATLAB, or
@@ -113,3 +115,60 @@ remain the authority for accepted/candidate status, not the benchmark output.
 CSV timestamps and numeric residuals can be loaded directly with R's `read.csv`,
 MATLAB's `readtable`, or Python's `polars.read_csv`. Keep `run.json` with each pair
 of tables to distinguish settings and inputs when combining runs.
+
+## FOREST experiment
+
+The root [experiment.py](../experiment.py) contains the complete FOREST runner,
+including its pass gate, configurations, statistics, covariance, and plotting:
+
+```bash
+uv run python experiment.py --output experiments/results/forest-run
+uv run python experiment.py --forest 16 --output experiments/results/forest16-gated --min-samples 40
+```
+
+All selected spacecraft are cached before fitting, using the recovered contact
+inventories and priors in `tests/live-data/forest16.py` through `forest19.py`.
+`--cache` defaults to `experiments/results/forest-inputs` relative to the repo.
+The cache preserves empty deliveries and raw observations; provider failures
+still raise. `gate_passes()` then excludes contacts with fewer than
+`--min-samples` finite locked observations (default 20). Edit this one function
+to try other pass gates against the same cache. It selects whole passes;
+observation-level filtering remains the benchmark's responsibility.
+
+For each spacecraft the runner fits single-pass timing plus Doppler bias,
+sliding three-pass SGP4 mean longitude/mean motion plus per-pass biases, then
+full-state corrections plus per-pass biases for chronological prefixes from one
+pass through all retained passes. Fits use linear loss, existing profile
+bounds/scales, and 1,000 evaluations. Timing starts at zero and is bounded by
+`--time-offset-bound-s` (default 600 seconds). No phase scan or historical tuned
+loss is applied.
+
+It writes one combined `experiment.json`, `summary.csv`, and `accuracy.png`.
+The JSON checkpoints every fit and contains column-oriented state/Doppler
+residual series, metadata, inventory exclusions, and final covariance diagnostics.
+The CSV reports sample-weighted error-norm RMSE, mean and population variance,
+plus signed component means/variances. Units are metres and metres/second;
+variance units are their squares. Empty scores are null/blank, never zero.
+Use a new output directory for every run; cached inputs are reusable offline.
+
+Scoring uses TLE epoch ±30 minutes for SGP4 and the retained observation range's
+midpoint ±30 minutes for full-state fitting. Initialization precedes both the
+first observation and the scoring window; the midpoint is the **scoring center**,
+not the initial Cartesian state epoch. Actual OEM samples are used, with partial
+coverage labeled and drawn as open markers. Timing-only fitting leaves the
+physical orbit errors unchanged. Full-state prefixes can have different scoring
+centers, so their plot compares both pass count and observation interval.
+
+The last full-state fit supplies residual-scaled Jacobian covariance, evaluated
+with SVD in scaled parameter coordinates and returned in physical units. This
+is a local approximation, not a calibrated telemetry-quality measurement.
+Nonconvergence, deficient rank, insufficient residual degrees of freedom, and
+active bounds prevent covariance-driven removal. To enable a single removal and
+refit, supply a positive `--max-bias-variance-hz2` threshold chosen from the
+diagnostics. The default reports diagnostics only. Removed contacts, the
+threshold, and any reason for skipping the refit are recorded. The refit retains
+the original all-pass prior, initialization epoch, and scoring window.
+
+The runner does not issue antenna commands or create service jobs. FOREST-19
+keeps its candidate-reference label. The restored quality reports remain the
+source for reference acceptance status.

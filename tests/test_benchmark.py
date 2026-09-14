@@ -338,3 +338,299 @@ def test_public_reference_binding_and_propagation_failure(monkeypatch, data, tmp
     monkeypatch.setattr(bench, "propagate", fail)
     with pytest.raises(RuntimeError, match="propagation failed"):
         run(data)
+
+
+@pytest.mark.parametrize("model", list(OrbitModel))
+def test_explicit_epoch_includes_reference_before_first_observation(
+    monkeypatch, data, model
+):
+    install_providers(monkeypatch, data)
+    ids = [data[0][1].contact_id]
+    optimizer = OptimizerContext(model, ())
+    default = run(data, contact_ids=ids, optimizer=optimizer)
+    earlier = sk.time(2026, 5, 2, 23, 29, 59)
+    explicit = run(data, contact_ids=ids, optimizer=optimizer, epoch=earlier)
+    assert explicit.epoch == earlier
+    assert explicit.metadata["epoch_unix_s"] == earlier.as_unixtime()
+    assert explicit.states.height == 10 > default.states.height
+    assert explicit.states["timestamp_unix_s"].min() < default.epoch.as_unixtime()
+    with pytest.raises(ValueError, match="precede observations"):
+        run(data, epoch=sk.time(2026, 5, 4), optimizer=optimizer)
+
+
+def test_empty_delivery_is_cached_before_strict_benchmark_selection(
+    monkeypatch, data, tmp_path
+):
+    contacts, frame, prior, reference = data
+    frame = frame.filter(pl.col("contact_id") == contacts[0].contact_id)
+    install_providers(monkeypatch, (contacts, frame, prior, reference))
+    snapshot = tmp_path / "empty-delivery"
+    with pytest.raises(ValueError, match="insufficient"):
+        run(data, snapshot_dir=snapshot)
+    assert_frame_equal(pl.read_parquet(snapshot / "raw-measurements.parquet"), frame)
+    saved = json.loads((snapshot / "contacts.json").read_text())
+    assert len(saved) == 2
+
+
+def test_experiment_groups_and_parameter_sets():
+    import experiment as study
+
+    ids = ["a", "b", "c", "d"]
+    cases = list(study.configurations(ids))
+    assert [(stage, group) for stage, group, _ in cases] == [
+        *(("timing", [cid]) for cid in ids),
+        ("sgp4_L+n", ids[:3]),
+        ("sgp4_L+n", ids[1:]),
+        *(("full_state", ids[:n]) for n in range(1, 5)),
+    ]
+    for stage, group, optimizer in cases:
+        names = {p.name for p in optimizer.parameters}
+        biases = {f"pass_bias_hz:{cid}" for cid in group}
+        assert biases <= names
+        assert optimizer.loss == "linear"
+        if stage == "timing":
+            assert names - biases == {"time_offset_s"}
+        elif stage == "sgp4_L+n":
+            assert names - biases == {"mean_longitude_deg", "mean_motion_rev_per_day"}
+        else:
+            assert optimizer.model == OrbitModel.FULL_STATE
+            assert len(names - biases) == 6
+
+
+def test_experiment_scoring_epochs_use_tle_text_and_observed_midpoint(data):
+    import experiment as study
+
+    _, frame, prior, _ = data
+    center, epoch = study.scoring_epochs(OrbitModel.SGP4, frame, prior)
+    assert center == sk.time(2026, 5, 3)
+    assert epoch == center - sk.duration(seconds=1801)
+    center, epoch = study.scoring_epochs(OrbitModel.FULL_STATE, frame, prior)
+    first = sk.time.from_datetime(frame["timestamp"].min()).as_unixtime()
+    last = sk.time.from_datetime(frame["timestamp"].max()).as_unixtime()
+    assert center.as_unixtime() == pytest.approx((first + last) / 2)
+    assert epoch.as_unixtime() == pytest.approx(
+        min(first, center.as_unixtime() - 1800) - 1
+    )
+
+
+def test_experiment_window_statistics_and_coverage():
+    import experiment as study
+
+    center = sk.time(2026, 5, 3)
+    unix = center.as_unixtime()
+    times = unix + np.arange(-1860, 1861, 60)
+    states = pl.DataFrame(
+        {
+            "timestamp_unix_s": times,
+            "solution": ["fitted"] * len(times),
+            "dx_m": -3.0,
+            "dy_m": 4.0,
+            "dz_m": 0.0,
+            "dvx_m_s": 0.0,
+            "dvy_m_s": -2.0,
+            "dvz_m_s": 0.0,
+        }
+    )
+    absent, fitted = study.window_statistics(states, center)
+    assert absent["coverage"] == "unavailable"
+    assert absent["position_rmse_m"] is None
+    assert fitted["sample_count"] == 61
+    assert fitted["coverage"] == "complete"
+    assert fitted["position_rmse_m"] == fitted["position_mean_m"] == 5
+    assert fitted["position_variance_m2"] == 0
+    assert fitted["dx_m_mean"] == -3
+    assert fitted["velocity_rmse_m_s"] == 2
+    missing = states.filter(~pl.col("timestamp_unix_s").is_between(unix, unix + 300))
+    assert study.window_statistics(missing, center)[1]["coverage"] == "partial"
+
+
+def covariance_example():
+    from dart.od import OptimizerOutput, ParameterRole, PriorSource
+
+    parameters = tuple(
+        ParameterSpec(f"pass_bias_hz:{cid}", 0, -100, 100, scale)
+        for cid, scale in (("a", 1000), ("b", 0.2))
+    )
+    optimizer = OptimizerContext(OrbitModel.FULL_STATE, parameters)
+    output = OptimizerOutput(
+        model_kind=optimizer.model,
+        prior_source=PriorSource.TLE_DERIVED_FULL_STATE,
+        parameter_names=tuple(p.name for p in parameters),
+        parameter_roles=(ParameterRole.ESTIMATE,) * 2,
+        parameters=np.zeros(2),
+        residuals=np.array([1.0, 2.0, -1.0, 0.0]),
+        jacobian=np.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [2.0, -1.0]]),
+        loss="linear",
+        cost=3,
+        optimality=0,
+        success=True,
+        status=1,
+        message="test fixture",
+        function_evaluations=1,
+    )
+    return output, optimizer
+
+
+def test_experiment_covariance_matches_linear_least_squares_and_threshold():
+    import experiment as study
+
+    output, optimizer = covariance_example()
+    diagnostic = study.covariance_diagnostics(output, optimizer)
+    expected = np.linalg.inv(output.jacobian.T @ output.jacobian) * 3
+    np.testing.assert_allclose(diagnostic["covariance"], expected, rtol=1e-12)
+    assert diagnostic["rank"] == diagnostic["degrees_of_freedom"] == 2
+    assert diagnostic["bias_variance_hz2"] == pytest.approx(
+        dict(zip(("a", "b"), expected.diagonal()))
+    )
+    threshold = float(expected.diagonal().mean())
+    assert study.prune_passes(["a", "b"], diagnostic, threshold) == (["a"], "refit")
+    assert study.prune_passes(["a", "b"], diagnostic, None)[0] == ["a", "b"]
+    assert study.prune_passes(["a", "b"], diagnostic, 0.01)[0] == []
+    assert study.prune_passes(["a", "b"], diagnostic, 100)[1] != "refit"
+
+
+@pytest.mark.parametrize("failure", ["nonconvergence", "rank", "dof", "bounds"])
+def test_experiment_unreliable_covariance_never_prunes(failure):
+    import experiment as study
+
+    output, optimizer = covariance_example()
+    changes = {
+        "nonconvergence": {"success": False},
+        "rank": {"jacobian": np.ones((4, 2))},
+        "dof": {"jacobian": np.eye(2), "residuals": np.ones(2)},
+        "bounds": {"parameters": np.array([100.0, 0.0])},
+    }
+    diagnostic = study.covariance_diagnostics(
+        replace(output, **changes[failure]), optimizer
+    )
+    assert diagnostic["unavailable_reason"]
+    assert "covariance" not in diagnostic
+    assert study.prune_passes(["a", "b"], diagnostic, 1)[0] == ["a", "b"]
+
+
+def test_experiment_replays_gates_exports_and_refits_once(monkeypatch, data, tmp_path):
+    import experiment as study
+
+    get_prior, fetch = install_providers(monkeypatch, data)
+    template = run(data, optimizer=OptimizerContext(OrbitModel.SGP4, ()))
+    get_prior.reset_mock()
+    fetch.reset_mock()
+    calls = []
+
+    async def fit_case(ids, path, *, optimizer, epoch, snapshot_dir, **kwargs):
+        assert (snapshot_dir / "manifest.json").is_file()
+        assert get_prior.call_count == 1 and fetch.call_count == 2
+        count = len(optimizer.parameters)
+        jacobian = np.eye(60, count)
+        if len(ids) == 2:
+            jacobian[:, -2] *= 0.1  # The first pass has high marginal bias variance.
+        success = optimizer.model == OrbitModel.FULL_STATE
+        output = replace(
+            template.output,
+            model_kind=optimizer.model,
+            parameter_names=tuple(p.name for p in optimizer.parameters),
+            parameter_roles=tuple(p.role for p in optimizer.parameters),
+            parameters=np.zeros(count),
+            residuals=np.ones(60),
+            jacobian=jacobian,
+            success=success,
+            message="fixture success" if success else "budget exhausted",
+        )
+        states = (
+            template.states
+            if success
+            else template.states.filter(pl.col("solution") == "prior")
+        )
+        result = replace(
+            template,
+            states=states,
+            output=output,
+            epoch=epoch,
+            metadata={
+                **template.metadata,
+                "optimizer": optimizer,
+                "output": {"success": success, "message": output.message},
+                "contact_ids": ids,
+            },
+        )
+        calls.append((ids, optimizer, epoch))
+        return result
+
+    monkeypatch.setattr(study, "benchmark", fit_case)
+    monkeypatch.setenv("MPLCONFIGDIR", str(tmp_path / "matplotlib"))
+    ids = [c.contact_id for c in data[0]]
+    kwargs = dict(
+        ephemeris_id=data[2].ephemeris_id,
+        spacecraft_id=data[2].spacecraft_id,
+        center_frequency_hz=400e6,
+        snapshot_dir=tmp_path / "cache",
+    )
+    directory = tmp_path / "study"
+    asyncio.run(
+        study.experiment(
+            ids, data[3].path, output_dir=directory, max_bias_variance_hz2=10, **kwargs
+        )
+    )
+    assert len(calls) == 5  # two timing, two prefix fits, one pruned refit
+    assert calls[-1][0] == ids[1:]
+    assert calls[-1][2] == calls[-2][2]
+    report = json.loads((directory / "experiment.json").read_text())["spacecraft"][0]
+    assert len(report["runs"]) == 5
+    assert report["pruning"]["removed_contact_ids"] == ids[:1]
+    assert report["runs"][0]["statistics"][1]["position_rmse_m"] is None
+    assert (
+        report["runs"][-1]["scoring_center_unix_s"]
+        == report["runs"][-2]["scoring_center_unix_s"]
+    )
+    assert pl.read_csv(directory / "summary.csv").height == 10
+    assert (directory / "accuracy.png").read_bytes().startswith(b"\x89PNG")
+    with pytest.raises(FileExistsError):
+        asyncio.run(study.experiment(ids, data[3].path, output_dir=directory, **kwargs))
+    monkeypatch.setattr(
+        storage, "_acquire", lambda *a: pytest.fail("unexpected provider access")
+    )
+    gated = tmp_path / "gated"
+    asyncio.run(
+        study.experiment(ids, data[3].path, output_dir=gated, min_samples=31, **kwargs)
+    )
+    assert len(calls) == 5
+    rejected = json.loads((gated / "experiment.json").read_text())["spacecraft"][0]
+    assert rejected["unavailable_reason"] == "no passes satisfy the gate"
+    assert all(c["exclusion_reason"] for c in rejected["inventory"])
+    assert_frame_equal(
+        pl.read_parquet(kwargs["snapshot_dir"] / "raw-measurements.parquet"), data[1]
+    )
+
+
+def test_experiment_cli_caches_all_spacecraft_before_fitting(monkeypatch, tmp_path):
+    import sys
+
+    import experiment as study
+
+    events = []
+
+    async def acquire(ids, prior, reference, directory):
+        events.append(("cache", reference.object_id))
+
+    async def fit_case(ids, path, **kwargs):
+        name = path.parent.name
+        events.append(("fit", name))
+        kwargs["_checkpoint"](
+            {
+                "spacecraft_id": kwargs["spacecraft_id"],
+                "name": name,
+                "runs": [],
+                "reference_quality": "fixture",
+            }
+        )
+
+    monkeypatch.setattr(study, "load_inputs", acquire)
+    monkeypatch.setattr(study, "experiment", fit_case)
+    monkeypatch.setenv("MPLCONFIGDIR", str(tmp_path / "matplotlib"))
+    monkeypatch.setattr(
+        sys, "argv", ["experiment.py", "--output", str(tmp_path / "combined")]
+    )
+    asyncio.run(study.main())
+    assert [event[0] for event in events] == ["cache"] * 4 + ["fit"] * 4
+    report = json.loads((tmp_path / "combined/experiment.json").read_text())
+    assert len(report["spacecraft"]) == 4

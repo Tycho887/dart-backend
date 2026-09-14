@@ -141,6 +141,7 @@ async def benchmark(
     reference_spacecraft_id: str | None = None,
     variance_hz2: float = 1.0,
     min_samples: int = 20,
+    epoch: sk.time | None = None,
 ) -> BenchmarkResult:
     """Fit exactly these contacts once and return signed residuals in SI/Hz.
 
@@ -148,6 +149,7 @@ async def benchmark(
     A snapshot may supply subsets, but its prior and OEM must match this request.
     Nonconvergence retains Doppler diagnostics and prior state errors, without
     publishing fitted state errors. Contract and provider failures raise.
+    An explicit epoch must be finite and no later than the first observation.
     """
     ids = _contact_ids(contact_ids)
     if not ephemeris_id.strip():
@@ -164,7 +166,13 @@ async def benchmark(
         variance_hz2=variance_hz2,
         min_samples=min_samples,
     )
-    epoch = min(o.time for o in context.observations) - sk.duration(seconds=1)
+    first_observation = min(o.time for o in context.observations)
+    if epoch is None:
+        epoch = first_observation - sk.duration(seconds=1)
+    if not isinstance(epoch, sk.time):
+        raise TypeError("initialization epoch must be a satkit.time")
+    if not np.isfinite(epoch.as_unixtime()) or epoch > first_observation:
+        raise ValueError("initialization epoch must be finite and precede observations")
     prior = PriorStateData(context, ephemeris, epoch)
     initial = resolve_prior(prior, optimizer.model)
     output = fit(prior, optimizer)

@@ -107,7 +107,11 @@ async def _acquire(
     )
     with adx.client_from_env() as client:
         contacts, measurements = await load_passes(
-            ids, kogs_api_key=key, adx_client=client, timeout_seconds=30.0
+            ids,
+            kogs_api_key=key,
+            adx_client=client,
+            timeout_seconds=30.0,
+            allow_empty=True,
         )
     return contacts, measurements, prior
 
