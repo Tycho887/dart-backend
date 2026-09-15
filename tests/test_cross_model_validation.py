@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+import satkit as sk
 from cross_model_validation import (
     REGIMES,
     CaseConfig,
@@ -245,7 +246,11 @@ def test_evaluation_budget_exhaustion(model: OrbitModel) -> None:
     assert not result.success, metrics
     assert result.status == 0
     assert result.function_evaluations == 1
-    assert metrics["final_cost"] == metrics["initial_cost"]
+    np.testing.assert_array_equal(
+        result.parameters, [p.initial for p in case.optimizer.parameters]
+    )
+    # SciPy and the fixed objective can differ by one ULP in their reductions.
+    assert metrics["final_cost"] == pytest.approx(metrics["initial_cost"], rel=1e-15)
 
 
 @pytest.mark.parametrize("model", OrbitModel)
@@ -269,7 +274,15 @@ def test_repeated_epochs_expose_rank_deficiency(model: OrbitModel) -> None:
     repeated = replace(
         case.prior.observations, observations=[replace(first) for _ in range(12)]
     )
-    result = fit(replace(case.prior, observations=repeated), case.optimizer)
+    prior = replace(case.prior, observations=repeated)
+    if model == OrbitModel.SGP4:
+        # This tests rank, independently of arbitrary-epoch TLE preservation.
+        tle = sk.TLE.from_lines(prior.ephemeris.tle.splitlines())
+        tle.epoch = first.time
+        prior = replace(
+            prior, ephemeris=replace(prior.ephemeris, tle="\n".join(tle.to_2line()))
+        )
+    result = fit(prior, case.optimizer)
     report = diagnostics(result, case.optimizer)
     assert np.all(np.isfinite(result.jacobian))
     assert report["rank"] == 1

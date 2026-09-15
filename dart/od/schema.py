@@ -10,6 +10,7 @@ import numpy as np
 import satkit
 from numpy.typing import NDArray
 
+from dart.forward_models import ReepochedTle
 from dart.io import EphemerisMetadata, ForwardModelContext
 
 LossKind: TypeAlias = Literal["linear", "soft_l1", "huber", "cauchy", "arctan"]
@@ -76,6 +77,8 @@ class PriorStateData:
     epoch: satkit.time
     nominal_state_gcrf_si: FloatArray | None = None
     derived_tle_lines: tuple[str, str] | None = None
+    prepared_tle: ReepochedTle | None = None
+    preservation_window: tuple[satkit.time, satkit.time] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +107,7 @@ class OptimizerOutput:
     covariance_rank: int | None = None
     covariance_method: str | None = None
     jacobian_evaluations: int | None = None
+    prepared_tle: ReepochedTle | None = None
 
 
 __all__ = [

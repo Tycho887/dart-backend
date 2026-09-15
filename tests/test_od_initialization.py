@@ -8,7 +8,11 @@ import pytest
 import satkit as sk
 
 import dart.od as od
-from dart.forward_models import ForwardModelEvaluation, evaluate_sgp4_augmented
+from dart.forward_models import (
+    ForwardModelEvaluation,
+    evaluate_sgp4_augmented,
+    prepare_sgp4_tle,
+)
 from dart.io.doppler import prepare_doppler
 from dart.od import OrbitModel, ParameterRole, PriorStateData, fit, resolve_solution
 from dart.od.initialization import initialize_sgp4_phase
@@ -71,7 +75,8 @@ def test_real_phase_scan_and_fixed_parameter_preservation(data):
     contact, frame, prior, _ = one_pass(data)
     truth = np.zeros(10)
     truth[5], truth[9] = 17, 500
-    tle = sk.TLE.from_lines(prior.ephemeris.tle.splitlines()).to_2line()
+    prior = od.prepare_sgp4_prior(prior)
+    tle = prior.prepared_tle.tle_lines
     residuals = evaluate_sgp4_augmented(truth, tle, prior.observations).residuals
     generated = frame.with_columns(
         pl.Series("doppler_hz", frame["doppler_hz"].to_numpy() + residuals)
@@ -222,7 +227,8 @@ def timing_problem(offset):
     )
     truth = np.zeros(11)
     truth[7], truth[8], truth[9], truth[10] = offset, 100, 125, -235
-    predicted = evaluate_sgp4_augmented(truth, ISS_TLE, empty).residuals
+    prepared = prepare_sgp4_tle(ISS_TLE, [o.time for o in empty.observations])
+    predicted = evaluate_sgp4_augmented(truth, prepared.tle_lines, empty).residuals
     observed = [
         replace(o, observed=(float(r * np.sqrt(o.noise_cov[0][0])),))
         for o, r in zip(observations, predicted, strict=True)
@@ -259,7 +265,9 @@ def test_timing_scan_and_refinement_recover_known_offsets_and_biases(offset):
     x[8] = 100
     for row in scan[::20]:
         x[7], x[9], x[10] = row[:-1]
-        residuals = evaluate_sgp4_augmented(x, ISS_TLE, prior.observations).residuals
+        residuals = evaluate_sgp4_augmented(
+            x, output.prepared_tle.tle_lines, prior.observations
+        ).residuals
         assert row[-1] == pytest.approx(
             0.5 * residuals @ residuals, rel=1e-10, abs=1e-8
         )

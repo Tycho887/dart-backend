@@ -1,20 +1,22 @@
 """Python boundary for DART's authoritative Rust forward models.
 
 Evaluators feed SciPy or other estimation loops without duplicating the
-numerical model in Python. TLE re-epoching delegates fitting and preservation
-checks to Rust using the published satkit fitter.
+numerical model in Python. TLE re-epoching seeds with stock Rust satkit, refines
+with SciPy against Rust state sensitivities, and validates serialization in Rust.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
+from functools import lru_cache
 from importlib import import_module
 from typing import TypeAlias
 
 import numpy as np
 import satkit as sk
 from numpy.typing import ArrayLike, NDArray
+from scipy.optimize import OptimizeResult, least_squares
 
 from .io import ForwardModelContext
 
@@ -39,6 +41,10 @@ class ReepochedTle:
     position_max_m: float
     velocity_rms_m_s: float
     velocity_max_m_s: float
+    stock_converged: bool = False
+    refinement_status: int = 0
+    refinement_message: str = ""
+    refinement_evaluations: int = 0
 
 
 class ReepochError(ValueError):
@@ -50,7 +56,11 @@ class ReepochError(ValueError):
 
 
 def _reepoch_result(native: object) -> ReepochedTle:
-    values = {field.name: getattr(native, field.name) for field in fields(ReepochedTle)}
+    values = {
+        field.name: getattr(native, field.name)
+        for field in fields(ReepochedTle)
+        if hasattr(native, field.name)
+    }
     for name in ("original_tle_lines", "tle_lines"):
         values[name] = tuple(values[name])
     return ReepochedTle(**values)
@@ -62,24 +72,161 @@ def reepoch_tle(
     window_start: sk.time,
     window_stop: sk.time,
 ) -> ReepochedTle:
-    """Fit with stock Rust satkit and reject nonconvergence or preservation loss.
+    """Seed with stock satkit, refine through Rust SGP4, validate serialization.
 
     Checks 241 epochs after serialization: position RMS/max <10/20 m and
     velocity RMS/max <0.01/0.02 m/s. No observations or OEM enter this fit.
     """
     if len(tle_lines) != 2:
         raise ReepochError("tle_lines must contain line 1 and line 2")
+    seed = _satkit_seed(tle_lines, epoch, window_start, window_stop)
+    seed_report = _reepoch_result(seed)
+    if seed_report.fit_status == "AlreadyCentered":
+        return replace(
+            seed_report, refinement_message="already centered; no fit required"
+        )
     try:
-        native = _native.reepoch_tle(
-            tle_lines,
-            _unix_seconds(epoch),
-            _unix_seconds(window_start),
-            _unix_seconds(window_stop),
+        refinement = _refine_reepoch(seed)
+    except ValueError as exc:
+        diagnostics = replace(
+            seed_report,
+            converged=False,
+            stock_converged=seed_report.converged,
+            refinement_message=str(exc),
+        )
+        raise ReepochError(f"TLE refinement failed: {exc}", diagnostics) from exc
+    details = dict(
+        stock_converged=seed_report.converged,
+        refinement_status=int(refinement.status),
+        refinement_message=str(refinement.message),
+        refinement_evaluations=int(refinement.nfev),
+    )
+    try:
+        native = _native.validate_reepoch_refinement(
+            seed, refinement.x.tolist(), bool(refinement.success)
         )
     except ValueError as exc:
         diagnostics = _reepoch_result(exc.args[1]) if len(exc.args) == 2 else None
+        if diagnostics is not None:
+            diagnostics = replace(diagnostics, **details)
         raise ReepochError(str(exc.args[0]), diagnostics) from exc
-    return _reepoch_result(native)
+    return replace(_reepoch_result(native), **details)
+
+
+def prepare_sgp4_tle(
+    tle_lines: tuple[str, str],
+    timestamps: Sequence[sk.time],
+    *,
+    window: tuple[sk.time, sk.time] | None = None,
+) -> ReepochedTle:
+    """Prepare a fixed SGP4 baseline at the arithmetic mean observation epoch.
+
+    Duplicate timestamps contribute separately. The preservation interval includes
+    all timestamps, at least one orbital period about their mean, and an optional
+    wider scoring/search window. Identical preparations reuse an immutable report.
+    Evaluators continue to apply parameter offsets to the supplied, fixed baseline.
+    """
+    epochs = [_unix_seconds(t) for t in timestamps]
+    interval = None if window is None else tuple(_unix_seconds(t) for t in window)
+    try:
+        epoch, start, stop = _native.sgp4_preparation_epochs(
+            tle_lines, epochs, interval
+        )
+    except ValueError as exc:
+        raise ReepochError(str(exc)) from exc
+    # Match cache-key precision to satkit's microsecond Instants.
+    epoch, start, stop = (round(value, 6) for value in (epoch, start, stop))
+    return _prepared_sgp4_tle(tle_lines, epoch, start, stop)
+
+
+@lru_cache(maxsize=128)
+def _prepared_sgp4_tle(
+    lines: tuple[str, str], epoch: float, start: float, stop: float
+) -> ReepochedTle:
+    report = reepoch_tle(
+        lines,
+        sk.time.from_unixtime(epoch),
+        sk.time.from_unixtime(start),
+        sk.time.from_unixtime(stop),
+    )
+    if abs(report.serialized_epoch_unix_s - epoch) > 0.0005:
+        raise ReepochError("serialized TLE epoch differs from timestamp mean", report)
+    return report
+
+
+def _satkit_seed(
+    lines: tuple[str, str],
+    epoch: sk.time,
+    start: sk.time,
+    stop: sk.time,
+) -> object:
+    try:
+        return _native.reepoch_tle(
+            lines, _unix_seconds(epoch), _unix_seconds(start), _unix_seconds(stop)
+        )
+    except ValueError as exc:
+        if len(exc.args) == 2:
+            report = _reepoch_result(exc.args[1])
+            if report.fit_status == "AlreadyCentered":
+                raise ReepochError(str(exc.args[0]), report) from exc
+            # A rejected stock candidate is a seed, never an accepted product.
+            return exc.args[1]
+        raise ReepochError(str(exc)) from exc
+
+
+def _refine_reepoch(seed: object) -> OptimizeResult:
+    report = _reepoch_result(seed)
+    times = np.linspace(report.window_start_unix_s, report.window_stop_unix_s, 241)[::2]
+
+    def evaluate(x: FloatArray) -> ForwardModelEvaluation:
+        return _evaluation(
+            _native.tle_position_evaluation(
+                x.tolist(), report.original_tle_lines, report.tle_lines, times.tolist()
+            )
+        )
+
+    bounds = np.array([0.2, 0.1, 0.1, 0.1, 0.1, 30.0, 1.0])
+    return least_squares(
+        lambda x: evaluate(x).residuals,
+        np.zeros(7),
+        jac=lambda x: evaluate(x).jacobian,
+        bounds=(-bounds, bounds),
+        x_scale=[0.001, 0.001, 0.001, 0.001, 0.001, 0.1, 0.001],
+        loss="linear",
+        max_nfev=200,
+        ftol=1e-10,
+        xtol=1e-10,
+        gtol=1e-10,
+    )
+
+
+def corrected_tle_lines(
+    tle_lines: tuple[str, str],
+    orbit_offsets: ArrayLike,
+    epoch_offset_s: float = 0,
+) -> tuple[str, str]:
+    """Serialize orbit corrections and E' = E + epoch_offset_s through Rust."""
+    lines = _native.corrected_tle_lines(
+        tle_lines, _parameter_vector(orbit_offsets), epoch_offset_s
+    )
+    return str(lines[0]), str(lines[1])
+
+
+def evaluate_sgp4_epoch(
+    x: ArrayLike,
+    tle_lines: tuple[str, str],
+    context: ForwardModelContext,
+) -> ForwardModelEvaluation:
+    """Legacy augmented vector followed by tle_epoch_offset_s; epochs stay UTC.
+
+    Epoch adjustment changes only the TLE epoch. The legacy time_offset_s
+    parameter retains its separate measurement-clock meaning.
+    """
+    return _evaluation(
+        _native.evaluate_sgp4_epoch(
+            _parameter_vector(x), *tle_lines, _native_inputs(context)
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -324,6 +471,9 @@ __all__ = [
     "ReepochedTle",
     "ReepochError",
     "reepoch_tle",
+    "prepare_sgp4_tle",
+    "corrected_tle_lines",
+    "evaluate_sgp4_epoch",
     "clear_frame_cache",
     "transform_states",
     "ForwardModelEvaluation",

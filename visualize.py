@@ -151,12 +151,18 @@ def _timing_scan(panel: Axes, timing: Record) -> None:
     panel.plot(scan[:, 0], scan[:, -1], ".-", ms=3, label="Cost after fitting biases")
     panel.axvline(timing["refined_offset_s"], color="C1", label="Refined offset")
     panel.set(
-        xlabel="Time offset (s)",
-        ylabel="Linear cost",
+        xlabel=_timing_label(timing),
+        ylabel=f"{timing.get('loss', 'linear')} cost",
         title=f"Offset {timing['refined_offset_s']:.6f} s; cost {timing['zero_offset_cost']:.3g} at zero → {timing['final_cost']:.3g}; at bound: {timing['at_bound']}",
     )
     panel.grid(alpha=0.3)
     panel.legend(fontsize="small")
+
+
+def _timing_label(timing: Record) -> str:
+    if timing.get("parameter_name") == "tle_epoch_offset_s":
+        return "TLE epoch adjustment (s); E′ = E + adjustment"
+    return "Measurement time offset (s)"
 
 
 def timing_figure(case: Record) -> Figure:
@@ -172,13 +178,13 @@ def timing_figure(case: Record) -> Figure:
         epoch = _dates([(min(times) + max(times)) / 2])[0]
         marker = "x" if timing["at_bound"] or not timing["success"] else "o"
         panels[0].plot(epoch, timing["refined_offset_s"], marker, color="C0")
+        panels[0].set_ylabel(_timing_label(timing))
         panels[1].plot(
             epoch,
             np.sqrt(np.mean(np.square(run["doppler"]["residual_hz"]))),
             marker,
             color="C1",
         )
-    panels[0].set_ylabel("Refined time offset (s)")
     panels[1].set_ylabel("Doppler residual RMS (Hz)")
     for panel in panels:
         _format_time(panel)
@@ -205,22 +211,30 @@ def plot_results(
 
     directory = directory / "plots"
     directory.mkdir(exist_ok=True)
-    overview = f"{cases[0]['name']}_accuracy.png" if len(cases) == 1 else "accuracy.png"
-    _save(accuracy_figure(cases), directory / overview, show)
+    if len(cases) > 1:
+        _save(accuracy_figure(cases), directory / "accuracy.png", show)
     for case, run in selected:
-        if any(r["metadata"].get("timing_initialization") for r in case["runs"]):
-            _save(timing_figure(case), directory / f"{case['name']}_timing.png", show)
-        if run is None:
-            print(
-                f"{case['name']}: {case.get('unavailable_reason', 'no recorded fits')}; skipping detail plots",
-                flush=True,
-            )
-            continue
-        stem = f"{case['name']}_{run['run_id']}"
-        _save(orbit_figure(case, run), directory / f"{stem}_orbit.png", show)
-        _save(doppler_figure(case, run), directory / f"{stem}_doppler.png", show)
+        _plot_case(directory, case, run, show)
     if show:
         plt.show()
+
+
+def _plot_case(directory: Path, case: Record, run: Record | None, show: bool) -> None:
+    _save(accuracy_figure([case]), directory / f"{case['name']}_accuracy.png", show)
+    if any(r["metadata"].get("timing_initialization") for r in case["runs"]):
+        _save(timing_figure(case), directory / f"{case['name']}_timing.png", show)
+    if run is None:
+        print(
+            f"{case['name']}: {case.get('unavailable_reason', 'no recorded fits')}; skipping detail plots",
+            flush=True,
+        )
+        return
+    stem = f"{case['name']}_{run['run_id']}"
+    if not run["states"]:
+        print(f"{stem}: {run['metadata']['unavailable_reason']}", flush=True)
+        return
+    _save(orbit_figure(case, run), directory / f"{stem}_orbit.png", show)
+    _save(doppler_figure(case, run), directory / f"{stem}_doppler.png", show)
 
 
 def main() -> None:

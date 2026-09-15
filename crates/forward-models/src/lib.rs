@@ -31,6 +31,7 @@ pub mod diagnostics;
 pub mod frame_cache;
 mod python;
 pub mod reepoch;
+mod tle_epoch;
 
 /// Transform finite Cartesian SI states using satkit, including frame velocity.
 /// Epoch order and repetitions are preserved; orbit-dependent frames fail.

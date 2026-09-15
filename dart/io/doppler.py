@@ -15,6 +15,7 @@ class ContactSelection:
     contact_id: str
     raw_samples: int
     retained_samples: int
+    locked_samples: int = 0
 
 
 def select_doppler(measurements: pl.DataFrame) -> pl.DataFrame:
@@ -47,17 +48,41 @@ def select_quality_doppler(
 
 
 def selection_counts(
-    contacts: Sequence[ContactMetadata], measurements: pl.DataFrame
+    contacts: Sequence[ContactMetadata],
+    measurements: pl.DataFrame,
+    *,
+    min_ebn0_db: float | None = None,
+    max_abs_offset_hz: float = 100000.0,
 ) -> tuple[ContactSelection, ...]:
     raw = dict(measurements.group_by("contact_id").len().iter_rows())
+    locked = dict(select_doppler(measurements).group_by("contact_id").len().iter_rows())
     retained = dict(
-        select_doppler(measurements).group_by("contact_id").len().iter_rows()
+        select_fit_doppler(measurements, min_ebn0_db, max_abs_offset_hz)
+        .group_by("contact_id")
+        .len()
+        .iter_rows()
     )
     return tuple(
         ContactSelection(
-            c.contact_id, raw.get(c.contact_id, 0), retained.get(c.contact_id, 0)
+            c.contact_id,
+            raw.get(c.contact_id, 0),
+            retained.get(c.contact_id, 0),
+            locked.get(c.contact_id, 0),
         )
         for c in contacts
+    )
+
+
+def select_fit_doppler(
+    measurements: pl.DataFrame,
+    min_ebn0_db: float | None = None,
+    max_abs_offset_hz: float = 100000.0,
+) -> pl.DataFrame:
+    """Select observations for a fit; None preserves the ungated library default."""
+    if min_ebn0_db is None:
+        return select_doppler(measurements)
+    return select_quality_doppler(
+        measurements, min_ebn0_db=min_ebn0_db, max_abs_offset_hz=max_abs_offset_hz
     )
 
 
@@ -95,12 +120,19 @@ def prepare_doppler(
     center_frequency_hz: float,
     variance_hz2: float,
     min_samples: int = 20,
+    min_ebn0_db: float | None = None,
+    max_abs_offset_hz: float = 100000.0,
 ) -> tuple[ForwardModelContext, tuple[ContactSelection, ...]]:
     """Prepare every requested contact or fail; no implicit group changes."""
     _validate_group(contacts, measurements)
     if min_samples < 1:
         raise ValueError("min_samples must be positive")
-    counts = selection_counts(contacts, measurements)
+    counts = selection_counts(
+        contacts,
+        measurements,
+        min_ebn0_db=min_ebn0_db,
+        max_abs_offset_hz=max_abs_offset_hz,
+    )
     insufficient = [c.contact_id for c in counts if c.retained_samples < min_samples]
     if insufficient:
         raise ValueError(f"insufficient locked Doppler samples: {insufficient}")
@@ -109,7 +141,7 @@ def prepare_doppler(
         frame = measurements.filter(pl.col("contact_id") == contact.contact_id)
         _validate_identity(contact, frame)
         context.register_contact(contact)
-    selected = select_doppler(measurements)
+    selected = select_fit_doppler(measurements, min_ebn0_db, max_abs_offset_hz)
     for timestamp, doppler, system_id, contact_id in selected.select(
         "timestamp", "doppler_hz", "system_id", "contact_id"
     ).iter_rows():

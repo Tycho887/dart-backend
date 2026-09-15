@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 import numpy as np
-from scipy.optimize import lsq_linear
+from scipy.optimize import OptimizeResult, least_squares, lsq_linear
 
 from . import (
     _canonical_parameter_names,
@@ -12,6 +12,7 @@ from . import (
     _sgp4_evaluator,
     _validate_data,
     _validate_optimizer,
+    prepare_sgp4_prior,
 )
 from .schema import (
     FloatArray,
@@ -26,11 +27,16 @@ from .schema import (
 def _timing_parameters(data: PriorStateData, optimizer: OptimizerContext) -> list[str]:
     _validate_data(data)
     _validate_optimizer(data, optimizer)
-    if optimizer.model != OrbitModel.SGP4 or optimizer.loss != "linear":
-        raise ValueError("timing initialization requires SGP4 and linear loss")
+    if optimizer.model != OrbitModel.SGP4 or optimizer.loss not in {
+        "linear",
+        "soft_l1",
+    }:
+        raise ValueError(
+            "timing initialization requires SGP4 and linear or soft_l1 loss"
+        )
     mapping = data.observations.contact_to_pass_idx
     names = [
-        "time_offset_s",
+        timing_parameter_name(optimizer),
         *[f"pass_bias_hz:{cid}" for cid in sorted(mapping, key=mapping.__getitem__)],
     ]
     estimated = {
@@ -41,6 +47,18 @@ def _timing_parameters(data: PriorStateData, optimizer: OptimizerContext) -> lis
             "timing initialization must estimate only time offset and all pass biases"
         )
     return names
+
+
+def timing_parameter_name(optimizer: OptimizerContext) -> str:
+    names = {p.name for p in optimizer.parameters} & {
+        "time_offset_s",
+        "tle_epoch_offset_s",
+    }
+    if len(names) != 1:
+        raise ValueError(
+            "timing requires exactly one clock-offset or TLE-epoch parameter"
+        )
+    return names.pop()
 
 
 def _time_candidates(lower: float, upper: float, step_s: float) -> FloatArray:
@@ -69,15 +87,16 @@ def initialize_sgp4_time(
     optimizer: OptimizerContext,
     step_s: float = 10,
 ) -> tuple[OptimizerContext, FloatArray]:
-    """Scan timing bounds with bounded linear pass biases using Rust derivatives.
+    """Scan timing bounds with pass biases fitted under the configured loss.
 
     Columns are [offset_s, bias/contact in pass-index order, cost]. All other
     initial values and settings remain fixed. Equal costs select the first
     candidate in ascending offset order. OEM data is never accepted here.
     """
     scan_names = _timing_parameters(prior, optimizer)
+    prior = prepare_sgp4_prior(prior, optimizer)
     specs = {p.name: p for p in optimizer.parameters}
-    timing = specs["time_offset_s"]
+    timing = specs[scan_names[0]]
     offsets = _time_candidates(timing.lower_bound, timing.upper_bound, step_s)
     names = _canonical_parameter_names(prior, optimizer.model)
     indices = [names.index(name) for name in scan_names]
@@ -94,18 +113,47 @@ def initialize_sgp4_time(
         values[indices[0]] = offset
         evaluation = evaluate(values)
         bias_jacobian = evaluation.jacobian[:, bias_indices]
-        result = lsq_linear(bias_jacobian, -evaluation.residuals, bounds=bounds)
+        result = _scan_bias_fit(evaluation.residuals, bias_jacobian, bounds, optimizer)
         if not result.success:
             raise ValueError(
                 f"timing scan bias fit failed at {offset} s: {result.message}"
             )
         residuals = evaluation.residuals + bias_jacobian @ result.x
-        scan[row] = offset, *result.x, 0.5 * residuals @ residuals
+        scan[row] = (
+            offset,
+            *result.x,
+            _fixed_cost(residuals, optimizer.loss, optimizer.loss_scale),
+        )
     if not np.all(np.isfinite(scan)):
         raise ValueError("timing scan produced nonfinite values")
     return _seed_optimizer(
         optimizer, scan_names, scan[np.argmin(scan[:, -1]), :-1]
     ), scan
+
+
+def _scan_bias_fit(
+    residuals: FloatArray,
+    jacobian: FloatArray,
+    bounds: tuple[list[float], list[float]],
+    optimizer: OptimizerContext,
+) -> OptimizeResult:
+    """The affine bias problem needs no additional orbit evaluations."""
+    result = lsq_linear(jacobian, -residuals, bounds=bounds)
+    if optimizer.loss == "linear" or not result.success:
+        return result
+    return least_squares(
+        lambda bias: residuals + jacobian @ bias,
+        result.x,
+        jac=lambda bias: jacobian.copy(),
+        bounds=bounds,
+        x_scale="jac",
+        loss=optimizer.loss,
+        f_scale=optimizer.loss_scale,
+        max_nfev=optimizer.max_evaluations,
+        ftol=optimizer.ftol,
+        xtol=optimizer.xtol,
+        gtol=optimizer.gtol,
+    )
 
 
 def initialize_sgp4_phase(
@@ -118,6 +166,7 @@ def initialize_sgp4_phase(
     initial values, roles, scales and bounds are preserved. No GPS is accepted.
     """
     bias_names = _phase_parameters(data, optimizer)
+    data = prepare_sgp4_prior(data, optimizer)
     specs = {p.name: p for p in optimizer.parameters}
     phase_name = "mean_longitude_deg"
     names = _canonical_parameter_names(data, optimizer.model)

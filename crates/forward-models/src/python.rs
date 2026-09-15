@@ -215,6 +215,69 @@ fn evaluate_sgp4_augmented(
 }
 
 #[pyfunction]
+fn evaluate_sgp4_epoch(
+    py: Python<'_>,
+    x: Vec<f64>,
+    line1: String,
+    line2: String,
+    inputs: PythonInputs,
+) -> PyResult<PythonEvaluation> {
+    py.allow_threads(move || {
+        let inputs = build_inputs(inputs)?;
+        let tle = TLE::load_2line(&line1, &line2).map_err(|e| invalid_input(e.to_string()))?;
+        crate::tle_epoch::evaluate(&inputs.engine, &x, &tle, &inputs.observations)
+            .map(python_result)
+    })
+    .map_err(python_error)
+}
+
+#[pyfunction]
+fn corrected_tle_lines(
+    lines: [String; 2],
+    offsets: Vec<f64>,
+    epoch_offset_s: f64,
+) -> PyResult<[String; 2]> {
+    let base =
+        TLE::load_2line(&lines[0], &lines[1]).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let corrected = tle_with_offset(&base, &offsets).map_err(python_error)?;
+    let shifted =
+        crate::tle_epoch::shifted_tle(&corrected, epoch_offset_s).map_err(python_error)?;
+    crate::reepoch::serialize(&shifted, &lines).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+#[pyfunction]
+fn tle_position_evaluation(
+    py: Python<'_>,
+    offsets: Vec<f64>,
+    original: [String; 2],
+    candidate: [String; 2],
+    epochs_unix: Vec<f64>,
+) -> PyResult<PythonEvaluation> {
+    py.allow_threads(move || {
+        let times = trajectory_times(&epochs_unix)?;
+        let base = TLE::load_2line(&candidate[0], &candidate[1])
+            .map_err(|e| invalid_input(e.to_string()))?;
+        let original = TLE::load_2line(&original[0], &original[1])
+            .map_err(|e| invalid_input(e.to_string()))?;
+        let target = propagate_sgp4_gcrf(&original, &times)?;
+        let propagation = crate::sgp4_states_and_sensitivities(&base, &times, &offsets)?;
+        let residuals = propagation
+            .states
+            .iter()
+            .zip(target)
+            .flat_map(|(a, b)| (0..3).map(move |j| a[j] - b[j]))
+            .collect();
+        let jacobian = propagation
+            .sensitivities
+            .iter()
+            .flat_map(|matrix| rows(matrix).into_iter().take(3))
+            .collect();
+        Ok((residuals, jacobian))
+    })
+    .map_err(python_error)
+}
+
+#[pyfunction]
 fn evaluate_full_state(
     py: Python<'_>,
     x: Vec<f64>,
@@ -303,20 +366,39 @@ fn tle_state_gcrf(
 
 #[pymodule]
 fn _forward_models(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_function(wrap_pyfunction!(consider_covariance, module)?)?;
-    module.add_function(wrap_pyfunction!(reepoch_tle, module)?)?;
-    module.add_function(wrap_pyfunction!(clear_frame_cache, module)?)?;
-    module.add_function(wrap_pyfunction!(orbit_information, module)?)?;
-    module.add_function(wrap_pyfunction!(position_errors_rtn, module)?)?;
-    module.add_function(wrap_pyfunction!(transform_states, module)?)?;
-    module.add_function(wrap_pyfunction!(evaluate_sgp4, module)?)?;
-    module.add_function(wrap_pyfunction!(evaluate_sgp4_augmented, module)?)?;
-    module.add_function(wrap_pyfunction!(evaluate_full_state, module)?)?;
-    module.add_function(wrap_pyfunction!(evaluate_full_state_augmented, module)?)?;
-    module.add_function(wrap_pyfunction!(tle_state_gcrf, module)?)?;
-    module.add_function(wrap_pyfunction!(sgp4_states_gcrf, module)?)?;
-    module.add_function(wrap_pyfunction!(full_state_states_gcrf, module)?)?;
+    for function in [
+        wrap_pyfunction!(consider_covariance, module),
+        wrap_pyfunction!(reepoch_tle, module),
+        wrap_pyfunction!(sgp4_preparation_epochs, module),
+        wrap_pyfunction!(validate_reepoch_refinement, module),
+        wrap_pyfunction!(tle_position_evaluation, module),
+        wrap_pyfunction!(corrected_tle_lines, module),
+        wrap_pyfunction!(evaluate_sgp4_epoch, module),
+        wrap_pyfunction!(clear_frame_cache, module),
+        wrap_pyfunction!(orbit_information, module),
+        wrap_pyfunction!(position_errors_rtn, module),
+        wrap_pyfunction!(transform_states, module),
+        wrap_pyfunction!(evaluate_sgp4, module),
+        wrap_pyfunction!(evaluate_sgp4_augmented, module),
+        wrap_pyfunction!(evaluate_full_state, module),
+        wrap_pyfunction!(evaluate_full_state_augmented, module),
+        wrap_pyfunction!(tle_state_gcrf, module),
+        wrap_pyfunction!(sgp4_states_gcrf, module),
+        wrap_pyfunction!(full_state_states_gcrf, module),
+    ] {
+        module.add_function(function?)?;
+    }
     Ok(())
+}
+
+#[pyfunction]
+#[pyo3(signature = (lines, timestamps, window=None))]
+fn sgp4_preparation_epochs(
+    lines: [String; 2],
+    timestamps: Vec<f64>,
+    window: Option<(f64, f64)>,
+) -> PyResult<(f64, f64, f64)> {
+    crate::reepoch::preparation_epochs(&lines, &timestamps, window).map_err(reepoch_error)
 }
 
 #[pyfunction]
@@ -327,15 +409,28 @@ fn reepoch_tle(
     start: f64,
     stop: f64,
 ) -> PyResult<crate::reepoch::ReepochedTle> {
-    use crate::reepoch::ReepochError;
     py.allow_threads(move || crate::reepoch::reepoch_tle(lines, epoch, start, stop))
-        .map_err(|error| {
-            let message = error.to_string();
-            match error {
-                ReepochError::Failed(_) => PyValueError::new_err(message),
-                ReepochError::Rejected(report) => PyValueError::new_err((message, *report)),
-            }
-        })
+        .map_err(reepoch_error)
+}
+
+fn reepoch_error(error: crate::reepoch::ReepochError) -> PyErr {
+    use crate::reepoch::ReepochError;
+    let message = error.to_string();
+    match error {
+        ReepochError::Failed(_) => PyValueError::new_err(message),
+        ReepochError::Rejected(report) => PyValueError::new_err((message, *report)),
+    }
+}
+
+#[pyfunction]
+fn validate_reepoch_refinement(
+    py: Python<'_>,
+    report: crate::reepoch::ReepochedTle,
+    offsets: Vec<f64>,
+    converged: bool,
+) -> PyResult<crate::reepoch::ReepochedTle> {
+    py.allow_threads(move || crate::reepoch::validate_refinement(report, &offsets, converged))
+        .map_err(reepoch_error)
 }
 
 #[pyfunction]

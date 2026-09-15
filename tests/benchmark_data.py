@@ -9,7 +9,7 @@ import polars as pl
 import pytest
 import satkit as sk
 
-from dart.forward_models import evaluate_sgp4
+from dart.forward_models import evaluate_sgp4, prepare_sgp4_tle
 from dart.io.doppler import prepare_doppler
 from dart.io.oem import OemMetadata, read_oem, write_oem
 from dart.od import OrbitModel, PriorStateData, resolve_prior
@@ -44,6 +44,7 @@ def data(tmp_path):
                 "spacecraft_id": contact.spacecraft_id,
                 "system_id": contact.system_id,
                 "carrier_lock": "Locked",
+                "ebn0": 12.0,
                 "doppler_hz": 0.0,
             }
             for i in range(30)
@@ -53,7 +54,8 @@ def data(tmp_path):
         contacts, frame, center_frequency_hz=400e6, variance_hz2=1
     )
     line1, line2 = tle.to_2line()
-    clean = evaluate_sgp4(np.zeros(9), (line1, line2), context).residuals
+    prepared = prepare_sgp4_tle((line1, line2), [o.time for o in context.observations])
+    clean = evaluate_sgp4(np.zeros(9), prepared.tle_lines, context).residuals
     frame = frame.with_columns(pl.Series("doppler_hz", clean))
     epoch = sk.time.from_datetime(contacts[0].start - timedelta(seconds=1))
     prior = PriorStateData(context, selected, epoch)

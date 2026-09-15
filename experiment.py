@@ -4,7 +4,7 @@ Run: uv run python experiment.py
 Results default to raw_results/forest-<UTC timestamp>/ relative to the repo.
 Rerun to reuse the default input cache; --output selects a custom directory.
 Edit gate_passes() to try another pass gate without reacquiring telemetry.
-Timing-only fits leave physical orbit errors unchanged. Covariance is a local,
+Timing fits adjust the TLE epoch and score the serialized orbit product. Covariance is a local,
 residual-scaled diagnostic, not calibrated accuracy or proof of bad telemetry.
 """
 
@@ -25,17 +25,21 @@ import satkit as sk
 
 from dart.forward_models import ReepochedTle, ReepochError, reepoch_tle
 from dart.io import ContactMetadata, EphemerisMetadata
-from dart.io.doppler import select_doppler, selection_counts
+from dart.io.doppler import select_doppler, select_fit_doppler, selection_counts
 from dart.io.load import _contact_ids
 from dart.io.oem import read_oem
 from dart.od import (
     OptimizerContext,
     OptimizerOutput,
     OrbitModel,
-    ParameterSpec,
     _source_tle_lines,
 )
-from dart.od.profiles import orbit_bias_profile, sgp4_bias_profile
+from dart.od.profiles import (
+    orbit_bias_profile,
+    sgp4_bias_profile,
+    sgp4_epoch_bias_profile,
+)
+from dart.od.schema import LossKind
 from experiments._benchmark_io import load_inputs, save_json
 from experiments.benchmark_gps_ref import BenchmarkResult, _bind_reference, benchmark
 
@@ -50,7 +54,12 @@ Checkpoint = Callable[[Record], None]
 
 
 def gate_passes(
-    contacts: list[ContactMetadata], measurements: pl.DataFrame, min_samples: int = 20
+    contacts: list[ContactMetadata],
+    measurements: pl.DataFrame,
+    min_samples: int = 20,
+    *,
+    min_ebn0_db: float = 3.0,
+    max_abs_offset_hz: float = 100000.0,
 ) -> dict[str, str]:
     """Return a rejection reason per contact; empty strings mean retained.
 
@@ -63,31 +72,42 @@ def gate_passes(
         c.contact_id: (
             ""
             if c.retained_samples >= min_samples
-            else f"{c.retained_samples} finite locked samples; need {min_samples}"
+            else f"{c.retained_samples} quality-retained samples; need {min_samples}"
         )
-        for c in selection_counts(contacts, measurements)
+        for c in selection_counts(
+            contacts,
+            measurements,
+            min_ebn0_db=min_ebn0_db,
+            max_abs_offset_hz=max_abs_offset_hz,
+        )
     }
 
 
 def configurations(
-    contact_ids: list[str], time_offset_bound_s: float = 600.0
+    contact_ids: list[str],
+    time_offset_bound_s: float = 600.0,
+    *,
+    loss: LossKind = "soft_l1",
+    loss_scale_hz: float = 200.0,
 ) -> Iterator[tuple[str, list[str], OptimizerContext]]:
-    """Singleton timing fits, sliding triples, then chronological prefixes."""
+    """Independent epoch fits, sliding L+n triples, then full-state prefixes."""
+
+    def configured(profile: OptimizerContext) -> OptimizerContext:
+        return replace(profile, loss=loss, loss_scale=loss_scale_hz)
+
     for cid in contact_ids:
-        profile = sgp4_bias_profile("L", [cid])
-        biases = tuple(
-            p for p in profile.parameters if p.name.startswith("pass_bias_hz:")
-        )
-        timing = ParameterSpec(
-            "time_offset_s", 0, -time_offset_bound_s, time_offset_bound_s, 1
-        )
-        yield "timing", [cid], replace(profile, parameters=(timing,) + biases)
+        profile = sgp4_epoch_bias_profile([cid], bound_s=time_offset_bound_s)
+        yield "timing", [cid], configured(profile)
     for index in range(len(contact_ids) - 2):
         group = contact_ids[index : index + 3]
-        yield "sgp4_L+n", group, sgp4_bias_profile("L+n", group)
+        yield "sgp4_L+n", group, configured(sgp4_bias_profile("L+n", group))
     for count in range(1, len(contact_ids) + 1):
         group = contact_ids[:count]
-        yield "full_state", group, orbit_bias_profile(OrbitModel.FULL_STATE, group)
+        yield (
+            "full_state",
+            group,
+            configured(orbit_bias_profile(OrbitModel.FULL_STATE, group)),
+        )
 
 
 def scoring_epochs(measurements: pl.DataFrame) -> tuple[sk.time, sk.time]:
@@ -196,8 +216,6 @@ def covariance_diagnostics(
     output: OptimizerOutput, optimizer: OptimizerContext
 ) -> Record:
     """SVD of the scaled, whitened Jacobian; no prior regularization or pseudorank repair."""
-    if output.loss != "linear":
-        raise ValueError("residual-scaled covariance requires linear loss")
     scales = np.array([p.scale for p in optimizer.parameters])
     jacobian = output.jacobian * scales
     _, singular, vt = np.linalg.svd(jacobian, full_matrices=False)
@@ -206,6 +224,10 @@ def covariance_diagnostics(
     dof = jacobian.shape[0] - jacobian.shape[1]
     bounds = active_bounds(output, optimizer)
     reasons = _covariance_limits(output, rank, dof, bounds)
+    if output.loss != "linear":
+        reasons.append(
+            "residual-scaled covariance requires linear loss; robust covariance unavailable"
+        )
     diagnostic: Record = {
         "method": "residual-scaled linear least squares; local approximation",
         "parameter_names": output.parameter_names,
@@ -303,7 +325,12 @@ def _summary_rows(case: Record) -> list[Record]:
 
 
 def _retained_inventory(
-    contacts: list[ContactMetadata], measurements: pl.DataFrame, reasons: dict[str, str]
+    contacts: list[ContactMetadata],
+    measurements: pl.DataFrame,
+    reasons: dict[str, str],
+    *,
+    min_ebn0_db: float = 3.0,
+    max_abs_offset_hz: float = 100000.0,
 ) -> tuple[list[str], list[Record]]:
     ordered = sorted(contacts, key=lambda c: (c.start, c.contact_id))
     ids = [c.contact_id for c in ordered if not reasons[c.contact_id]]
@@ -312,9 +339,18 @@ def _retained_inventory(
             "contact_id": c.contact_id,
             "raw_samples": c.raw_samples,
             "retained_samples": c.retained_samples,
+            "locked_samples": c.locked_samples,
+            "quality_retained_samples": c.retained_samples,
+            "quality_excluded_samples": c.locked_samples - c.retained_samples,
+            "excluded_samples": c.raw_samples - c.retained_samples,
             "exclusion_reason": reasons[c.contact_id],
         }
-        for c in selection_counts(ordered, measurements)
+        for c in selection_counts(
+            ordered,
+            measurements,
+            min_ebn0_db=min_ebn0_db,
+            max_abs_offset_hz=max_abs_offset_hz,
+        )
     ]
     for cid, reason in reasons.items():
         if reason:
@@ -343,6 +379,10 @@ async def experiment(
     snapshot_dir: Path,
     max_bias_variance_hz2: float | None = None,
     min_samples: int = 20,
+    min_ebn0_db: float = 3.0,
+    max_abs_offset_hz: float = 100000.0,
+    loss: LossKind = "soft_l1",
+    loss_scale_hz: float = 200.0,
     time_offset_bound_s: float = 600.0,
     _checkpoint: Checkpoint | None = None,
 ) -> None:
@@ -354,8 +394,10 @@ async def experiment(
         _contact_ids(contact_ids), ephemeris_id, reference, snapshot_dir
     )
     _bind_reference(reference, contacts, spacecraft_id)
-    reasons = gate_passes(contacts, measurements, min_samples)
-    ids, inventory = _retained_inventory(contacts, measurements, reasons)
+    _validate_loss(loss, loss_scale_hz)
+    quality = dict(min_ebn0_db=min_ebn0_db, max_abs_offset_hz=max_abs_offset_hz)
+    reasons = gate_passes(contacts, measurements, min_samples, **quality)
+    ids, inventory = _retained_inventory(contacts, measurements, reasons, **quality)
     case: Record = {
         "name": reference.object_id,
         "spacecraft_id": spacecraft_id,
@@ -365,6 +407,9 @@ async def experiment(
         "input_sha256": hashes,
         "snapshot_dir": snapshot_dir,
         "min_samples": min_samples,
+        "quality_selection": quality,
+        "loss": loss,
+        "loss_scale_hz": loss_scale_hz,
         "max_bias_variance_hz2": max_bias_variance_hz2,
         "inventory": inventory,
         "runs": [],
@@ -375,7 +420,9 @@ async def experiment(
         _finish_case(case, publish, output_dir, _checkpoint is None)
         return
 
-    selected = measurements.filter(pl.col("contact_id").is_in(ids))
+    selected = select_fit_doppler(measurements, **quality).filter(
+        pl.col("contact_id").is_in(ids)
+    )
     center, epoch = scoring_epochs(selected)
     case["scoring_center_unix_s"] = center.as_unixtime()
     case["initial_ephemeris"] = prior
@@ -399,21 +446,36 @@ async def experiment(
         optimizer: OptimizerContext,
         center: sk.time,
         epoch: sk.time,
-    ) -> BenchmarkResult:
+    ) -> BenchmarkResult | None:
         print(f"{reference.object_id}: {stage}, {len(group)} passes", flush=True)
-        result = await benchmark(
-            group,
-            oem_path,
-            optimizer=optimizer,
-            ephemeris_id=ephemeris_id,
-            center_frequency_hz=center_frequency_hz,
-            snapshot_dir=snapshot_dir,
-            reference_spacecraft_id=spacecraft_id,
-            min_samples=min_samples,
-            epoch=epoch,
-            derived_tle_lines=derived.tle_lines,
-            initialize_time=stage == "timing",
-        )
+        try:
+            result = await benchmark(
+                group,
+                oem_path,
+                optimizer=optimizer,
+                ephemeris_id=ephemeris_id,
+                center_frequency_hz=center_frequency_hz,
+                snapshot_dir=snapshot_dir,
+                reference_spacecraft_id=spacecraft_id,
+                min_samples=min_samples,
+                **quality,
+                epoch=epoch,
+                derived_tle_lines=(
+                    derived.tle_lines
+                    if optimizer.model == OrbitModel.FULL_STATE
+                    else None
+                ),
+                initialize_time=stage == "timing",
+                preservation_window=(
+                    sk.time.from_unixtime(derived.window_start_unix_s),
+                    sk.time.from_unixtime(derived.window_stop_unix_s),
+                ),
+            )
+        except ReepochError as exc:
+            _record_preparation_failure(case, stage, group, optimizer, exc)
+            publish(case)
+            print(f"  preparation rejected: {exc}", flush=True)
+            return None
         bounds = active_bounds(result.output, optimizer)
         case["runs"].append(
             {
@@ -436,8 +498,12 @@ async def experiment(
         return result
 
     # The generator always ends with the all-pass full-state fit.
-    for stage, group, optimizer in configurations(ids, time_offset_bound_s):
+    for stage, group, optimizer in configurations(
+        ids, time_offset_bound_s, loss=loss, loss_scale_hz=loss_scale_hz
+    ):
         result = await run_case(stage, group, optimizer, center, epoch)
+    # The final full-state fit does not perform low-fidelity preparation.
+    assert result is not None
     diagnostic = covariance_diagnostics(result.output, optimizer)
     case["runs"][-1]["covariance"] = diagnostic
     print(
@@ -457,11 +523,49 @@ async def experiment(
         await run_case(
             "full_state_pruned",
             retained,
-            orbit_bias_profile(OrbitModel.FULL_STATE, retained),
+            replace(
+                orbit_bias_profile(OrbitModel.FULL_STATE, retained),
+                loss=loss,
+                loss_scale=loss_scale_hz,
+            ),
             center,
             epoch,
         )
     _finish_case(case, publish, output_dir, _checkpoint is None)
+
+
+def _record_preparation_failure(
+    case: Record,
+    stage: str,
+    group: list[str],
+    optimizer: OptimizerContext,
+    error: ReepochError,
+) -> None:
+    case["runs"].append(
+        {
+            "run_id": f"{stage}-{len(case['runs']):03d}",
+            "stage": stage,
+            "contact_ids": group,
+            "active_bounds": [],
+            "scoring_center_unix_s": case["scoring_center_unix_s"],
+            "statistics": [],
+            "states": {},
+            "doppler": {"timestamp_unix_s": [], "residual_hz": [], "contact_id": []},
+            "metadata": {
+                "optimizer": optimizer,
+                "output": {"success": False, "message": str(error)},
+                "sgp4_preparation": error.diagnostics,
+                "unavailable_reason": f"TLE preparation rejected: {error}",
+            },
+        }
+    )
+
+
+def _validate_loss(loss: LossKind, scale: float) -> None:
+    if loss not in {"linear", "soft_l1"}:
+        raise ValueError("Forest loss must be linear or soft_l1")
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError("loss scale must be finite and positive")
 
 
 def _validate_settings(
@@ -488,47 +592,65 @@ def plot_accuracy(directory: Path) -> None:
     plt.close(fig)
 
 
+_ACCURACY_METHODS = (
+    ("timing", "TLE epoch + bias; independent passes", "Pass"),
+    ("sgp4_L+n", "Mean longitude + mean motion + biases", "Three-pass window"),
+    ("full_state", "Cartesian full state + biases", "Cumulative pass count"),
+)
+
+
 def accuracy_figure(cases: list[Record]) -> "Figure":
-    """Build the shared accuracy overview without selecting a backend or saving."""
+    """Separate independent passes/windows from cumulative full-state fits."""
     import matplotlib.pyplot as plt
 
     fig, axes = plt.subplots(
-        len(cases), 2, figsize=(11, 3.5 * len(cases)), squeeze=False
+        2 * len(cases),
+        3,
+        figsize=(16, 6 * len(cases)),
+        squeeze=False,
+        layout="constrained",
     )
-    for case, panels in zip(cases, axes, strict=True):
-        for panel, kind, unit in zip(
-            panels, ("position", "velocity"), ("m", "m_s"), strict=True
-        ):
-            _plot_panel(panel, case, kind, unit)
-    fig.suptitle("One-hour OEM errors; partial coverage uses open markers")
-    fig.tight_layout()
+    for index, case in enumerate(cases):
+        for column, (stage, title, xlabel) in enumerate(_ACCURACY_METHODS):
+            for row, kind, unit in ((0, "position", "m"), (1, "velocity", "m_s")):
+                panel = axes[2 * index + row, column]
+                _plot_panel(panel, case, stage, kind, unit)
+                candidate = (
+                    " (candidate reference)"
+                    if case["reference_quality"] == "candidate"
+                    else ""
+                )
+                panel.set(title=f"{case['name']}{candidate}\n{title}", xlabel=xlabel)
+    fig.suptitle(
+        "One-hour OEM RMS errors • position uses log scale\n"
+        "Open markers: partial coverage; ×: optimizer failed; convergence does not guarantee accuracy"
+    )
     return fig
 
 
-def _plot_panel(panel: Any, case: Record, kind: str, unit: str) -> None:
-    from matplotlib.ticker import MaxNLocator
-
-    for stage in ("timing", "sgp4_L+n", "full_state", "full_state_pruned"):
-        runs = [r for r in case["runs"] if r["stage"] == stage]
-        for solution, style in (("prior", "--"), ("fitted", "-")):
-            _plot_curve(panel, runs, stage, solution, style, f"{kind}_rmse_{unit}")
+def _plot_panel(panel: Any, case: Record, stage: str, kind: str, unit: str) -> None:
+    stages = {stage, "full_state_pruned"} if stage == "full_state" else {stage}
+    runs = [r for r in case["runs"] if r["stage"] in stages]
+    ticks = list(range(1, len(runs) + 1))
+    labels = [_accuracy_label(run, i) for i, run in enumerate(runs, start=1)]
+    for solution, color in (("prior", "0.45"), ("fitted", "C0")):
+        _plot_curve(panel, runs, solution, color, f"{kind}_rmse_{unit}")
     panel.set(
-        title=case["name"]
-        + (
-            " (candidate reference)" if case["reference_quality"] == "candidate" else ""
-        ),
-        xlabel="Pass count",
-        ylabel=f"{kind.title()} RMSE ({unit.replace('_', '/')})",
+        xticks=ticks,
+        xticklabels=labels,
+        xlim=(0.5, max(1, len(runs)) + 0.5),
+        ylabel=f"{kind.title()} RMS ({unit.replace('_', '/')})",
     )
-    panel.grid(alpha=0.3)
-    panel.xaxis.set_major_locator(MaxNLocator(integer=True))
+    if kind == "position":
+        panel.set_yscale("log")
+    panel.grid(alpha=0.3, which="both")
     if panel.lines:
         panel.legend(fontsize="small")
-    elif "unavailable_reason" in case:
+    if not runs:
         panel.text(
             0.5,
             0.5,
-            fill(case["unavailable_reason"], width=45),
+            fill(case.get("unavailable_reason", "No recorded fits"), width=40),
             ha="center",
             va="center",
             fontsize="small",
@@ -536,34 +658,86 @@ def _plot_panel(panel: Any, case: Record, kind: str, unit: str) -> None:
         )
 
 
+def _accuracy_label(run: Record, index: int) -> str:
+    if run["stage"] == "sgp4_L+n":
+        return f"{index}–{index + len(run['contact_ids']) - 1}"
+    if run["stage"] == "full_state_pruned":
+        return f"{len(run['contact_ids'])} retained"
+    return str(index)
+
+
+def _score(run: Record, solution: str, metric: str) -> tuple[float, str]:
+    for score in run["statistics"]:
+        if score["solution"] == solution:
+            value = score[metric]
+            return (float("nan") if value is None else float(value), score["coverage"])
+    return float("nan"), "unavailable"
+
+
 def _plot_curve(
-    panel: Any, runs: list[Record], stage: str, solution: str, style: str, metric: str
+    panel: Any, runs: list[Record], solution: str, color: str, metric: str
 ) -> None:
-    points = [
-        (len(r["contact_ids"]), s[metric], s["coverage"])
-        for r in runs
-        for s in r["statistics"]
-        if s["solution"] == solution and s[metric] is not None
-    ]
-    if not points:
-        return
-    # Singleton/triple runs share an x value: don't imply a connecting progression.
-    line_style = style if stage == "full_state" else "None"
-    (line,) = panel.plot(
-        [p[0] for p in points],
-        [p[1] for p in points],
-        linestyle=line_style,
-        marker="o",
-        markerfacecolor="none",
-        label=f"{stage} {solution}",
-    )
-    for x, y, _ in (p for p in points if p[2] == "complete"):
+    values = [_score(run, solution, metric) for run in runs]
+    label = solution
+    for index, (run, (value, coverage)) in enumerate(
+        zip(runs, values, strict=True), start=1
+    ):
+        if _unplottable_score(panel, index, value, solution, metric):
+            continue
+        success = run["metadata"]["output"]["success"]
+        marker = "x" if solution == "fitted" and not success else "o"
         panel.plot(
-            x,
-            y,
-            "o",
-            color=line.get_color(),
+            index,
+            value,
+            marker=marker,
+            linestyle="None",
+            color=color,
+            markerfacecolor=color if coverage == "complete" else "none",
+            label=label,
         )
+        label = "_nolegend_"
+    if runs and runs[0]["stage"] == "full_state":
+        _prefix_line(panel, runs, values, solution, color)
+
+
+def _unplottable_score(
+    panel: Any, index: int, value: float, solution: str, metric: str
+) -> bool:
+    if np.isfinite(value) and (metric != "position_rmse_m" or value > 0):
+        return False
+    if solution == "fitted":
+        note = "zero" if value == 0 else "unavailable"
+        panel.text(
+            index,
+            0.03,
+            note,
+            rotation=90,
+            fontsize=7,
+            transform=panel.get_xaxis_transform(),
+            ha="center",
+        )
+    return True
+
+
+def _prefix_line(
+    panel: Any,
+    runs: list[Record],
+    values: list[tuple[float, str]],
+    solution: str,
+    color: str,
+) -> None:
+    # Only full-state prefixes represent increasing data; gaps remain gaps.
+    y = [
+        v if r["stage"] == "full_state" and v > 0 else np.nan
+        for r, (v, _) in zip(runs, values, strict=True)
+    ]
+    panel.plot(
+        range(1, len(runs) + 1),
+        y,
+        color=color,
+        linestyle="--" if solution == "prior" else "-",
+        alpha=0.6,
+    )
 
 
 async def main() -> None:
@@ -587,6 +761,10 @@ async def main() -> None:
         "--cache", type=Path, default=ROOT / "experiments/results/forest-inputs"
     )
     parser.add_argument("--min-samples", type=int, default=20)
+    parser.add_argument("--min-ebn0-db", type=float, default=3.0)
+    parser.add_argument("--max-abs-offset-hz", type=float, default=100000.0)
+    parser.add_argument("--loss", choices=("linear", "soft_l1"), default="soft_l1")
+    parser.add_argument("--loss-scale-hz", type=float, default=200.0)
     parser.add_argument("--time-offset-bound-s", type=float, default=600)
     parser.add_argument("--max-bias-variance-hz2", type=float)
     args = parser.parse_args()
@@ -617,6 +795,10 @@ async def main() -> None:
             output_dir=args.output,
             snapshot_dir=args.cache / case["REFERENCE_OBJECT_ID"],
             min_samples=args.min_samples,
+            min_ebn0_db=args.min_ebn0_db,
+            max_abs_offset_hz=args.max_abs_offset_hz,
+            loss=args.loss,
+            loss_scale_hz=args.loss_scale_hz,
             time_offset_bound_s=args.time_offset_bound_s,
             max_bias_variance_hz2=args.max_bias_variance_hz2,
             _checkpoint=publish,

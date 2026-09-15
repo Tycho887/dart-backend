@@ -54,7 +54,11 @@ def sgp4_bias_profile(
 
 
 def orbit_bias_profile(
-    model: OrbitModel, contact_ids: Sequence[str], *, max_evaluations: int = 1000
+    model: OrbitModel,
+    contact_ids: Sequence[str],
+    *,
+    max_evaluations: int = 1000,
+    robust: bool = False,
 ) -> OptimizerContext:
     """Six orbit corrections and one bias/contact; other corrections fixed at zero."""
     names = {
@@ -72,5 +76,27 @@ def orbit_bias_profile(
         for cid in contact_ids
     )
     return OptimizerContext(
-        model, orbit + biases, loss="linear", max_evaluations=max_evaluations
+        model,
+        orbit + biases,
+        loss="soft_l1" if robust else "linear",
+        loss_scale=200.0 if robust else 1.0,
+        max_evaluations=max_evaluations,
     )
+
+
+def sgp4_epoch_bias_profile(
+    contact_ids: Sequence[str],
+    *,
+    bound_s: float = 600.0,
+    robust: bool = False,
+    max_evaluations: int = 1000,
+) -> OptimizerContext:
+    """Fit E' = E + offset plus pass biases; observation clocks stay fixed."""
+    from dataclasses import replace
+
+    control = sgp4_bias_profile(
+        "L", contact_ids, robust=robust, max_evaluations=max_evaluations
+    )
+    biases = tuple(p for p in control.parameters if p.name.startswith("pass_bias_hz:"))
+    epoch = ParameterSpec("tle_epoch_offset_s", 0, -bound_s, bound_s, 1)
+    return replace(control, parameters=(epoch, *biases))

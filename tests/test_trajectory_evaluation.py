@@ -99,7 +99,11 @@ def test_joint_phase_scan_recovers_distinct_pass_biases(data):
     )
     truth = np.zeros(11)
     truth[5], truth[9], truth[10] = 12, 350, -250
-    tle = sk.TLE.from_lines(prior.tle.splitlines()).to_2line()
+    from dart.forward_models import prepare_sgp4_tle
+
+    tle = prepare_sgp4_tle(
+        tuple(prior.tle.splitlines()), [o.time for o in context.observations]
+    ).tle_lines
     values = (
         evaluate_sgp4_augmented(truth, tle, context).residuals
         + frame["doppler_hz"].to_numpy()

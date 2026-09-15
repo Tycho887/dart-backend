@@ -61,7 +61,11 @@ without overriding existing environment values: `KOGS_API_KEY`,
 `AZURE_ADX_CLUSTER_ENDPOINT`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, and
 `AZURE_TENANT_ID`. Credentials and clients are not persisted.
 
-Only finite, locked Doppler samples are fitted. Defaults are `min_samples=20`
+By default, only finite, locked Doppler samples are fitted. Set
+`min_ebn0_db=3.0` to additionally require finite Eb/N0 ≥3 dB and
+`abs(doppler_hz) < max_abs_offset_hz` (default 100,000 Hz). Selection counts
+record both locked and final retained samples. Raw snapshots remain unchanged.
+Defaults are `min_samples=20`
 per contact and `variance_hz2=1.0`; unit variance provides equal weights, not
 calibrated uncertainty. A requested contact with insufficient observations fails
 rather than disappearing from the fit. Additional quality screening and phase
@@ -96,7 +100,9 @@ An explicit `epoch=satkit.time(...)` may select an earlier initialization for
 reference scoring; it must be finite and no later than the first observation.
 Every actual OEM sample at or after that epoch is evaluated, including samples
 between and after contacts. Measurement time-offset parameters do not shift
-physical orbit-product epochs. Slice the output by timestamp in R, MATLAB, or
+physical orbit-product epochs. The separate SGP4 `tle_epoch_offset_s` parameter
+changes the TLE epoch and produces a serialized corrected TLE; its states are
+still evaluated at the original OEM timestamps. Slice the output by timestamp in R, MATLAB, or
 Python for the desired interval. No forward reference samples gives an empty
 state table and an explicit reason in the run metadata.
 
@@ -135,21 +141,37 @@ All selected spacecraft are cached before fitting, using the recovered contact
 inventories and priors in `tests/live-data/forest16.py` through `forest19.py`.
 `--cache` defaults to `experiments/results/forest-inputs` relative to the repo.
 The cache preserves empty deliveries and raw observations; provider failures
-still raise. `gate_passes()` then excludes contacts with fewer than
-`--min-samples` finite locked observations (default 20). Edit this one function
-to try other pass gates against the same cache. It selects whole passes;
-observation-level filtering remains the benchmark's responsibility.
+still raise. Observation selection requires finite Doppler, carrier lock,
+finite Eb/N0 ≥3 dB, and |Doppler| <100 kHz. `gate_passes()` excludes contacts
+with fewer than `--min-samples` selected samples (default 20). Configure the
+thresholds with `--min-ebn0-db` and `--max-abs-offset-hz`. The same selection
+controls pass counts, fit inputs, initialization, and the scoring center.
+Inventories record raw, locked, quality-retained, and excluded sample counts.
 
-For each spacecraft the runner fits single-pass timing plus Doppler bias,
-sliding three-pass SGP4 mean longitude/mean motion plus per-pass biases, then
-full-state corrections plus per-pass biases for chronological prefixes from one
-pass through all retained passes. Fits use linear loss, existing profile
-bounds/scales, and 1,000 evaluations. Timing scans the bounds configured by
-`--time-offset-bound-s` (default ±600 seconds) at 10-second spacing, including
-both endpoints and zero. Each candidate fits bounded pass biases with SciPy
-linear least squares using Rust residuals and Jacobians. The lowest-cost
-candidate initializes timing-only refinement. The estimates are independent
-of subsequent L+n and full-state fits and are not applied as orbit corrections.
+For each spacecraft the runner compares independent single-pass **TLE epoch
+adjustment** plus Doppler bias, sliding three-pass SGP4 mean longitude/mean motion
+plus per-pass biases, and Cartesian full-state corrections plus per-pass biases
+for chronological prefixes. All use the same source separation prior, with each
+low-fidelity fit prepared at the arithmetic mean of its own retained timestamps.
+They use existing bounds/scales, 1,000 evaluations, and **soft_l1** loss with a
+200 Hz transition at unit observation variance. `--loss linear` selects ordinary
+least squares; `--loss-scale-hz` changes the robust transition. Shared profile
+helpers preserve their existing linear defaults and expose a `robust` option.
+
+`sgp4_epoch_bias_profile` estimates `tle_epoch_offset_s` with the convention
+**corrected TLE epoch = prepared TLE epoch + offset**. Observation timestamps and
+station geometry epochs stay fixed. This is distinct from `time_offset_s`, whose
+legacy measurement-clock behavior remains available. A positive TLE epoch
+adjustment roughly delays orbital phase; it is not an exact negative
+measurement-clock adjustment.
+
+Timing scans `--time-offset-bound-s` (default ±600 seconds) at 10-second spacing,
+including zero and both endpoints. Each candidate fits bounded pass biases with
+the same loss as the final fit, using affine residuals/Jacobians from Rust.
+The lowest-cost candidate initializes continuous refinement. Successful timing
+fits now produce a serialized TLE and physical orbit errors. They do not seed
+the L+n or full-state stages. Metadata includes corrected lines, the offset
+convention, loss, and Doppler prediction differences caused by serialization.
 
 It writes one combined `experiment.json`, `summary.csv`, and `accuracy.png`.
 The JSON checkpoints every fit and contains column-oriented state/Doppler
@@ -163,46 +185,148 @@ All stages share the midpoint of **all retained observations for the spacecraft*
 as their scoring center, with a ±30-minute window. Cartesian initialization is
 one second before the earlier of the first observation and scoring-window start.
 Actual OEM samples retain coverage labels; partial coverage uses open markers.
-Timing-only fitting leaves physical orbit errors unchanged.
+TLE epoch adjustment changes the scored orbit while preserving OEM epochs.
 
-The original TLE is re-epoched once at that midpoint through
+### Prior and corrected accuracy report
+
+Generate explicit before/after tables from a completed run and its local snapshots:
+
+```bash
+.venv/bin/python -m experiments.accuracy_report raw_results/forest-autoepoch-20260915-v2
+.venv/bin/python -m experiments.accuracy_report raw_results/forest-autoepoch-20260915-v2 --min-fit-samples 250 --max-condition-number 1e6 --sample-scope fit
+```
+
+This writes `accuracy-report.md` and `accuracy-comparison.csv`, and refreshes a
+marked summary section in `validation.md` when present. Repeating the command
+replaces these generated reports. It preserves benchmark records and snapshots
+and does not rerun fitting or access data providers.
+
+The default report adds **post-fit screening** before aggregate statistics:
+at least 250 retained Doppler observations in the fit, optimizer success,
+no active parameter bounds, full Jacobian rank, positive residual degrees of
+freedom, and a condition number at most 1e6. The sample threshold applies to
+the total across all three passes for L+n; `--sample-scope pass` instead
+requires 250 observations in every contributing pass. These are fit observation
+counts after the recorded quality gates, separate from OEM scoring counts.
+
+The report evaluates the shared Rust SGP4 Jacobian once at each saved solution,
+using its exact prepared TLE, parameters, and observations reconstructed from
+the local snapshot. Observation counts, timestamps, and residuals must match
+the saved fit. Conditioning uses observation whitening, recorded profile
+parameter scales, and the same soft-L1 curvature weights as SciPy's optimizer.
+The reported number is κ₂(J), not κ₂(JᵀJ). The 1e6 threshold is a configurable
+heuristic; local conditioning does not measure absolute parameter uncertainty
+or rule out another minimum. These soft-L1 fits have no calibrated classical
+covariance, so the report does not apply a covariance-magnitude gate.
+
+Filtered and unfiltered summaries appear together. Filtered prior and corrected
+statistics use the same retained fits, with kept/scored/attempted counts and
+unavailable values for empty groups. Every fit remains in the detailed report
+and CSV with observation counts, condition number, rank, acceptance, thresholds,
+and rejection reasons. Missing quality diagnostics cannot pass screening.
+No OEM accuracy value participates in the fit-quality decision.
+
+The report compares the original separation TLE, each fit's prepared prior,
+and the corrected orbit for **single-pass time offset** and **three-pass L+n**.
+Position RMS is in kilometres and velocity RMS in metres/second. Each spacecraft
+and method has corrected median/range and scored/attempted counts. Per-fit
+tables include both prior accuracies, corrected accuracy, percentage reductions
+from each prior, contact IDs, prepared epoch, coverage, and status. CSV scores
+retain full precision and explicit unit suffixes; tables use three decimal
+places for RMS and one for percentages.
+
+The separation TLE is propagated directly through the existing orbit/evaluation
+path after verifying snapshot hashes and source identity. Prepared and corrected
+scores reuse saved statistics. All use the common one-hour OEM scoring window,
+not the observation window of each individual fit. Percentage reductions require
+identical OEM timestamps/segments and matching coverage; scoring-window bounds
+allow 1 microsecond of serialization roundoff. Missing scores remain unavailable,
+zero prior RMS produces no percentage reduction, and negative reductions indicate
+degradation. Outliers and rejected preparations remain visible. Reference-quality
+designations, including candidate references, are carried into the report.
+
+Re-epoching preservation errors describe agreement with the original TLE;
+they are distinct from these OEM accuracy scores. Previous-versus-current
+benchmark comparisons and full-state results remain separately labeled.
+
+### Prior preparation
+
+The full-state prior is re-epoched once at that midpoint through
 `dart.forward_models.reepoch_tle(tle_lines, epoch, window_start, window_stop)`.
-Rust propagates 121 evenly spaced original-TLE GCRF states and calls the published
-satkit `TLE::fit_from_states` directly. The interval covers retained observations
-expanded by the timing bounds, the initialization epoch, and the scoring window.
-No observed Doppler or OEM data enters re-epoching. Satkit remains unmodified:
-its fitter uses WGS84/IMPROVED; DART propagation uses WGS72/IMPROVED.
+Low-fidelity timing and L+n fits instead automatically prepare the original TLE
+at the **arithmetic mean of all timestamps supplied to that fit**, including
+duplicate timestamps. This is observation-weighted, not the endpoint midpoint or
+an average of pass centers. Each single pass and three-pass window therefore
+has its own prepared epoch.
+Rust propagates 121 evenly spaced original-TLE GCRF states and calls stock
+satkit `TLE::fit_from_states`. The interval covers retained observations expanded
+by the timing bounds, the initialization epoch, and the scoring window.
+No observed Doppler values or OEM states enter this preservation fit.
 
-After preserving spacecraft identifier columns, the candidate is serialized,
-reloaded, and compared with the original using DART propagation at all fit nodes
-and 120 interleaved epochs. Acceptance requires convergence, position RMS <10 m
-and maximum <20 m, and velocity RMS <0.01 m/s and maximum <0.02 m/s. These are
-sampled preservation checks over the declared interval. Epoch and element
-rounding are included in the validation; no custom fitter or rounding search is
-used. `ReepochError` rejects failures and retains candidate diagnostics when
-available. The experiment records the rejection and skips that spacecraft's
-stages while continuing other spacecraft; it never substitutes the old prior.
+Satkit remains unmodified. Its candidate is refined with SciPy's bounded
+least-squares optimizer, using the shared Rust SGP4 position residuals and
+mean-equinoctial/B* state sensitivities. Refinement uses linear loss, the existing
+six-orbit bounds/scales, B* correction bounds ±1 and scale 0.001, 200 evaluations,
+and 1e-10 termination tolerances. This also reconciles the stock fitter's
+WGS84 propagation with DART's WGS72 propagation. No custom optimizer or Python
+numerical propagation is introduced.
 
-`PriorStateData.derived_tle_lines` and `benchmark(derived_tle_lines=...)` pass the
-same serialized prior to every stage while retaining original KOGS metadata and
-snapshot hashes. The case's `reepoching` record includes acceptance and, when
-available, original/derived lines, requested/serialized epochs, validation
-interval, fitter status, and position/velocity preservation errors.
+After preserving identifiers, the candidate is serialized, reloaded, and checked
+against the original at all fit nodes plus 120 interleaved epochs. Acceptance
+requires refinement success, position RMS/max <10/20 m, and velocity RMS/max
+<0.01/0.02 m/s. Serialization rounding is included. Stock fitter convergence,
+refinement termination, and final preservation errors are recorded separately;
+a stalled stock seed can be used only after successful refinement and validation.
+`ReepochError` rejects failures with diagnostics. Rejection of the common
+full-state prior skips the spacecraft; rejection of an individual low-fidelity
+preparation records an unavailable stage and allows other independent stages
+to continue. The original prior is not silently substituted.
 
-`initialize_sgp4_time(prior, optimizer, step_s=10)` in `dart.od.initialization`
-returns optimizer settings and scan columns `[offset_s, bias per pass, cost]`,
-with biases in pass-index order. It requires linear loss and estimation of only
-timing and all pass biases; other configured parameters stay fixed.
-`benchmark(initialize_time=True)` saves column names, scan, zero/coarse/final
-costs, refined offset, bounds and convergence under `timing_initialization`.
+`dart.forward_models.prepare_sgp4_tle(tle_lines, timestamps, window=None)` returns
+an immutable `ReepochedTle` report; `timestamps` is a sequence of `satkit.time`
+values. Rust chooses the mean epoch and a preservation
+interval covering the timestamps and at least one original orbital period
+centered on that mean; an explicit wider interval is also covered. Single and
+repeated timestamps work; empty or nonfinite timestamps fail. The serialized
+epoch must match the mean within 0.5 ms, allowing TLE epoch quantization.
+If the input is already centered to TLE epoch precision, its elements are
+retained and serialization is validated without running either optimizer;
+the report records `AlreadyCentered` and zero refinement evaluations.
 
-The last full-state fit supplies residual-scaled Jacobian covariance, evaluated
+`dart.od.prepare_sgp4_prior(data, optimizer=None)` performs this preparation
+before scans or fitting; `fit` and the SGP4 initializers invoke it automatically.
+Timing bounds widen the preservation interval. The benchmark additionally passes
+its common scoring/search interval using `preservation_window`. Successful
+preparations are cached by source lines, target epoch, and validation interval
+(up to 128 immutable reports); no Doppler measurements enter the cache or fit.
+Residual and Jacobian kernels evaluate their supplied fixed TLE directly. They
+do not re-epoch perturbed candidates inside optimizer iterations.
+
+`PriorStateData.prepared_tle` and `OptimizerOutput.prepared_tle` retain the exact
+prepared baseline. `resolve_solution` applies corrections to that saved baseline
+without refitting and rejects a mismatched source prior. Benchmark metadata
+records the report under `sgp4_preparation`. Original KOGS metadata and snapshot
+hashes remain unchanged. The optional `derived_tle_lines` still selects an
+explicit input baseline, which SGP4 preparation then centers for the supplied
+observations. Full-state initialization keeps its common derived prior.
+
+The estimated timing adjustment is relative to the prepared epoch. It can move
+the final TLE epoch outside the observation window; only the prepared prior is
+centered. Observation and station timestamps remain fixed. `benchmark(initialize_time=True)` records its scan, costs,
+bounds, parameter name, loss, and convergence under `timing_initialization`.
+`initialize_sgp4_time` accepts either the TLE-epoch parameter or the legacy
+measurement-clock parameter, estimating only that parameter and pass biases.
+
+With explicitly selected linear loss, the last full-state fit supplies
+residual-scaled Jacobian covariance, evaluated
 with SVD in scaled parameter coordinates and returned in physical units. This
 is a local approximation, not a calibrated telemetry-quality measurement.
 Nonconvergence, deficient rank, insufficient residual degrees of freedom, and
 active bounds prevent covariance-driven removal. To enable a single removal and
 refit, supply a positive `--max-bias-variance-hz2` threshold chosen from the
-diagnostics. The default reports diagnostics only. Removed contacts, the
+diagnostics. Soft-L1 runs report robust covariance as unavailable and do not remove passes
+using the linear covariance formula. The default reports diagnostics only.
+Removed contacts, the
 threshold, and any reason for skipping the refit are recorded. The refit retains
 the original all-pass prior, initialization epoch, and scoring window.
 
@@ -223,10 +347,20 @@ Detail plots default to the last recorded fit for each spacecraft. `--forest`
 selects one spacecraft; `--run-id` requires that selection. Use `--show` to also
 open plotting windows when a graphical environment is available.
 
-The orbit figures show all six signed GCRF error components against UTC time,
+The accuracy overview gives each spacecraft separate timing, L+n, and full-state
+panels. Position RMS uses a logarithmic axis; velocity RMS remains linear. Timing
+results are labeled by pass number, L+n results by consecutive windows (`1–3`,
+`2–4`, …), and full-state results by cumulative pass count. Timing and L+n points
+are independent; only cumulative full-state results have connecting lines.
+Prior and fitted colors are consistent. Partial coverage uses open markers;
+optimizer failure uses a cross when a score exists. Zero position RMS and missing
+scores are annotated, not replaced by artificial logarithmic floors. All outliers
+remain visible; optimizer convergence alone does not establish accuracy.
+
+The orbit figures show all six signed GCRF error components on linear axes against UTC time,
 with prior/fitted states and the one-hour scoring interval. Doppler points are
 colored by contact. All recorded samples are plotted without connecting gaps.
-Timing detail plots include the saved scan cost curve and refined offset; each
+Timing detail plots include the saved scan cost curve and refined offset, labeled by parameter semantics and loss; each
 spacecraft also gets a timing overview alongside Doppler residual RMS. Missing
 fits retain their unavailability reason, including re-epoching rejection.
 Titles preserve convergence and candidate-reference status; unavailable fitted

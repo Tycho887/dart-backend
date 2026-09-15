@@ -16,6 +16,7 @@ from dart.forward_models import (
     evaluate_full_state_augmented,
     evaluate_sgp4,
     evaluate_sgp4_augmented,
+    prepare_sgp4_tle,
     tle_state_gcrf,
 )
 from dart.io import EphemerisMetadata, ForwardModelContext, ForwardObservation
@@ -84,6 +85,12 @@ def context(
     )
 
 
+def prepared_lines(model_context):
+    return prepare_sgp4_tle(
+        ISS_TLE, [o.time for o in model_context.observations]
+    ).tle_lines
+
+
 def specs(
     names: tuple[str, ...],
     scales: NDArray[np.float64],
@@ -105,6 +112,7 @@ def test_public_contract() -> None:
         "PriorStateData",
         "compute_consider_covariance",
         "fit",
+        "prepare_sgp4_prior",
         "resolve_prior",
         "resolve_solution",
     ]
@@ -114,6 +122,8 @@ def test_public_contract() -> None:
         "epoch",
         "nominal_state_gcrf_si",
         "derived_tle_lines",
+        "prepared_tle",
+        "preservation_window",
     ]
     hints = get_type_hints(PriorStateData)
     assert hints["observations"] is ForwardModelContext
@@ -165,7 +175,7 @@ def test_sgp4_fit_recovers_synthetic_parameters() -> None:
     epochs = [tle.epoch.as_unixtime() + 60.0 * index for index in range(1, 31)]
     empty = context(epochs, np.zeros(len(epochs)))
     target = np.array([2e-4, 0.0, 0.0, 0.0, 0.0, 0.05, 1e-5, 8.0])
-    observed = evaluate_sgp4(target, ISS_TLE, empty).residuals
+    observed = evaluate_sgp4(target, prepared_lines(empty), empty).residuals
     data = PriorStateData(context(epochs, observed), ephemeris(), tle.epoch)
     names = (
         "mean_motion_rev_per_day",
@@ -268,7 +278,7 @@ def test_sgp4_pure_time_offset_fit() -> None:
     epochs = [tle.epoch.as_unixtime() + 60.0 * index for index in range(1, 31)]
     empty = context(epochs, np.zeros(len(epochs)))
     target = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.35, 0.0, 0.0])
-    observed = evaluate_sgp4_augmented(target, ISS_TLE, empty).residuals
+    observed = evaluate_sgp4_augmented(target, prepared_lines(empty), empty).residuals
     data = PriorStateData(context(epochs, observed), ephemeris(), tle.epoch)
     optimizer = OptimizerContext(
         OrbitModel.SGP4,
@@ -292,7 +302,7 @@ def test_sgp4_frequency_only_fit() -> None:
     epochs = [tle.epoch.as_unixtime() + 60.0 * index for index in range(1, 31)]
     empty = context(epochs, np.zeros(len(epochs)))
     target = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2e5, 0.0])
-    observed = evaluate_sgp4_augmented(target, ISS_TLE, empty).residuals
+    observed = evaluate_sgp4_augmented(target, prepared_lines(empty), empty).residuals
     data = PriorStateData(context(epochs, observed), ephemeris(), tle.epoch)
     optimizer = OptimizerContext(
         OrbitModel.SGP4,
@@ -314,7 +324,9 @@ def test_sgp4_coestimates_orbit_time_and_frequency() -> None:
     epochs = [tle.epoch.as_unixtime() + 60.0 * index for index in range(1, 31)]
     empty = context(epochs, np.zeros(len(epochs)))
     canonical_target = np.array([2e-4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 1e5, 0.0])
-    observed = evaluate_sgp4_augmented(canonical_target, ISS_TLE, empty).residuals
+    observed = evaluate_sgp4_augmented(
+        canonical_target, prepared_lines(empty), empty
+    ).residuals
     data = PriorStateData(context(epochs, observed), ephemeris(), tle.epoch)
     names = (
         "time_offset_s",
@@ -369,7 +381,9 @@ def test_all_equinoctial_roles_preserve_order_and_cca_selection() -> None:
     assert isinstance(tle, sk.TLE)
     epochs = [tle.epoch.as_unixtime() + 60.0 * index for index in range(1, 8)]
     empty = context(epochs, np.zeros(len(epochs)))
-    observed = evaluate_sgp4_augmented(np.zeros(10), ISS_TLE, empty).residuals
+    observed = evaluate_sgp4_augmented(
+        np.zeros(10), prepared_lines(empty), empty
+    ).residuals
     data = PriorStateData(context(epochs, observed), ephemeris(), tle.epoch)
     parameters = (
         ParameterSpec("equinoctial_f", 0.0, -0.01, 0.01, 1e-3, ParameterRole.FIXED),
@@ -383,7 +397,9 @@ def test_all_equinoctial_roles_preserve_order_and_cca_selection() -> None:
     )
 
     result = fit(data, OptimizerContext(OrbitModel.SGP4, parameters))
-    direct = evaluate_sgp4_augmented(np.zeros(10), ISS_TLE, data.observations)
+    direct = evaluate_sgp4_augmented(
+        np.zeros(10), result.prepared_tle.tle_lines, data.observations
+    )
 
     assert result.parameter_names == tuple(parameter.name for parameter in parameters)
     np.testing.assert_allclose(result.jacobian, direct.jacobian[:, [1, 0, 4, 2, 5, 3]])
@@ -429,7 +445,7 @@ def test_roles_hold_values_and_preserve_configured_column_order() -> None:
     np.testing.assert_array_equal(result.parameters, [3.0, 20.0])
     direct = evaluate_sgp4_augmented(
         np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 20.0, 3.0]),
-        ISS_TLE,
+        result.prepared_tle.tle_lines,
         data.observations,
     )
     np.testing.assert_allclose(result.jacobian, direct.jacobian[:, [9, 8]])

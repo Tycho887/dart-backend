@@ -12,13 +12,16 @@ from tests.test_od import ISS_TLE
 
 
 @pytest.mark.parametrize("shift", [-3600, 0, 3600])
-def test_stock_fitter_rejection_retains_serialized_candidate_and_errors(shift):
+def test_refined_tle_preserves_states_and_reports_serialization_errors(shift):
     epoch = sk.TLE.from_lines(ISS_TLE).epoch + sk.duration(seconds=shift)
     start, stop = epoch - sk.duration(hours=1), epoch + sk.duration(hours=1)
-    with pytest.raises(ReepochError) as caught:
-        reepoch_tle(ISS_TLE, epoch, start, stop)
-    report = caught.value.diagnostics
-    assert report is not None
+    report = reepoch_tle(ISS_TLE, epoch, start, stop)
+    assert report.converged
+    if shift == 0:
+        assert report.fit_status == "AlreadyCentered"
+        assert report.refinement_evaluations == 0
+    else:
+        assert report.refinement_status > 0
     assert report.original_tle_lines == ISS_TLE
     assert report.epoch_unix_s == epoch.as_unixtime()
     assert abs(report.serialized_epoch_unix_s - report.epoch_unix_s) <= 0.0005
@@ -47,31 +50,53 @@ def test_stock_fitter_rejection_retains_serialized_candidate_and_errors(shift):
         rtol=1e-7,
         atol=1e-7,
     )
-    assert (
-        not report.converged
-        or position.max() >= 20
-        or np.sqrt(np.mean(position**2)) >= 10
-        or velocity.max() >= 0.02
-        or np.sqrt(np.mean(velocity**2)) >= 0.01
-    )
+    assert position.max() < 20 and np.sqrt(np.mean(position**2)) < 10
+    assert velocity.max() < 0.02 and np.sqrt(np.mean(velocity**2)) < 0.01
     assert all(np.isfinite(v) for v in asdict(report).values() if isinstance(v, float))
 
 
 def test_near_circular_identity_columns_survive_serialization():
     lines = (ISS_TLE[0][:7] + "C 00000AAA" + ISS_TLE[0][17:], ISS_TLE[1])
     epoch = sk.TLE.from_lines(lines).epoch
-    with pytest.raises(ReepochError) as caught:
-        reepoch_tle(
-            lines, epoch, epoch - sk.duration(hours=1), epoch + sk.duration(hours=1)
-        )
-    report = caught.value.diagnostics
-    assert report is not None
+    report = reepoch_tle(
+        lines, epoch, epoch - sk.duration(hours=1), epoch + sk.duration(hours=1)
+    )
     assert report.tle_lines[0][2:17] == lines[0][2:17]
     assert report.tle_lines[1][2:7] == lines[1][2:7]
     for line in report.tle_lines:
         assert len(line) == 69
         checksum = sum(int(c) if c.isdigit() else int(c == "-") for c in line[:68]) % 10
         assert int(line[-1]) == checksum
+
+
+@pytest.mark.parametrize("failure", ["nonconvergence", "preservation"])
+def test_failed_refinement_retains_diagnostics_without_publishing(monkeypatch, failure):
+    import dart.forward_models as models
+
+    refine = models._refine_reepoch
+
+    def failed(seed):
+        result = refine(seed)
+        if failure == "nonconvergence":
+            result.success = False
+            result.status = 0
+        else:
+            result.x[5] += 0.5
+        return result
+
+    monkeypatch.setattr(models, "_refine_reepoch", failed)
+    epoch = sk.TLE.from_lines(ISS_TLE).epoch + sk.duration(hours=1)
+    with pytest.raises(ReepochError) as caught:
+        reepoch_tle(
+            ISS_TLE, epoch, epoch - sk.duration(hours=1), epoch + sk.duration(hours=1)
+        )
+    report = caught.value.diagnostics
+    assert report is not None
+    if failure == "nonconvergence":
+        assert not report.converged and report.refinement_status == 0
+        assert report.position_max_m < 20
+    else:
+        assert report.converged and report.position_max_m > 20
 
 
 @pytest.mark.parametrize(

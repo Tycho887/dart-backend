@@ -11,12 +11,14 @@ from dataclasses import replace
 import numpy as np
 import satkit as sk
 from numpy.typing import NDArray
-from scipy.optimize import least_squares
+from scipy.optimize import OptimizeResult, least_squares
 
 from dart.forward_models import (
     ForwardModelEvaluation,
+    corrected_tle_lines,
     evaluate_full_state_augmented,
-    evaluate_sgp4_augmented,
+    evaluate_sgp4_epoch,
+    prepare_sgp4_tle,
     tle_state_gcrf,
 )
 from dart.orbit import CartesianOrbit, OrbitSolution, Sgp4Orbit
@@ -67,6 +69,8 @@ def _source_tle_lines(raw: str) -> list[str]:
 
 
 def _canonical_tle(data: PriorStateData) -> tuple[str, str]:
+    if data.prepared_tle is not None:
+        return _derived_tle(data.prepared_tle.tle_lines, data.ephemeris.tle or "")
     if data.derived_tle_lines is not None:
         return _derived_tle(data.derived_tle_lines, data.ephemeris.tle or "")
     raw = data.ephemeris.tle
@@ -80,7 +84,9 @@ def _canonical_tle(data: PriorStateData) -> tuple[str, str]:
         if len(parsed) != 1:
             raise ValueError("source ephemeris must contain exactly one TLE")
         parsed = parsed[0]
-    lines = parsed.to_2line()
+    # Keep the delivered identity columns; satkit's Python serializer normalizes
+    # classification/designator fields that the native serializer preserves.
+    lines = _source_tle_lines(raw)[-2:]
     return str(lines[0]), str(lines[1])
 
 
@@ -93,6 +99,45 @@ def _derived_tle(lines: tuple[str, str], original: str) -> tuple[str, str]:
         raise ValueError("derived TLE spacecraft identifiers differ from source")
     # Do not reserialize a product already validated by the Rust core.
     return lines
+
+
+def prepare_sgp4_prior(
+    data: PriorStateData, optimizer: OptimizerContext | None = None
+) -> PriorStateData:
+    """Center an SGP4 prior once, before scans/fits, retaining its source report.
+
+    Cartesian callers do not use this step. The optional optimizer widens the
+    preservation interval to cover both clock and TLE-epoch search bounds.
+    """
+    _validate_data(data)
+    times = [o.time for o in data.observations.observations]
+    window = _preparation_window(data, optimizer, times)
+    # Always derive from the selected source, even if a caller changes the
+    # observations or source on a previously prepared input.
+    lines = _canonical_tle(replace(data, prepared_tle=None))
+    report = prepare_sgp4_tle(lines, times, window=window)
+    return replace(data, prepared_tle=report, preservation_window=window)
+
+
+def _preparation_window(
+    data: PriorStateData, optimizer: OptimizerContext | None, times: list[sk.time]
+) -> tuple[sk.time, sk.time] | None:
+    if optimizer is None:
+        return data.preservation_window
+    margin = sum(
+        max(abs(p.lower_bound), abs(p.upper_bound))
+        if p.role == ParameterRole.ESTIMATE
+        else abs(p.initial)
+        for p in optimizer.parameters
+        if p.name in {"time_offset_s", "tle_epoch_offset_s"}
+    )
+    start = min(times) - sk.duration(seconds=margin)
+    stop = max(times) + sk.duration(seconds=margin)
+    if data.preservation_window is not None:
+        start = min(start, data.preservation_window[0])
+        stop = max(stop, data.preservation_window[1])
+    # A singleton without a timing search uses the helper's one-orbit interval.
+    return (start, stop) if start < stop else None
 
 
 def _pass_parameter_names(data: PriorStateData) -> tuple[str, ...]:
@@ -109,7 +154,12 @@ def _canonical_parameter_names(
 ) -> tuple[str, ...]:
     pass_names = _pass_parameter_names(data)
     if model == OrbitModel.SGP4:
-        return _SGP4_PARAMETER_NAMES + _SHARED_PARAMETER_NAMES + pass_names
+        return (
+            _SGP4_PARAMETER_NAMES
+            + _SHARED_PARAMETER_NAMES
+            + pass_names
+            + ("tle_epoch_offset_s",)
+        )
     return _FULL_STATE_PARAMETER_NAMES + _SHARED_PARAMETER_NAMES + pass_names
 
 
@@ -217,8 +267,7 @@ def _materialize_orbit(
     )
     solution_id = hashlib.sha256(identity.encode()).hexdigest()
     if model == OrbitModel.SGP4:
-        offsets = tuple(values.get(name, 0.0) for name in _SGP4_PARAMETER_NAMES)
-        return Sgp4Orbit(object_id, data.ephemeris, solution_id, lines, offsets)
+        return _sgp4_product(data, values, object_id, solution_id, lines)
     if model != OrbitModel.FULL_STATE:
         raise ValueError(f"unsupported orbit model: {model}")
     nominal, _ = _full_state(data, lines)
@@ -229,16 +278,32 @@ def _materialize_orbit(
     return CartesianOrbit(object_id, data.ephemeris, solution_id, data.epoch, state)
 
 
+def _sgp4_product(
+    data: PriorStateData,
+    values: dict[str, float],
+    object_id: str,
+    solution_id: str,
+    lines: tuple[str, str],
+) -> Sgp4Orbit:
+    offsets = tuple(values.get(name, 0.0) for name in _SGP4_PARAMETER_NAMES)
+    if "tle_epoch_offset_s" in values:
+        lines = corrected_tle_lines(lines, offsets, values["tle_epoch_offset_s"])
+        offsets = (0.0,) * len(_SGP4_PARAMETER_NAMES)
+    return Sgp4Orbit(object_id, data.ephemeris, solution_id, lines, offsets)
+
+
 def resolve_prior(data: PriorStateData, model: OrbitModel) -> OrbitSolution:
     """Materialize the selected uncorrected prior for baseline evaluation."""
+    if model == OrbitModel.SGP4:
+        data = prepare_sgp4_prior(data)
     return _materialize_orbit(data, model, {})
 
 
 def resolve_solution(data: PriorStateData, output: OptimizerOutput) -> OrbitSolution:
     """Combine a successful fit's named corrections with its original prior.
 
-    Callers must retain the exact PriorStateData used by fit; OptimizerOutput
-    contains corrections, not a standalone orbit or its source ephemeris.
+    Callers retain source identity and observations. SGP4 outputs carry the exact
+    prepared baseline, so replay never refits or applies offsets at another epoch.
     """
     if not output.success:
         raise ValueError("cannot publish an orbit from an unsuccessful fit")
@@ -250,6 +315,13 @@ def resolve_solution(data: PriorStateData, output: OptimizerOutput) -> OrbitSolu
     unknown = values.keys() - set(_canonical_parameter_names(data, output.model_kind))
     if unknown:
         raise ValueError(f"unknown fit parameters: {sorted(unknown)}")
+    if output.prepared_tle is not None:
+        source = _canonical_tle(replace(data, prepared_tle=None))
+        if source != output.prepared_tle.original_tle_lines:
+            raise ValueError(
+                "fit prepared TLE does not match the supplied source prior"
+            )
+        data = replace(data, prepared_tle=output.prepared_tle)
     return _materialize_orbit(data, output.model_kind, values)
 
 
@@ -282,7 +354,7 @@ def _sgp4_evaluator(data: PriorStateData) -> tuple[Evaluator, PriorSource]:
     tle_lines = _canonical_tle(data)
 
     def evaluate(x: FloatArray) -> ForwardModelEvaluation:
-        return evaluate_sgp4_augmented(x, tle_lines, data.observations)
+        return evaluate_sgp4_epoch(x, tle_lines, data.observations)
 
     return evaluate, PriorSource.TLE
 
@@ -301,8 +373,8 @@ def _cached_functions(evaluator: Evaluator) -> tuple[Callable, Callable]:
         return cached_evaluation
 
     return (
-        lambda x: evaluate(x).residuals,
-        lambda x: evaluate(x).jacobian,
+        lambda x: evaluate(x).residuals.copy(),
+        lambda x: evaluate(x).jacobian.copy(),
     )
 
 
@@ -321,92 +393,91 @@ def _fixed_cost(residuals: FloatArray, loss: str, scale: float) -> float:
     return float(0.5 * scale**2 * np.sum(rho))
 
 
+def _fit_estimated(
+    evaluator: Evaluator,
+    optimizer: OptimizerContext,
+    names: tuple[str, ...],
+) -> tuple[FloatArray, OptimizeResult]:
+    parameters = tuple(
+        p for p in optimizer.parameters if p.role == ParameterRole.ESTIMATE
+    )
+    indices = np.array([names.index(p.name) for p in parameters], dtype=np.intp)
+    initial = np.zeros(len(names), dtype=np.float64)
+    for parameter in optimizer.parameters:
+        initial[names.index(parameter.name)] = parameter.initial
+
+    def expand(estimated: FloatArray) -> FloatArray:
+        values = initial.copy()
+        values[indices] = estimated
+        return values
+
+    def projected(estimated: FloatArray) -> ForwardModelEvaluation:
+        evaluation = evaluator(expand(estimated))
+        return ForwardModelEvaluation(
+            evaluation.residuals, np.ascontiguousarray(evaluation.jacobian[:, indices])
+        )
+
+    result = _optimize(projected, parameters, optimizer)
+    return expand(result.x), result
+
+
+def _optimize(
+    evaluator: Evaluator,
+    parameters: tuple[ParameterSpec, ...],
+    optimizer: OptimizerContext,
+) -> OptimizeResult:
+    initial = np.array([p.initial for p in parameters], dtype=np.float64)
+    if not parameters:
+        return OptimizeResult(
+            x=initial,
+            cost=_fixed_cost(
+                evaluator(initial).residuals, optimizer.loss, optimizer.loss_scale
+            ),
+            optimality=0.0,
+            success=True,
+            status=1,
+            message="No parameters were configured for estimation.",
+            nfev=1,
+            njev=0,
+        )
+    residuals, jacobian = _cached_functions(evaluator)
+    return least_squares(
+        residuals,
+        initial,
+        jac=jacobian,
+        bounds=(
+            [p.lower_bound for p in parameters],
+            [p.upper_bound for p in parameters],
+        ),
+        x_scale="jac" if optimizer.x_scale == "jac" else [p.scale for p in parameters],
+        loss=optimizer.loss,
+        f_scale=optimizer.loss_scale,
+        max_nfev=optimizer.max_evaluations,
+        ftol=optimizer.ftol,
+        xtol=optimizer.xtol,
+        gtol=optimizer.gtol,
+        method="trf",
+        tr_solver="exact",
+    )
+
+
 def fit(data: PriorStateData, optimizer: OptimizerContext) -> OptimizerOutput:
     """Fit the selected orbit model to normalized Doppler observations."""
 
     _validate_data(data)
     _validate_optimizer(data, optimizer)
     if optimizer.model == OrbitModel.SGP4:
+        data = prepare_sgp4_prior(data, optimizer)
         evaluator, prior_source = _sgp4_evaluator(data)
     else:
         evaluator, prior_source = _full_state_evaluator(data)
 
     parameters = optimizer.parameters
     canonical_names = _canonical_parameter_names(data, optimizer.model)
-    canonical_indices = {name: index for index, name in enumerate(canonical_names)}
     configured_indices = np.array(
-        [canonical_indices[parameter.name] for parameter in parameters], dtype=np.intp
+        [canonical_names.index(p.name) for p in parameters], dtype=np.intp
     )
-    estimated_parameters = tuple(
-        parameter
-        for parameter in parameters
-        if parameter.role == ParameterRole.ESTIMATE
-    )
-    estimated_indices = np.array(
-        [canonical_indices[parameter.name] for parameter in estimated_parameters],
-        dtype=np.intp,
-    )
-    canonical_initial = np.zeros(len(canonical_names), dtype=np.float64)
-    for parameter, index in zip(parameters, configured_indices, strict=True):
-        canonical_initial[index] = parameter.initial
-
-    def expand(estimated: FloatArray) -> FloatArray:
-        values = canonical_initial.copy()
-        values[estimated_indices] = estimated
-        return values
-
-    def projected_evaluator(estimated: FloatArray) -> ForwardModelEvaluation:
-        evaluation = evaluator(expand(estimated))
-        return ForwardModelEvaluation(
-            residuals=evaluation.residuals,
-            jacobian=np.ascontiguousarray(evaluation.jacobian[:, estimated_indices]),
-        )
-
-    estimated_initial = np.array(
-        [parameter.initial for parameter in estimated_parameters], dtype=np.float64
-    )
-    if estimated_parameters:
-        residuals, jacobian = _cached_functions(projected_evaluator)
-        result = least_squares(
-            residuals,
-            estimated_initial,
-            jac=jacobian,
-            bounds=(
-                [parameter.lower_bound for parameter in estimated_parameters],
-                [parameter.upper_bound for parameter in estimated_parameters],
-            ),
-            x_scale=(
-                "jac"
-                if optimizer.x_scale == "jac"
-                else [parameter.scale for parameter in estimated_parameters]
-            ),
-            loss=optimizer.loss,
-            f_scale=optimizer.loss_scale,
-            max_nfev=optimizer.max_evaluations,
-            ftol=optimizer.ftol,
-            xtol=optimizer.xtol,
-            gtol=optimizer.gtol,
-            method="trf",
-            tr_solver="exact",
-        )
-        canonical_final = expand(np.asarray(result.x, dtype=np.float64))
-        cost = float(result.cost)
-        optimality = float(result.optimality)
-        success = bool(result.success)
-        status = int(result.status)
-        message = str(result.message)
-        function_evaluations = int(result.nfev)
-        jacobian_evaluations = None if result.njev is None else int(result.njev)
-    else:
-        canonical_final = canonical_initial
-        fixed = evaluator(canonical_final)
-        cost = _fixed_cost(fixed.residuals, optimizer.loss, optimizer.loss_scale)
-        optimality = 0.0
-        success = True
-        status = 1
-        message = "No parameters were configured for estimation."
-        function_evaluations = 1
-        jacobian_evaluations = 0
+    canonical_final, result = _fit_estimated(evaluator, optimizer, canonical_names)
     final = evaluator(canonical_final)
     output = OptimizerOutput(
         model_kind=optimizer.model,
@@ -415,22 +486,29 @@ def fit(data: PriorStateData, optimizer: OptimizerContext) -> OptimizerOutput:
         parameters=np.ascontiguousarray(canonical_final[configured_indices]),
         residuals=final.residuals,
         jacobian=np.ascontiguousarray(final.jacobian[:, configured_indices]),
-        cost=cost,
-        optimality=optimality,
-        success=success,
-        status=status,
-        message=message,
-        function_evaluations=function_evaluations,
+        cost=float(result.cost),
+        optimality=float(result.optimality),
+        success=bool(result.success),
+        status=int(result.status),
+        message=str(result.message),
+        function_evaluations=int(result.nfev),
         parameter_roles=tuple(parameter.role for parameter in parameters),
         loss=optimizer.loss,
-        jacobian_evaluations=jacobian_evaluations,
+        jacobian_evaluations=result.njev,
+        prepared_tle=data.prepared_tle if optimizer.model == OrbitModel.SGP4 else None,
     )
+    return _fit_covariance(output, parameters)
+
+
+def _fit_covariance(
+    output: OptimizerOutput, parameters: tuple[ParameterSpec, ...]
+) -> OptimizerOutput:
     covariance_enabled = bool(parameters) and all(
         parameter.role != ParameterRole.FIXED
         and parameter.prior_standard_uncertainty is not None
         for parameter in parameters
     )
-    if success and covariance_enabled:
+    if output.success and covariance_enabled:
         covariance, rank = full_consider_covariance(output, parameters)
         output = replace(
             output,
@@ -451,6 +529,7 @@ __all__ = [
     "PriorStateData",
     "compute_consider_covariance",
     "fit",
+    "prepare_sgp4_prior",
     "resolve_prior",
     "resolve_solution",
 ]

@@ -14,6 +14,7 @@ import polars as pl
 import satkit as sk
 
 from dart.evaluation import compare_states
+from dart.forward_models import evaluate_sgp4_augmented
 from dart.io import ContactMetadata, ForwardModelContext
 from dart.io.doppler import prepare_doppler
 from dart.io.load import _contact_ids
@@ -21,13 +22,15 @@ from dart.io.oem import OemEphemeris, read_oem
 from dart.od import (
     OptimizerContext,
     OptimizerOutput,
+    OrbitModel,
     PriorStateData,
     fit,
+    prepare_sgp4_prior,
     resolve_prior,
     resolve_solution,
 )
-from dart.od.initialization import initialize_sgp4_time
-from dart.orbit import OrbitSolution, StateHistory, propagate
+from dart.od.initialization import initialize_sgp4_time, timing_parameter_name
+from dart.orbit import OrbitSolution, Sgp4Orbit, StateHistory, propagate
 from experiments._benchmark_io import load_inputs, save_json
 
 _ERROR_COLUMNS = ("dx_m", "dy_m", "dz_m", "dvx_m_s", "dvy_m_s", "dvz_m_s")
@@ -142,9 +145,12 @@ async def benchmark(
     reference_spacecraft_id: str | None = None,
     variance_hz2: float = 1.0,
     min_samples: int = 20,
+    min_ebn0_db: float | None = None,
+    max_abs_offset_hz: float = 100000.0,
     epoch: sk.time | None = None,
     derived_tle_lines: tuple[str, str] | None = None,
     initialize_time: bool = False,
+    preservation_window: tuple[sk.time, sk.time] | None = None,
 ) -> BenchmarkResult:
     """Fit exactly these contacts once and return signed residuals in SI/Hz.
 
@@ -168,11 +174,19 @@ async def benchmark(
         center_frequency_hz=center_frequency_hz,
         variance_hz2=variance_hz2,
         min_samples=min_samples,
+        min_ebn0_db=min_ebn0_db,
+        max_abs_offset_hz=max_abs_offset_hz,
     )
     epoch = _initial_epoch(context, epoch)
     prior = PriorStateData(
-        context, ephemeris, epoch, derived_tle_lines=derived_tle_lines
+        context,
+        ephemeris,
+        epoch,
+        derived_tle_lines=derived_tle_lines,
+        preservation_window=preservation_window,
     )
+    if optimizer.model == OrbitModel.SGP4:
+        prior = prepare_sgp4_prior(prior, optimizer)
     initial = resolve_prior(prior, optimizer.model)
     output, optimizer, timing = _fit_with_initialization(
         prior, optimizer, initialize_time
@@ -194,6 +208,7 @@ async def benchmark(
         "contacts": contacts,
         "initial_ephemeris": ephemeris,
         "derived_tle_lines": derived_tle_lines,
+        "sgp4_preparation": output.prepared_tle,
         "epoch_unix_s": epoch.as_unixtime(),
         "optimizer": optimizer,
         "output": {
@@ -204,6 +219,8 @@ async def benchmark(
         "center_frequency_hz": center_frequency_hz,
         "variance_hz2": variance_hz2,
         "min_samples": min_samples,
+        "min_ebn0_db": min_ebn0_db,
+        "max_abs_offset_hz": max_abs_offset_hz,
         "selection": counts,
         "input_sha256": hashes,
         "reference_path": oem_path,
@@ -224,6 +241,7 @@ async def benchmark(
         },
     }
     metadata.update(timing)
+    metadata.update(_epoch_product_metadata(prior, output))
     return BenchmarkResult(
         states, _doppler_residuals(context, output), epoch, output, metadata
     )
@@ -261,9 +279,16 @@ def _timing_scan_metadata(
         *[f"pass_bias_hz:{cid}" for cid in sorted(mapping, key=mapping.__getitem__)],
         "cost",
     ]
-    spec = next(p for p in optimizer.parameters if p.name == "time_offset_s")
+    name = timing_parameter_name(optimizer)
+    spec = next(p for p in optimizer.parameters if p.name == name)
     best = scan[np.argmin(scan[:, -1])]
     return {
+        "parameter_name": name,
+        "offset_convention": "corrected TLE epoch = prior epoch + offset"
+        if name == "tle_epoch_offset_s"
+        else "observation evaluation time + offset",
+        "loss": optimizer.loss,
+        "loss_scale": optimizer.loss_scale,
         "columns": columns,
         "scan": scan,
         "step_s": 10.0,
@@ -278,8 +303,9 @@ def _timing_scan_metadata(
 def _timing_fit_metadata(
     optimizer: OptimizerContext, output: OptimizerOutput
 ) -> dict[str, object]:
-    spec = next(p for p in optimizer.parameters if p.name == "time_offset_s")
-    offset = float(output.parameters[output.parameter_names.index("time_offset_s")])
+    name = timing_parameter_name(optimizer)
+    spec = next(p for p in optimizer.parameters if p.name == name)
+    offset = float(output.parameters[output.parameter_names.index(name)])
     return {
         "refined_offset_s": offset,
         "final_cost": output.cost,
@@ -293,4 +319,39 @@ def _timing_fit_metadata(
         "success": output.success,
         "status": output.status,
         "message": output.message,
+    }
+
+
+def _epoch_product_metadata(
+    prior: PriorStateData, output: OptimizerOutput
+) -> dict[str, object]:
+    if not output.success or "tle_epoch_offset_s" not in output.parameter_names:
+        return {}
+    solution = resolve_solution(prior, output)
+    assert isinstance(solution, Sgp4Orbit)
+    values = dict(zip(output.parameter_names, output.parameters, strict=True))
+    context = prior.observations
+    names = sorted(
+        context.contact_to_pass_idx, key=context.contact_to_pass_idx.__getitem__
+    )
+    parameters = [
+        *solution.offsets,
+        values.get("time_offset_s", 0),
+        values.get("center_frequency_offset_hz", 0),
+    ]
+    parameters += [values.get(f"pass_bias_hz:{cid}", 0) for cid in names]
+    evaluation = evaluate_sgp4_augmented(parameters, solution.tle_lines, context)
+    sigma = np.sqrt([o.noise_cov[0][0] for o in context.observations])
+    differences = (evaluation.residuals - output.residuals) * sigma
+    return {
+        "epoch_corrected_tle": {
+            "tle_lines": solution.tle_lines,
+            "tle_epoch_offset_s": float(values["tle_epoch_offset_s"]),
+            "serialization_doppler_difference_rms_hz": float(
+                np.sqrt(np.mean(differences**2))
+            ),
+            "serialization_doppler_difference_max_hz": float(
+                np.max(np.abs(differences))
+            ),
+        }
     }

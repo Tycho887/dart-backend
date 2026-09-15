@@ -62,7 +62,11 @@ def test_real_fit_and_export(monkeypatch, data, tmp_path, count, model):
     ]
     assert np.all(np.isfinite(fitted.select(bench._ERROR_COLUMNS).to_numpy()))
     if model == OrbitModel.SGP4:
-        assert np.max(np.abs(fitted.select(bench._ERROR_COLUMNS).to_numpy())) < 0.1
+        # A subset is prepared at its own mean epoch, independently of the OEM's
+        # all-pass baseline. Allow the documented TLE representation error.
+        errors = fitted.select(bench._ERROR_COLUMNS).to_numpy()
+        assert np.max(np.linalg.norm(errors[:, :3], axis=1)) < 20
+        assert np.max(np.linalg.norm(errors[:, 3:], axis=1)) < 0.02
     directory = tmp_path / "run"
     result.save(directory)
     assert_frame_equal(pl.read_csv(directory / "states.csv"), result.states)
@@ -389,9 +393,10 @@ def test_experiment_groups_and_parameter_sets():
         names = {p.name for p in optimizer.parameters}
         biases = {f"pass_bias_hz:{cid}" for cid in group}
         assert biases <= names
-        assert optimizer.loss == "linear"
+        assert optimizer.loss == "soft_l1"
+        assert optimizer.loss_scale == 200
         if stage == "timing":
-            assert names - biases == {"time_offset_s"}
+            assert names - biases == {"tle_epoch_offset_s"}
         elif stage == "sgp4_L+n":
             assert names - biases == {"mean_longitude_deg", "mean_motion_rev_per_day"}
         else:
@@ -540,9 +545,11 @@ def test_experiment_replays_gates_exports_and_refits_once(monkeypatch, data, tmp
     monkeypatch.setattr(study, "reepoch_tle", reepoch)
 
     async def fit_case(ids, path, *, optimizer, epoch, snapshot_dir, **kwargs):
-        assert kwargs["derived_tle_lines"] == original
+        assert kwargs["derived_tle_lines"] == (
+            original if optimizer.model == OrbitModel.FULL_STATE else None
+        )
         assert kwargs["initialize_time"] == (
-            optimizer.parameters[0].name == "time_offset_s"
+            optimizer.parameters[0].name == "tle_epoch_offset_s"
         )
         assert (snapshot_dir / "manifest.json").is_file()
         assert get_prior.call_count == 1 and fetch.call_count == 2
@@ -600,6 +607,7 @@ def test_experiment_replays_gates_exports_and_refits_once(monkeypatch, data, tmp
             data[3].path,
             output_dir=directory,
             max_bias_variance_hz2=10,
+            loss="linear",
         )
     )
     assert len(calls) == 5  # two timing, two prefix fits, one pruned refit
@@ -742,6 +750,12 @@ def test_experiment_rejected_reepoch_has_no_downstream_fits(
     import experiment as study
 
     install_providers(monkeypatch, data)
+    from dart.forward_models import ReepochError
+
+    def reject(*args):
+        raise ReepochError("fixture preservation rejection")
+
+    monkeypatch.setattr(study, "reepoch_tle", reject)
     monkeypatch.setattr(
         study, "benchmark", lambda *args, **kwargs: pytest.fail("rejected prior used")
     )
@@ -761,10 +775,7 @@ def test_experiment_rejected_reepoch_has_no_downstream_fits(
     case = json.loads((directory / "experiment.json").read_text())["spacecraft"][0]
     assert case["runs"] == []
     assert case["reepoching"]["accepted"] is False
-    assert (
-        case["reepoching"]["diagnostics"]["original_tle_lines"]
-        == data[2].tle.splitlines()
-    )
+    assert "preservation rejection" in case["reepoching"]["reason"]
     assert "rejected" in case["unavailable_reason"]
     assert (directory / "accuracy.png").is_file()
     import visualize

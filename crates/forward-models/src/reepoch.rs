@@ -40,7 +40,7 @@ impl std::fmt::Display for ReepochError {
             Self::Failed(message) => f.write_str(message),
             Self::Rejected(report) => write!(
                 f,
-                "failed convergence or preservation limits ({}); position RMS {:.3} m, maximum {:.3} m; velocity RMS {:.6} m/s, maximum {:.6} m/s",
+                "failed convergence or serialized preservation limits (stock fit: {}); position RMS {:.3} m, maximum {:.3} m; velocity RMS {:.6} m/s, maximum {:.6} m/s",
                 report.fit_status,
                 report.position_rms_m,
                 report.position_max_m,
@@ -92,7 +92,43 @@ fn validate_lines(lines: &[String; 2]) -> Result<(), ReepochError> {
     Ok(())
 }
 
-fn serialize(fitted: &TLE, original: &[String; 2]) -> Result<[String; 2], ReepochError> {
+/// Observation-weighted epoch and a preservation interval of at least one orbit.
+pub fn preparation_epochs(
+    lines: &[String; 2],
+    timestamps: &[f64],
+    window: Option<(f64, f64)>,
+) -> Result<(f64, f64, f64), ReepochError> {
+    validate_lines(lines)?;
+    if timestamps.is_empty() || timestamps.iter().any(|t| !t.is_finite()) {
+        return Err(failed("timestamps must be nonempty and finite"));
+    }
+    let mut times = timestamps.to_vec();
+    times.sort_by(f64::total_cmp);
+    let first = times[0];
+    let last = times[times.len() - 1];
+    // Center before summing to retain precision for contemporary Unix epochs.
+    let epoch = first
+        + times
+            .iter()
+            .map(|t| (t - first) / times.len() as f64)
+            .sum::<f64>();
+    let tle = TLE::load_2line(&lines[0], &lines[1]).map_err(failed)?;
+    if !tle.mean_motion.is_finite() || tle.mean_motion <= 0.0 {
+        return Err(failed("TLE mean motion must be finite and positive"));
+    }
+    let half_period = 43200.0 / tle.mean_motion;
+    let mut start = first.min(epoch - half_period);
+    let mut stop = last.max(epoch + half_period);
+    if let Some((a, b)) = window {
+        validate_epochs(epoch, a, b)?;
+        start = start.min(a);
+        stop = stop.max(b);
+    }
+    validate_epochs(epoch, start, stop)?;
+    Ok((epoch, start, stop))
+}
+
+pub(crate) fn serialize(fitted: &TLE, original: &[String; 2]) -> Result<[String; 2], ReepochError> {
     let mut lines = fitted.to_2line().map_err(failed)?;
     // satkit does not retain classification and can truncate the launch designator.
     lines[0].replace_range(2..17, &original[0][2..17]);
@@ -162,8 +198,8 @@ fn accept(report: ReepochedTle) -> Result<ReepochedTle, ReepochError> {
     }
 }
 
-/// Propagate 121 original-TLE samples, fit once, then validate the serialized
-/// candidate at those nodes and 120 interleaved epochs. All units are SI.
+/// Stock satkit fit with strict preservation checks. Rejected finite candidates
+/// remain available in diagnostics for refinement by the Python adapter.
 pub fn reepoch_tle(
     lines: [String; 2],
     epoch: f64,
@@ -173,16 +209,27 @@ pub fn reepoch_tle(
     validate_epochs(epoch, start, stop)?;
     validate_lines(&lines)?;
     let original = TLE::load_2line(&lines[0], &lines[1]).map_err(failed)?;
-    let times: Vec<Instant> = (0..241)
-        .map(|i| Instant::from_unixtime(start + (stop - start) * i as f64 / 240.0))
-        .collect();
+    let times = validation_times(start, stop);
     let fit_times: Vec<Instant> = times.iter().step_by(2).copied().collect();
     let states: Vec<[f64; 6]> = propagate_sgp4_gcrf(&original, &fit_times)?
         .iter()
         .map(|s| s.as_slice().try_into().unwrap())
         .collect();
-    let (mut fitted, fit) =
-        TLE::fit_from_states(&states, &fit_times, Instant::from_unixtime(epoch)).map_err(failed)?;
+    let (mut fitted, fit_status, converged) =
+        if (original.epoch.as_unixtime() - epoch).abs() <= 0.000433 {
+            (original.clone(), String::from("AlreadyCentered"), true)
+        } else {
+            let (fitted, fit) =
+                TLE::fit_from_states(&states, &fit_times, Instant::from_unixtime(epoch))
+                    .map_err(failed)?;
+            let converged = matches!(
+                fit.status,
+                TleFitStatus::GradientConverged
+                    | TleFitStatus::StepConverged
+                    | TleFitStatus::CostConverged
+            );
+            (fitted, format!("{:?}", fit.status), converged)
+        };
     fitted.name = original.name.clone();
     fitted.sat_num = original.sat_num;
     fitted.intl_desig = original.intl_desig.clone();
@@ -201,13 +248,8 @@ pub fn reepoch_tle(
         serialized_epoch_unix_s: derived.epoch.as_unixtime(),
         window_start_unix_s: start,
         window_stop_unix_s: stop,
-        fit_status: format!("{:?}", fit.status),
-        converged: matches!(
-            fit.status,
-            TleFitStatus::GradientConverged
-                | TleFitStatus::StepConverged
-                | TleFitStatus::CostConverged
-        ),
+        fit_status,
+        converged,
         position_rms_m,
         position_max_m,
         velocity_rms_m_s,
@@ -215,9 +257,61 @@ pub fn reepoch_tle(
     })
 }
 
+/// Check a refined, serialized candidate against the original at independent nodes.
+pub fn validate_refinement(
+    mut report: ReepochedTle,
+    offsets: &[f64],
+    converged: bool,
+) -> Result<ReepochedTle, ReepochError> {
+    let base = TLE::load_2line(&report.tle_lines[0], &report.tle_lines[1]).map_err(failed)?;
+    let corrected = crate::tle_with_offset(&base, offsets)?;
+    report.tle_lines = serialize(&corrected, &report.original_tle_lines)?;
+    let derived = TLE::load_2line(&report.tle_lines[0], &report.tle_lines[1]).map_err(failed)?;
+    let original = TLE::load_2line(&report.original_tle_lines[0], &report.original_tle_lines[1])
+        .map_err(failed)?;
+    let times = validation_times(report.window_start_unix_s, report.window_stop_unix_s);
+    [
+        report.position_rms_m,
+        report.position_max_m,
+        report.velocity_rms_m_s,
+        report.velocity_max_m_s,
+    ] = preservation(&original, &derived, &times)?;
+    report.serialized_epoch_unix_s = derived.epoch.as_unixtime();
+    report.converged = converged;
+    accept(report)
+}
+
+fn validation_times(start: f64, stop: f64) -> Vec<Instant> {
+    (0..241)
+        .map(|i| Instant::from_unixtime(start + (stop - start) * i as f64 / 240.0))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preparation_uses_sample_mean_and_covers_at_least_one_orbit() {
+        let lines: [String; 2] = [
+            "1 25544U 98067A   08264.51782528 -.00002182  00000-0 -11606-4 0  2927".into(),
+            "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537".into(),
+        ];
+        let tle = TLE::load_2line(&lines[0], &lines[1]).unwrap();
+        let t = tle.epoch.as_unixtime();
+        let (mean, start, stop) = preparation_epochs(&lines, &[t + 100.0, t, t], None).unwrap();
+        assert!((mean - t - 100.0 / 3.0).abs() < 1e-6);
+        assert!((stop - start - 86400.0 / tle.mean_motion).abs() < 1e-6);
+        assert_eq!(
+            preparation_epochs(&lines, &[t, t + 100.0, t], None).unwrap(),
+            (mean, start, stop)
+        );
+        let single = preparation_epochs(&lines, &[t], Some((t - 10000.0, t + 10000.0))).unwrap();
+        assert_eq!(single, (t, t - 10000.0, t + 10000.0));
+        for times in [vec![], vec![f64::NAN], vec![f64::INFINITY], vec![1e100]] {
+            assert!(preparation_epochs(&lines, &times, None).is_err());
+        }
+    }
 
     fn report() -> ReepochedTle {
         ReepochedTle {

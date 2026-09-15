@@ -183,7 +183,8 @@ def evaluate(
         )
     assert data.ephemeris.tle is not None
     line1, line2 = data.ephemeris.tle.splitlines()
-    return evaluate_sgp4_augmented(x, (line1, line2), data.observations)
+    lines = (line1, line2) if data.prepared_tle is None else data.prepared_tle.tle_lines
+    return evaluate_sgp4_augmented(x, lines, data.observations)
 
 
 def predictions(
@@ -293,7 +294,15 @@ def make_case(config: CaseConfig) -> SyntheticCase:
     line1, line2 = synthetic_tle(config.regime)
     tle = sk.TLE.from_lines([line1, line2])
     assert isinstance(tle, sk.TLE)
-    state = tle_state_gcrf((line1, line2), tle.epoch)
+    epoch = tle.epoch
+    context = observation_context(config, epoch)
+    train = (np.arange(len(context.observations)) // config.receivers) % 4 != 3
+    # Isolate inversion/model mismatch from TLE representation error. Arbitrary
+    # epoch preservation and rejection have separate preparation regressions.
+    times = np.array([o.time.as_unixtime() for o in context.observations])
+    tle.epoch = sk.time.from_unixtime(float(np.mean(times[train])))
+    line1, line2 = tle.to_2line()
+    state = tle_state_gcrf((line1, line2), epoch)
     metadata = EphemerisMetadata(
         ephemeris_id="synthetic-ephemeris",
         spacecraft_id="synthetic-spacecraft",
@@ -310,8 +319,7 @@ def make_case(config: CaseConfig) -> SyntheticCase:
         is_cui=False,
         payload=None,
     )
-    context = observation_context(config, tle.epoch)
-    truth = PriorStateData(context, metadata, tle.epoch, state)
+    truth = PriorStateData(context, metadata, epoch, state)
     injected = injected_parameters(config)
     clean = predictions(config.truth_model, injected, truth)
     sigma = np.sqrt([obs.noise_cov[0][0] for obs in context.observations])
@@ -334,7 +342,6 @@ def make_case(config: CaseConfig) -> SyntheticCase:
         observations=replace(context, observations=observed),
         nominal_state_gcrf_si=nominal,
     )
-    train = (np.arange(clean.size) // config.receivers) % 4 != 3
     return SyntheticCase(
         config,
         prior,
@@ -421,12 +428,12 @@ def run_case(case: SyntheticCase) -> tuple[OptimizerOutput, FitMetrics]:
     start = predictions(
         case.config.fit_model,
         dict(zip(initial.parameter_names, initial.parameters, strict=True)),
-        case.prior,
+        replace(case.prior, prepared_tle=initial.prepared_tle),
     )
     final = predictions(
         case.config.fit_model,
         dict(zip(result.parameter_names, result.parameters, strict=True)),
-        case.prior,
+        replace(case.prior, prepared_tle=result.prepared_tle),
     )
     shared = predictions(
         case.config.fit_model, shared_state_parameters(case), case.prior
