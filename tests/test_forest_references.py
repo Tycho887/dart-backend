@@ -255,8 +255,8 @@ def test_live_entrypoint_selects_default_or_override(
         monkeypatch.setenv(f"DART_FOREST{number}_OEM", str(selected))
     monkeypatch.setitem(namespace, "load_dotenv", lambda *a, **kw: None)
     monkeypatch.setitem(namespace, "client_from_env", lambda: nullcontext(object()))
-    output = tmp_path / f"forest{number}"
-    output.mkdir()
+    output = tmp_path / f"forest{number}" / "orbit"
+    output.mkdir(parents=True)
     (output / "summary.json").write_text("[]")
     run = AsyncMock(
         return_value=[
@@ -264,7 +264,7 @@ def test_live_entrypoint_selects_default_or_override(
         ]
     )
     monkeypatch.setitem(namespace, "run_comparison", run)
-    test(f"forest{number}", tmp_path)
+    test(f"forest{number}", "orbit", tmp_path)
     arguments = run.call_args.kwargs
     assert arguments["reference"].path == selected
     assert arguments["reference_metadata"].status == (
@@ -283,5 +283,5 @@ def test_live_entrypoint_still_requires_initial_ephemeris(monkeypatch, tmp_path)
     client = Mock(side_effect=AssertionError("must fail before acquisition"))
     monkeypatch.setitem(test.__globals__, "client_from_env", client)
     with pytest.raises(pytest.fail.Exception, match="DART_FOREST16_EPHEMERIS_ID"):
-        test("forest16", tmp_path)
+        test("forest16", "time_offset", tmp_path)
     client.assert_not_called()

@@ -1,7 +1,8 @@
 """FOREST18 LEOP contact inventory, extracted from doppler_parquet/forest18.parquet.
 
 May 3–4, 2026 UTC. Supply the initial ephemeris ID explicitly when running; the committed GPS
-OEM is the default reference. Contact ephemerides are never fit defaults.
+OEM is the orbit-fit reference; raw BESTXYZ is the time-offset reference.
+Live fits require an explicit prior; offline fits use recorded per-contact TLEs.
 """
 
 from pathlib import Path
@@ -34,3 +35,8 @@ DEFAULT_REFERENCE_OEM = (
     Path(__file__).resolve().parents[2]
     / "reports/forest-gps/20260504/FOREST-18/FOREST-18.oem"
 )
+
+DOPPLER_PARQUET = (
+    Path(__file__).resolve().parents[2] / "doppler_parquet/forest18.parquet"
+)
+RAW_GPS_DIRECTORY = Path(__file__).resolve().parents[2] / "gps-examples"

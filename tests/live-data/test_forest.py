@@ -10,13 +10,18 @@ from dotenv import load_dotenv
 
 from dart.io.adx import client_from_env
 from dart.od import OrbitModel
-from experiments.live_data import ExperimentSettings, run_comparison
+from experiments.live_data import (
+    ExperimentSettings,
+    run_comparison,
+    run_time_offset_comparison,
+)
 from experiments.references import load_reference
 
 
 @pytest.mark.live_data
 @pytest.mark.parametrize("name", ["forest16", "forest17", "forest18", "forest19"])
-def test_forest(name: str, tmp_path: Path) -> None:
+@pytest.mark.parametrize("experiment", ["time_offset", "orbit"])
+def test_forest(name: str, experiment: str, tmp_path: Path) -> None:
     if os.getenv("DART_RUN_LIVE_DATA") != "1":
         pytest.skip("set DART_RUN_LIVE_DATA=1 to run live orbit experiments")
     load_dotenv(
@@ -28,6 +33,28 @@ def test_forest(name: str, tmp_path: Path) -> None:
     if missing:
         pytest.fail(f"explicit live inputs required: {', '.join(missing)}")
     case = runpy.run_path(str(Path(__file__).with_name(f"{name}.py")))
+    root = (
+        Path(os.environ.get("DART_LIVE_DATA_OUTPUT", str(tmp_path))) / name / experiment
+    )
+    if experiment == "time_offset":
+        with client_from_env() as client:
+            results = asyncio.run(
+                run_time_offset_comparison(
+                    case["CONTACT_IDS"],
+                    ephemeris_id=os.environ[f"{prefix}_EPHEMERIS_ID"],
+                    spacecraft_id=case["SPACECRAFT_ID"],
+                    satellite=case["REFERENCE_OBJECT_ID"],
+                    center_frequency_hz=case["CENTER_FREQUENCY_HZ"],
+                    gps_directory=case["RAW_GPS_DIRECTORY"],
+                    output_dir=root,
+                    kogs_api_key=os.environ["KOGS_API_KEY"],
+                    adx_client=client,
+                )
+            )
+        assert results, "no fit cases were executed"
+        assert all(r.output.model_kind == OrbitModel.SGP4 for r in results)
+        assert (root / "aggregate.json").is_file()
+        return
     override = os.getenv(f"{prefix}_OEM")
     reference, reference_metadata = load_reference(
         case["DEFAULT_REFERENCE_OEM"],
@@ -35,7 +62,6 @@ def test_forest(name: str, tmp_path: Path) -> None:
         case["SPACECRAFT_ID"],
         Path(override) if override else None,
     )
-    root = Path(os.environ.get("DART_LIVE_DATA_OUTPUT", str(tmp_path)))
     settings = ExperimentSettings(OrbitModel.SGP4, case["CENTER_FREQUENCY_HZ"])
     with client_from_env() as client:
         results = asyncio.run(
@@ -46,7 +72,7 @@ def test_forest(name: str, tmp_path: Path) -> None:
                 settings=settings,
                 reference=reference,
                 reference_metadata=reference_metadata,
-                output_dir=root / name,
+                output_dir=root,
                 kogs_api_key=os.environ["KOGS_API_KEY"],
                 adx_client=client,
             )
@@ -54,4 +80,4 @@ def test_forest(name: str, tmp_path: Path) -> None:
     assert results, "no fit cases were executed"
     assert {result.output.model_kind for result in results} == set(OrbitModel)
     # Accuracy and nonconvergence are reported scientific outcomes, not gates.
-    assert (root / name / "summary.json").is_file()
+    assert (root / "summary.json").is_file()

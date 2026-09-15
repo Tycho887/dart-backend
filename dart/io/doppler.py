@@ -1,6 +1,6 @@
 """Prepare Doppler observations without altering the raw delivery."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import polars as pl
@@ -23,13 +23,24 @@ def select_doppler(measurements: pl.DataFrame) -> pl.DataFrame:
     ).sort("timestamp")
 
 
+def select_time_offset_doppler(measurements: pl.DataFrame) -> pl.DataFrame:
+    """Historical FOREST selection: finite |Doppler| >=0.1 Hz, 1<el<89 deg."""
+    return measurements.filter(
+        pl.col("doppler_hz").is_finite()
+        & (pl.col("doppler_hz").abs() >= 0.1)
+        & (pl.col("elevation_deg") > 1.0)
+        & (pl.col("elevation_deg") < 89.0)
+    ).sort("timestamp")
+
+
 def selection_counts(
-    contacts: Sequence[ContactMetadata], measurements: pl.DataFrame
+    contacts: Sequence[ContactMetadata],
+    measurements: pl.DataFrame,
+    *,
+    selector: Callable[[pl.DataFrame], pl.DataFrame] = select_doppler,
 ) -> tuple[ContactSelection, ...]:
     raw = dict(measurements.group_by("contact_id").len().iter_rows())
-    retained = dict(
-        select_doppler(measurements).group_by("contact_id").len().iter_rows()
-    )
+    retained = dict(selector(measurements).group_by("contact_id").len().iter_rows())
     return tuple(
         ContactSelection(
             c.contact_id, raw.get(c.contact_id, 0), retained.get(c.contact_id, 0)
@@ -72,21 +83,22 @@ def prepare_doppler(
     center_frequency_hz: float,
     variance_hz2: float,
     min_samples: int = 20,
+    selector: Callable[[pl.DataFrame], pl.DataFrame] = select_doppler,
 ) -> tuple[ForwardModelContext, tuple[ContactSelection, ...]]:
     """Prepare every requested contact or fail; no implicit group changes."""
     _validate_group(contacts, measurements)
     if min_samples < 1:
         raise ValueError("min_samples must be positive")
-    counts = selection_counts(contacts, measurements)
+    counts = selection_counts(contacts, measurements, selector=selector)
     insufficient = [c.contact_id for c in counts if c.retained_samples < min_samples]
     if insufficient:
-        raise ValueError(f"insufficient locked Doppler samples: {insufficient}")
+        raise ValueError(f"insufficient selected Doppler samples: {insufficient}")
     context = ForwardModelContext(center_frequency_hz)
     for contact in contacts:
         frame = measurements.filter(pl.col("contact_id") == contact.contact_id)
         _validate_identity(contact, frame)
         context.register_contact(contact)
-    selected = select_doppler(measurements)
+    selected = selector(measurements)
     for timestamp, doppler, system_id, contact_id in selected.select(
         "timestamp", "doppler_hz", "system_id", "contact_id"
     ).iter_rows():

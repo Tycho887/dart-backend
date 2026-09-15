@@ -1,14 +1,132 @@
-# Live-data orbit accuracy experiments
+# FOREST live and offline accuracy experiments
 
 The FOREST definitions in `tests/live-data/forest16.py` through `forest19.py`
 contain 13, 15, 18, and 15 contact UUIDs respectively, extracted in chronological
 order from the May 3–4, 2026 Parquet files. Their nominal frequency is
-2,216,300,000 Hz. The Parquet files establish the inventory; experiments fetch
-observations through the existing KOGS and ADX clients.
+2,216,300,000 Hz. Each definition also names its Doppler Parquet snapshot and
+raw BESTXYZ directory. Acquisition and experiment type are separate choices:
+
+| Experiment | Estimated parameters | Reference and headline metric |
+|---|---|---|
+| `time_offset` (FOREST CLI default) | SGP4 time offset + one constant pass bias; TLE elements fixed | Raw BESTXYZ; median of same-pass contact median 3D position errors, km |
+| `orbit` | Six SGP4 or Cartesian orbit corrections + bias/contact; timing fixed | Smoothed GPS OEM; future-window sample-weighted 3D position RMS, m |
+
+The time-offset experiment reproduces the earlier single-pass question.
+The low-fidelity SGP4 and high-fidelity full-state orbit experiments remain
+available through `--experiment orbit`; they do not measure the same outcome.
+
+## Recorded-data time-offset reproduction
+
+No environment file or network access is required:
+
+```bash
+uv run python -m experiments.offline_data \
+  --case tests/live-data/forest16.py \
+  --output /tmp/forest16-time-offset
+
+# All four spacecraft; deliberately opt in to the longer 15-pass replay.
+DART_RUN_OFFLINE_DATA=1 uv run pytest -q tests/offline-data/test_forest_offline.py
+```
+
+Use the corresponding case for FOREST-17, 18 or 19. `--parquet` and
+`--gps-directory` override the named files. Output directories must be new.
+`DART_OFFLINE_DATA_OUTPUT` optionally supplies a persistent pytest output root.
+
+`offline_data.load_experiment` normalizes the recorded telemetry and station
+metadata into the existing IO types. Each contact retains its recorded TLE,
+identified by a content hash; no GPS-fitted prior is introduced. Contact bounds
+are the recorded telemetry extents. Missing recorded tracking-offset metadata
+remains null and never changes timestamps. The snapshot has no authoritative
+COSPAR identity, so this position-only experiment does not publish an OEM.
+
+Both acquisition paths call `experiments.time_offset.run_time_offset_loaded`.
+`fit_contact` accepts one contact, its normalized measurements, an explicit
+prior, and GPS observations. It uses `dart.od.fit` and the authoritative Rust
+SGP4 evaluator. The experiment selects data and uses `time_offset_profile` as follows:
+
+- Finite Doppler with `abs(doppler_hz) >= 0.1`, and `1 < elevation_deg < 89`;
+  at least 301 selected samples per contact. There is no lock-state requirement
+  or 100 kHz upper cutoff in this historical selection.
+- Time offset bounded to ±120 s, pass bias bounded to ±100,000 Hz, and scales
+  30 s / 5,000 Hz. All orbital elements, B*, and center-frequency correction
+  remain fixed. Contacts are fitted independently, with no joint prefixes.
+- Soft-L1 with observation variance `500**2 Hz²` and whitened loss scale 1.4,
+  giving a **700 Hz** transition. Tolerances are `1e-10`; the evaluation limit
+  is 1,000. Each fit starts at zero. This reproduced the historical multistart
+  results on the frozen cohort without needing a new multistart implementation.
+
+### Time convention and GPS scoring
+
+The fitted `time_offset_s` intentionally shifts the **complete measurement
+epoch**, including station geometry. This Rust behavior is retained; it keeps
+timing separate from a mean-longitude correction when both are estimated.
+
+For comparison with the historical report, the scorer evaluates SGP4 TEME at
+`t + fitted_offset`, then transforms that state to ITRF at the original GPS
+epoch `t`. It calls existing Rust propagation and frame-transform functions;
+there is no additional Python propagator. This is an explicitly named phase
+position diagnostic, not a change to the Doppler time convention or the
+physical orbit-product API. `resolve_solution` / `propagate` correctly exclude
+clock corrections from orbit products and must not be used to silently score
+an unchanged TLE as a corrected time-offset result.
+
+GPS uses receiver measurement epochs from BESTXYZ, not packet arrival times.
+The existing loader screens radius, position uncertainty and packet latency,
+and deduplicates receiver epochs. It does not require a valid velocity fix to
+score a position. GPS never selects Doppler observations or initializes/tunes
+the fit. Score only GPS fixes inside that contact's **accepted Doppler span**:
+
+`error_i_km = norm(phase_position_itrf(t_i) - raw_gps_itrf(t_i)) / 1000`.
+
+Each contact reports its median and RMS. The headline is the median of contact
+medians for converged contacts with at least **five GPS fixes**. Contacts with
+1–4 fixes remain visible as limited coverage; zero-fix and nonconverged cases
+have explicit unavailable scores. Counts and failures stay in the report;
+there is no accuracy-based post-fit selection. This is a full-pass backcast,
+not a future forecast or evidence of real-time acquisition performance.
+
+The checked-in historical fixture identifies 15 eligible fits and 11 primary
+contacts. The matched Rust replay gives **3.863 km**, versus **3.857 km** in
+the earlier report. The offline regression checks every contact, with 0.1 s
+offset and 0.8 km position-score tolerances across the intentional time-model
+change. It also checks exact selection/GPS counts. These tolerances are
+reproduction limits for this frozen dataset, not general accuracy guarantees.
+
+Each run saves raw normalized measurements, contacts and priors, raw GPS source
+files and hashes, exclusions, dependency/native-library provenance, fit settings,
+residuals, rank/bound diagnostics, and per-fix ITRF positions. `summary.json` /
+`summary.csv` contain the per-contact results; `aggregate.json` states the
+headline metric and denominators. `acquisition.json` distinguishes providers.
+No timing result is exported as a corrected TLE or OEM.
+
+The added functions pass Ruff's McCabe check with a maximum complexity of 8.
+The shared `prepare_doppler` stays at 5; data selection is supplied as a
+callable so the historical timing policy does not change orbit-fit selection.
+
+## Live time-offset reproduction
+
+```bash
+uv run python -m experiments.live_data \
+  --experiment time_offset \
+  --case tests/live-data/forest16.py \
+  --ephemeris-id YOUR_SELECTED_EPHEMERIS_UUID \
+  --output /tmp/forest16-live-time-offset
+```
+
+This uses the existing KOGS/ADX clients and the same fitter/scorer as the offline
+run. Live acquisition requires credentials and an explicit common prior;
+offline acquisition uses the recorded per-contact priors. For a data-provider
+comparison, match the TLE content as well as sample rows and time windows.
+Live ADX queries use KOGS reservation bounds, whereas Parquet may contain
+telemetry outside those bounds. Neither difference is an optimizer change.
+`--gps-directory` overrides raw GPS; `--reference-oem` applies only to orbit
+experiments. No antenna commands or asynchronous jobs are submitted.
+
+## Live orbit-correction comparison
 
 ## Run a comparison
 
-Every invocation requires a manually selected initial ephemeris ID. The four
+Every live invocation requires a manually selected initial ephemeris ID. The four
 FOREST definitions default to the frozen GPS OEMs in
 `reports/forest-gps/20260504`; `--reference-oem` optionally overrides that product.
 Select a prior representative of the intended experiment;
@@ -17,6 +135,7 @@ customer GPS. It never chooses a prior from the contacts or reference OEM.
 
 ```bash
 uv run python -m experiments.live_data \
+  --experiment orbit \
   --case tests/live-data/forest16.py \
   --ephemeris-id YOUR_SELECTED_EPHEMERIS_UUID \
   --output experiments/results/forest16-run1
@@ -34,7 +153,8 @@ export DART_RUN_LIVE_DATA=1
 export DART_FOREST16_EPHEMERIS_ID=YOUR_SELECTED_EPHEMERIS_UUID
 # Optional: export DART_FOREST16_OEM=/path/to/alternate-forest16.oem
 export DART_LIVE_DATA_OUTPUT=/path/to/new-run-directory
-uv run pytest -q tests/live-data/test_forest.py -k forest16
+uv run pytest -q tests/live-data/test_forest.py -k 'forest16 and time_offset'
+# Select 'forest16 and orbit' for the separate orbit-correction matrix.
 ```
 
 The other spacecraft use the corresponding `DART_FOREST17_*` through
@@ -45,8 +165,11 @@ When enabled, missing required inputs, provider failures, identity mismatches, a
 invalid products fail loudly. Nonconverged optimizers are recorded as scientific
 outcomes. Tests impose no GPS accuracy threshold. Select a persistent output
 root when using pytest; otherwise artifacts use pytest's temporary directory.
+Results are under `<root>/<forest>/<experiment>`. Without credentials on this
+machine the live cases are skipped; offline and mocked-provider tests validate
+the shared behavior. They do not establish live-provider parity.
 
-## Default GPS references
+## Orbit-experiment GPS references
 
 | Reference | Status | Withheld GPS 3D RMS |
 |---|---|---:|
@@ -82,7 +205,7 @@ to normalized comparison histories. Original OEM bytes and parsed metadata keep
 the FOREST ID. Without an explicit binding, OEM IDs must match contact COSPAR
 exactly; comparison identity checks are never disabled.
 
-## Reusable functions and data flow
+## Orbit-experiment functions and data flow
 
 `experiments.live_data.solve_contacts(contact_ids, *, ephemeris_id, settings,
 reference, kogs_api_key, adx_client)` fits any explicit same-spacecraft contact
@@ -117,7 +240,7 @@ The optional `reference_metadata` argument carries a verified reference
 assessment and explicit identity binding through all experiment entry points.
 `run_comparison` composes acquisition, case generation, and artifact writing.
 
-## Comparison policy
+## Orbit-experiment comparison policy
 
 Each spacecraft is treated as one maneuver-free arc. The initial ephemeris is
 resolved once, and every fit starts independently from it. The reference GPS

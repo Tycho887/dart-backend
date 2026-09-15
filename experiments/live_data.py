@@ -41,6 +41,7 @@ from dart.od import (
 from dart.od.profiles import orbit_bias_profile
 from dart.orbit import StateHistory, propagate
 from experiments.references import ReferenceMetadata, bind_reference, load_reference
+from experiments.time_offset import TimeOffsetResult, run_time_offset_loaded
 
 
 @dataclass(frozen=True)
@@ -352,6 +353,51 @@ async def run_comparison(
     return results
 
 
+async def run_time_offset_comparison(
+    contact_ids: Sequence[str],
+    *,
+    ephemeris_id: str,
+    spacecraft_id: str,
+    satellite: str,
+    center_frequency_hz: float,
+    gps_directory: Path,
+    output_dir: Path,
+    kogs_api_key: str,
+    adx_client: KustoClient,
+    max_evaluations: int = 1000,
+) -> list[TimeOffsetResult]:
+    """Acquire once, then fit/score independent SGP4 timing contacts offline."""
+    from experiments.live_data_report import save_json
+
+    contacts, frame, prior = await load_experiment(
+        contact_ids,
+        ephemeris_id=ephemeris_id,
+        kogs_api_key=kogs_api_key,
+        adx_client=adx_client,
+    )
+    results = run_time_offset_loaded(
+        contacts,
+        frame,
+        {c.contact_id: prior for c in contacts},
+        spacecraft_id=spacecraft_id,
+        satellite=satellite,
+        center_frequency_hz=center_frequency_hz,
+        gps_directory=gps_directory,
+        output_dir=output_dir,
+        max_evaluations=max_evaluations,
+    )
+    save_json(
+        output_dir / "acquisition.json",
+        {
+            "provider": "KOGS/ADX",
+            "prior_policy": "explicit common ephemeris",
+            "ephemeris_id": ephemeris_id,
+            "contact_window_policy": "KOGS reservation bounds",
+        },
+    )
+    return results
+
+
 def main() -> None:
     import argparse
     import os
@@ -365,6 +411,12 @@ def main() -> None:
     parser.add_argument("--case", type=Path, required=True)
     parser.add_argument("--ephemeris-id", required=True)
     parser.add_argument(
+        "--experiment", choices=("time_offset", "orbit"), default="time_offset"
+    )
+    parser.add_argument(
+        "--gps-directory", type=Path, help="raw BESTXYZ for time_offset scoring"
+    )
+    parser.add_argument(
         "--reference-oem", type=Path, help="override the case GPS snapshot"
     )
     parser.add_argument("--output", type=Path, required=True)
@@ -373,6 +425,31 @@ def main() -> None:
         os.getenv("DART_SECRETS_ENV", "/opt/dart/secrets/test.env"), override=False
     )
     case = runpy.run_path(str(args.case))
+    if args.experiment == "time_offset":
+        if args.reference_oem is not None:
+            parser.error(
+                "--reference-oem applies to --experiment orbit; time_offset uses raw GPS"
+            )
+        with client_from_env() as client:
+            results = asyncio.run(
+                run_time_offset_comparison(
+                    case["CONTACT_IDS"],
+                    ephemeris_id=args.ephemeris_id,
+                    spacecraft_id=case["SPACECRAFT_ID"],
+                    satellite=case["REFERENCE_OBJECT_ID"],
+                    center_frequency_hz=case["CENTER_FREQUENCY_HZ"],
+                    gps_directory=args.gps_directory or case["RAW_GPS_DIRECTORY"],
+                    output_dir=args.output,
+                    kogs_api_key=os.environ["KOGS_API_KEY"],
+                    adx_client=client,
+                )
+            )
+        print(
+            f"Saved {len(results)} single-pass SGP4 time-offset fits to {args.output}"
+        )
+        return
+    if args.gps_directory is not None:
+        parser.error("--gps-directory applies to --experiment time_offset")
     reference, reference_metadata = load_reference(
         case["DEFAULT_REFERENCE_OEM"],
         case["REFERENCE_OBJECT_ID"],
