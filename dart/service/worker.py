@@ -20,6 +20,7 @@ from dart.od.initialization import initialize_sgp4_phase, initialize_sgp4_time
 
 from .config import ServiceSettings
 from .database import ClaimedJob, Database, LeaseLost
+from .diagnostics import exception_summary, log_failure
 from .metrics import JOB_OUTCOMES, QUEUE_AGE, QUEUE_DEPTH, STAGE_LATENCY
 from .models import ResolvedEstimateConfiguration
 from .profiles import optimizer_context
@@ -73,7 +74,7 @@ def _retryable(exc: BaseException) -> bool:
     return status == 429 or status >= 500
 
 
-def _failure(exc: Exception) -> tuple[dict, bool]:
+def _failure(exc: Exception, phase: str = "execution") -> tuple[dict, bool]:
     cause = exc.__cause__ if isinstance(exc, LoadError) and exc.__cause__ else exc
     retryable = _retryable(cause)
     # Do not persist provider exception strings: they can contain request headers or URLs.
@@ -82,12 +83,18 @@ def _failure(exc: Exception) -> tuple[dict, bool]:
         if isinstance(cause, (ValueError, TypeError))
         else "worker_execution_failed"
     )
+    summary = exception_summary(exc)
+    reason = summary["exception_type"]
+    if "missing_module" in summary:
+        reason = f"missing Python module '{summary['missing_module']}'"
     return {
         "code": code,
         "detail": str(exc)
         if isinstance(exc, InputValidationError)
-        else f"Estimate failed ({type(cause).__name__}).",
+        else f"Estimate failed during {phase}: {reason}.",
         "retryable": retryable,
+        "phase": phase,
+        **summary,
     }, retryable
 
 
@@ -113,10 +120,14 @@ class Worker:
                     self.database.heartbeat(
                         job, self.settings.worker_id, self.settings.lease_seconds
                     )
-                except Exception:
-                    logger.warning(
-                        "Heartbeat failed for estimate %s; publication requires a valid lease",
-                        job.estimate_uuid,
+                except Exception as exc:
+                    log_failure(
+                        logger,
+                        exc,
+                        phase="heartbeat",
+                        worker_id=self.settings.worker_id,
+                        job=job,
+                        level=logging.WARNING,
                     )
                     return
 
@@ -158,6 +169,7 @@ class Worker:
         return prepared.prior
 
     def _process(self, job: ClaimedJob) -> None:
+        phase = "preparation"
         try:
             if not self.database.set_stage(
                 job, self.settings.worker_id, "loading_telemetry"
@@ -167,18 +179,23 @@ class Worker:
                 prior = self._prior(job)
             if not self.database.set_stage(job, self.settings.worker_id, "running"):
                 return
+            phase = "fitting"
             with STAGE_LATENCY.labels(stage="fit").time():
                 output, optimizer, scan = run_estimate(prior, job.configuration)
+            phase = "result_serialization"
             parameters, diagnostics = result_rows(
                 prior, job.configuration, optimizer, output
             )
+            output_document = document(output)
+            optimizer_document = document(optimizer)
+            phase = "persistence"
             status = self.database.persist_estimate_result(
                 job,
                 self.settings.worker_id,
                 parameters,
                 diagnostics,
-                document(output),
-                document(optimizer),
+                output_document,
+                optimizer_document,
                 scan,
             )
             JOB_OUTCOMES.labels(outcome=status).inc()
@@ -187,18 +204,32 @@ class Worker:
                 "Discarding stale worker output for estimate %s", job.estimate_uuid
             )
         except Exception as exc:
-            error, retryable = _failure(exc)
-            logger.error("Estimate %s failed: %s", job.estimate_uuid, error["detail"])
-            try:
-                status = self.database.fail_or_retry(
-                    job, self.settings.worker_id, error, retryable
-                )
-                JOB_OUTCOMES.labels(outcome=status).inc()
-            except LeaseLost:
-                logger.warning(
-                    "Lease lost while recording failure for estimate %s",
-                    job.estimate_uuid,
-                )
+            self._record_failure(job, exc, phase)
+
+    def _record_failure(self, job: ClaimedJob, exc: Exception, phase: str) -> None:
+        log_failure(
+            logger, exc, phase=phase, worker_id=self.settings.worker_id, job=job
+        )
+        error, retryable = _failure(exc, phase)
+        error["run_id"] = str(job.run_id)
+        try:
+            status = self.database.fail_or_retry(
+                job, self.settings.worker_id, error, retryable
+            )
+            JOB_OUTCOMES.labels(outcome=status).inc()
+        except LeaseLost:
+            logger.warning(
+                "Lease lost while recording failure for estimate %s", job.estimate_uuid
+            )
+        except Exception as recording_error:
+            log_failure(
+                logger,
+                recording_error,
+                phase="failure_recording",
+                worker_id=self.settings.worker_id,
+                job=job,
+            )
+            raise
 
     def run_forever(self) -> None:
         while True:
@@ -208,7 +239,12 @@ class Worker:
             except KeyboardInterrupt:
                 return
             except Exception as exc:
-                logger.error("Worker iteration failed (%s)", type(exc).__name__)
+                log_failure(
+                    logger,
+                    exc,
+                    phase="worker_iteration",
+                    worker_id=self.settings.worker_id,
+                )
                 threading.Event().wait(self.settings.poll_seconds)
 
     def _wait(self) -> None:

@@ -26,6 +26,7 @@ use satkit::sgp4::{GravConst, OpsMode, SGP4Error, sgp4_full};
 use satkit::{Duration, Frame, ITRFCoord, Instant, TLE};
 use std::fmt;
 
+pub mod cca;
 pub mod diagnostics;
 pub mod frame_cache;
 mod python;

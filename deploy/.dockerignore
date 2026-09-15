@@ -1,5 +1,6 @@
 *
 !Dockerfile
+!check_runtime.py
 !wheels/
 !wheels/*.whl
 !wheels/requirements.txt

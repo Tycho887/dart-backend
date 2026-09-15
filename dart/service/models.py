@@ -42,7 +42,7 @@ class OptimizerOverrides(StrictModel):
 
 class EstimateRequest(StrictModel):
     contact_ids: list[UUID] = Field(min_length=1, max_length=100)
-    ephemeris_id: UUID
+    ephemeris_id: UUID | None = None
     forward_model: ProfileRef
     optimizer: ProfileRef = Field(
         default_factory=lambda: ProfileRef(name="least-squares")
@@ -69,6 +69,7 @@ class ParameterDefinition(StrictModel):
     upper_bound: float
     scale: float
     role: Literal["estimate", "consider", "fixed"] = "estimate"
+    prior_standard_uncertainty: float | None = Field(default=None, gt=0)
 
 
 class ForwardModelProfile(StrictModel):

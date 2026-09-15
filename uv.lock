@@ -119,6 +119,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a8/04/096484b34efd3738938db75b38e0055675453b1e0d47a11c27c1446a3b10/azure_kusto_data-6.0.4-py3-none-any.whl", hash = "sha256:7dad0628ccd47e5dd0692b41ebaaa878db28f9711435063d7c51cec7e3857307", size = 51637, upload-time = "2026-05-06T12:56:01.869Z" },
 ]
 
+[package.optional-dependencies]
+pandas = [
+    { name = "pandas" },
+]
+
 [[package]]
 name = "certifi"
 version = "2026.7.22"
@@ -507,12 +512,12 @@ version = "0.9.0"
 source = { editable = "." }
 dependencies = [
     { name = "astropy" },
-    { name = "azure-kusto-data" },
+    { name = "azure-kusto-data", extra = ["pandas"] },
     { name = "fastapi" },
     { name = "msgpack" },
     { name = "numpy" },
     { name = "oem" },
-    { name = "polars" },
+    { name = "polars", extra = ["pandas"] },
     { name = "prometheus-client" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic" },
@@ -531,8 +536,6 @@ dev = [
     { name = "httpx2" },
     { name = "matplotlib" },
     { name = "maturin" },
-    { name = "pandas" },
-    { name = "pyarrow" },
     { name = "pytest" },
     { name = "pytest-timeout" },
     { name = "ruff" },
@@ -542,12 +545,12 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "astropy", specifier = ">=5.0.8" },
-    { name = "azure-kusto-data", specifier = ">=6.0.4" },
+    { name = "azure-kusto-data", extras = ["pandas"], specifier = ">=6.0.4" },
     { name = "fastapi", specifier = ">=0.116.0" },
     { name = "msgpack", specifier = ">=1.2.1" },
     { name = "numpy", specifier = ">=2.5.2" },
     { name = "oem", specifier = ">=0.4.5,<0.5" },
-    { name = "polars", specifier = ">=1.43.2" },
+    { name = "polars", extras = ["pandas"], specifier = ">=1.43.2" },
     { name = "prometheus-client", specifier = ">=0.22.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.9" },
     { name = "pydantic", specifier = ">=2.13.4" },
@@ -566,8 +569,6 @@ dev = [
     { name = "httpx2", specifier = ">=0.1.0" },
     { name = "matplotlib", specifier = ">=3.11.2" },
     { name = "maturin", specifier = ">=1.14.1" },
-    { name = "pandas", specifier = ">=2.2" },
-    { name = "pyarrow", specifier = ">=16" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-timeout", specifier = ">=2.4.0" },
     { name = "ruff", specifier = ">=0.12.0" },
@@ -1423,6 +1424,12 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/89/13/3873f213304bcbaaf39e63c8b905ceb460a0524448d57f86a829f6d4d0fd/polars-1.43.2.tar.gz", hash = "sha256:c699671b99eb71ff53334d237917aaa3db5ad4dda480abcb6c80e0eaee7b677b", size = 750312, upload-time = "2026-08-01T06:28:30.872Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2b/fe/0888040a24e4504098b85d8ad486b14cb01cf6b030bbe479dfc2dcffc2ac/polars-1.43.2-py3-none-any.whl", hash = "sha256:22aa0cb92a1ee2d60d6a15a638b2e8e0dd99aea21ac0cd8fb29da8e382e075a9", size = 847150, upload-time = "2026-08-01T06:27:15.543Z" },
+]
+
+[package.optional-dependencies]
+pandas = [
+    { name = "pandas" },
+    { name = "pyarrow" },
 ]
 
 [[package]]

@@ -10,4 +10,6 @@ RUN pip install --no-cache-dir --no-deps /wheels/*.whl \
     && useradd --create-home --uid 10001 dart
 USER dart
 ENV PYTHONUNBUFFERED=1 DART_BUILD_ID_FILE=/app/build-id
+COPY check_runtime.py /app/check_runtime.py
+RUN pip check && python /app/check_runtime.py
 CMD ["uvicorn", "dart.service.api:app", "--host", "0.0.0.0", "--port", "8000"]

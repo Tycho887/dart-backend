@@ -93,6 +93,9 @@ module boundaries. TDM and control consumers retain migration work outside the c
 The [estimate service](docs/async-api.md) now connects the current OD interface
 to TimescaleDB and Grafana: `scripts/start_results.sh` starts the local stack,
 and `/d/dart-estimates/estimates` opens the result workflow on port 3001.
+See [results stack operations](docs/results-stack-operations.md) for the
+container lifecycle, protected configuration, local `.venv`, dependency
+updates, rebuilds, migrations, and dashboard workflow.
 
 ## GPS orbit fitting and CCSDS OEM
 

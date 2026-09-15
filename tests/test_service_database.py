@@ -3,6 +3,7 @@
 import hashlib
 import os
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import Mock
 from uuid import uuid4
 
 import numpy as np
@@ -57,6 +58,147 @@ def submit(db, config=None, key=None):
     return db.submit_estimate(
         config or configuration(), "engineer", "human", key or str(uuid4())
     )
+
+
+def test_contact_prior_migration_preserves_existing_estimates(database):
+    with database.pool.connection() as conn:
+        conn.execute(
+            database.query(
+                "ALTER TABLE {s}.estimates DROP CONSTRAINT estimates_resolved_prior_id_check"
+            )
+        )
+        conn.execute(
+            database.query(
+                "ALTER TABLE {s}.estimates ALTER COLUMN prior_ephemeris_id SET NOT NULL"
+            )
+        )
+        conn.execute(
+            database.query(
+                "DELETE FROM {s}.schema_migrations WHERE version='0004_contact_prior.sql'"
+            )
+        )
+    config = configuration()
+    existing = submit(database, config)
+    database.migrate()
+    database.migrate()
+    with database.pool.connection() as conn:
+        row = conn.execute(
+            database.query(
+                "SELECT prior_ephemeris_id FROM {s}.estimates WHERE estimate_uuid=%s"
+            ),
+            (existing.estimate_uuid,),
+        ).fetchone()
+    assert row["prior_ephemeris_id"] == config.request.ephemeris_id
+    automatic = config.model_copy(
+        update={"request": config.request.model_copy(update={"ephemeris_id": None})}
+    )
+    assert submit(database, automatic).status == "queued"
+
+
+def test_automatic_prior_is_persisted_and_reused_on_retry(database):
+    config = configuration()
+    config = config.model_copy(
+        update={"request": config.request.model_copy(update={"ephemeris_id": None})}
+    )
+    accepted = submit(database, config, key="automatic")
+    prior = prior_fixture(config)
+    frozen = prior_document(prior)
+    selection = {
+        "source": "latest_contact",
+        "contact_id": frozen["contacts"][0]["contact_id"],
+        "ephemeris_id": frozen["ephemeris"]["ephemeris_id"],
+    }
+    with database.pool.connection() as conn:
+        before = conn.execute(
+            database.query("SELECT * FROM {s}.estimates_v1 WHERE estimate_uuid=%s"),
+            (accepted.estimate_uuid,),
+        ).fetchone()
+    assert before["prior_ephemeris_id"] is None
+    job = database.claim_job(database.settings.worker_id, 30)
+    database.store_prior(
+        job,
+        database.settings.worker_id,
+        frozen,
+        b"raw",
+        {"prior_selection": selection},
+        {},
+    )
+    assert (
+        database.fail_or_retry(
+            job, database.settings.worker_id, {"code": "transient"}, True
+        )
+        == "queued"
+    )
+    with database.pool.connection() as conn:
+        conn.execute(
+            database.query("UPDATE {s}.jobs SET available_at=now() WHERE id=%s"),
+            (accepted.job_id,),
+        )
+    resolver = Mock()
+    resolver.prepare.side_effect = AssertionError(
+        "frozen priors must not be reacquired"
+    )
+    assert Worker(database, database.settings, resolver=resolver).run_once()
+    resolver.prepare.assert_not_called()
+    replay = submit(database, config, key="automatic")
+    assert replay.estimate_uuid == accepted.estimate_uuid and replay.idempotent_replay
+    with database.pool.connection() as conn:
+        after = conn.execute(
+            database.query("SELECT * FROM {s}.estimates_v1 WHERE estimate_uuid=%s"),
+            (accepted.estimate_uuid,),
+        ).fetchone()
+        artifact = conn.execute(
+            database.query(
+                "SELECT provenance FROM {s}.estimate_artifacts WHERE estimate_uuid=%s AND kind='normalized_prior'"
+            ),
+            (accepted.estimate_uuid,),
+        ).fetchone()
+    assert str(after["prior_ephemeris_id"]) == frozen["ephemeris"]["ephemeris_id"]
+    assert after["configuration"]["request"]["ephemeris_id"] is None
+    assert after["prior"] == frozen
+    assert artifact["provenance"]["prior_selection"] == selection
+
+
+@pytest.mark.parametrize("phase", ["preparation", "fitting"])
+def test_worker_failure_summary_reaches_grafana_view(database, monkeypatch, phase):
+    from dart.io.load import LoadError
+    from dart.service import worker as worker_module
+
+    accepted = submit(database)
+    worker = Worker(database, database.settings)
+
+    def missing_dependency(*args):
+        try:
+            raise ModuleNotFoundError(
+                "secret-provider-message", name="example.optional"
+            )
+        except ModuleNotFoundError as exc:
+            raise LoadError("ADX", "contact", "secret-wrapper-message") from exc
+
+    if phase == "preparation":
+        monkeypatch.setattr(worker, "_prior", missing_dependency)
+    else:
+        monkeypatch.setattr(worker, "_prior", lambda _: prior_fixture(configuration()))
+        monkeypatch.setattr(worker_module, "run_estimate", missing_dependency)
+    assert worker.run_once()
+    with database.pool.connection() as conn:
+        summary = conn.execute(
+            database.query("SELECT * FROM {s}.estimates_v1 WHERE estimate_uuid=%s"),
+            (accepted.estimate_uuid,),
+        ).fetchone()
+        run = conn.execute(
+            database.query("SELECT * FROM {s}.job_runs WHERE job_id=%s"),
+            (accepted.job_id,),
+        ).fetchone()
+    assert summary["status"] == "failed" and run["status"] == "failed"
+    error = summary["terminal_error"]
+    assert error == run["terminal_error"]
+    assert error["run_id"] == str(run["id"])
+    assert error["phase"] == phase and error["exception_type"] == "ModuleNotFoundError"
+    assert error["missing_module"] == "example.optional"
+    assert error["retryable"] is False
+    assert "traceback" not in error
+    assert "secret" not in str(error)
 
 
 def test_concurrent_idempotency_claim_and_cancellation(database):
@@ -144,6 +286,52 @@ def test_worker_publishes_frozen_fit_and_artifacts(database, model):
     )
     assert all(a["byte_count"] == len(a["payload"]) for a in artifacts)
     assert database.load_prior(accepted.estimate_uuid) == prior_document(prior)
+
+
+def test_worker_persists_v2_consider_covariance(database):
+    config = configuration("lofi-time", model_version=2)
+    prior = prior_fixture(config)
+
+    class FrozenResolver:
+        def prepare(self, configuration):
+            return PreparedEstimate(prior, b"raw fixture", {"source": "test"})
+
+    accepted = submit(database, config)
+    worker = Worker(database, database.settings, resolver=FrozenResolver())
+    assert worker.run_once()
+    with database.pool.connection() as conn:
+        diagnostics = conn.execute(
+            database.query(
+                "SELECT * FROM {s}.estimate_diagnostics_v1 WHERE estimate_uuid=%s"
+            ),
+            (accepted.estimate_uuid,),
+        ).fetchone()
+        parameters = conn.execute(
+            database.query(
+                "SELECT * FROM {s}.estimate_parameters_v1 WHERE estimate_uuid=%s ORDER BY ordinal"
+            ),
+            (accepted.estimate_uuid,),
+        ).fetchall()
+    assert diagnostics["covariance_method"] == "classical_consider_v1"
+    assert diagnostics["success"] is True
+    assert diagnostics["covariance_rank"] > 0
+    assert diagnostics["parameter_order"] == [
+        parameter["parameter_name"] for parameter in parameters
+    ]
+    assert len(diagnostics["covariance"]) == len(parameters)
+    assert all(parameter["standard_uncertainty"] > 0 for parameter in parameters)
+    assert any(parameter["role"] == "consider" for parameter in parameters)
+    np.testing.assert_allclose(
+        [parameter["standard_uncertainty"] for parameter in parameters],
+        np.sqrt(np.diag(diagnostics["covariance"])),
+    )
+    for parameter, spec in zip(parameters, config.parameters, strict=True):
+        assert parameter["unit"] == spec.unit
+        if parameter["role"] == "consider":
+            assert parameter["value"] == spec.initial
+            assert parameter["standard_uncertainty"] == pytest.approx(
+                spec.prior_standard_uncertainty
+            )
 
 
 def test_atomic_publication_and_cancel_during_fit(database):

@@ -17,6 +17,64 @@ use satkit::{ITRFCoord, Instant, TLE};
 
 type ReceiverGeodetic = (f64, f64, f64);
 type PythonEvaluation = (Vec<f64>, Vec<Vec<f64>>);
+type PythonCovariance = (
+    Vec<Vec<f64>>,
+    Vec<Vec<f64>>,
+    Vec<Vec<f64>>,
+    Vec<Vec<f64>>,
+    Vec<Vec<f64>>,
+    usize,
+);
+
+fn rows(matrix: &DynMatrix<f64>) -> Vec<Vec<f64>> {
+    (0..matrix.nrows())
+        .map(|row| {
+            (0..matrix.ncols())
+                .map(|column| matrix[(row, column)])
+                .collect()
+        })
+        .collect()
+}
+
+#[pyfunction]
+fn consider_covariance(
+    h_estimated: Vec<Vec<f64>>,
+    h_consider: Vec<Vec<f64>>,
+    prior_estimated: Vec<Vec<f64>>,
+    prior_consider: Vec<Vec<f64>>,
+) -> PyResult<PythonCovariance> {
+    let observations = h_estimated.len();
+    let estimated = h_estimated.first().map_or(0, Vec::len);
+    let considered = h_consider.first().map_or(0, Vec::len);
+    let convert =
+        |values: Vec<Vec<f64>>, rows: usize, columns: usize| -> PyResult<DynMatrix<f64>> {
+            if values.len() != rows || values.iter().any(|row| row.len() != columns) {
+                return Err(PyValueError::new_err(
+                    "matrix rows must have consistent dimensions",
+                ));
+            }
+            Ok(DynMatrix::from_rows(
+                rows,
+                columns,
+                &values.into_iter().flatten().collect::<Vec<_>>(),
+            ))
+        };
+    let result = crate::cca::compute(
+        &convert(h_estimated, observations, estimated)?,
+        &convert(h_consider, observations, considered)?,
+        &convert(prior_estimated, estimated, estimated)?,
+        &convert(prior_consider, considered, considered)?,
+    )
+    .map_err(python_error)?;
+    Ok((
+        rows(&result.unconsidered),
+        rows(&result.estimated),
+        rows(&result.sensitivity),
+        rows(&result.perturbation),
+        rows(&result.joint),
+        result.rank,
+    ))
+}
 
 #[pyfunction]
 fn clear_frame_cache() {
@@ -245,6 +303,7 @@ fn tle_state_gcrf(
 
 #[pymodule]
 fn _forward_models(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(consider_covariance, module)?)?;
     module.add_function(wrap_pyfunction!(reepoch_tle, module)?)?;
     module.add_function(wrap_pyfunction!(clear_frame_cache, module)?)?;
     module.add_function(wrap_pyfunction!(orbit_information, module)?)?;

@@ -1,4 +1,4 @@
-"""Acquire explicit priors and contact-bounded measurements through dart.io."""
+"""Acquire selected or contact-linked priors and bounded inputs through dart.io."""
 
 import asyncio
 import hashlib
@@ -17,6 +17,7 @@ from dart.io import (
     load_passes,
 )
 from dart.io.doppler import prepare_doppler
+from dart.io.load import LoadError
 from dart.od import PriorStateData
 
 from .config import ServiceSettings
@@ -34,6 +35,12 @@ class PreparedEstimate:
     provenance: dict
 
 
+def _latest_contact(contacts: list[ContactMetadata]) -> ContactMetadata:
+    if not contacts:
+        raise InputValidationError("no contacts available to select a prior ephemeris")
+    return max(contacts, key=lambda contact: (contact.start, contact.contact_id))
+
+
 def prepare_prior(
     configuration: ResolvedEstimateConfiguration,
     contacts: list[ContactMetadata],
@@ -44,7 +51,12 @@ def prepare_prior(
     request = configuration.request
     if [c.contact_id for c in contacts] != [str(cid) for cid in request.contact_ids]:
         raise InputValidationError("loaded contacts differ from requested order")
-    if ephemeris.ephemeris_id != str(request.ephemeris_id):
+    expected_id = (
+        str(request.ephemeris_id)
+        if request.ephemeris_id is not None
+        else _latest_contact(contacts).ephemeris_id
+    )
+    if not ephemeris.ephemeris_id or ephemeris.ephemeris_id != expected_id:
         raise InputValidationError("selected prior ephemeris identity mismatch")
     if {c.spacecraft_id for c in contacts} != {ephemeris.spacecraft_id}:
         raise InputValidationError(
@@ -82,6 +94,25 @@ class InputResolver:
     def __init__(self, settings: ServiceSettings):
         self.settings = settings
 
+    def _ephemeris(
+        self,
+        configuration: ResolvedEstimateConfiguration,
+        contacts: list[ContactMetadata],
+    ) -> tuple[EphemerisMetadata, dict]:
+        requested_id = configuration.request.ephemeris_id
+        if requested_id is not None:
+            ephemeris = kogs.get_ephemeris(
+                self.settings.kogs_api_key, str(requested_id), timeout_seconds=30
+            )
+            return ephemeris, {"source": "request", "ephemeris_id": str(requested_id)}
+        contact = _latest_contact(contacts)
+        return contact.ephemeris, {
+            "source": "latest_contact",
+            "contact_id": contact.contact_id,
+            "contact_start": contact.start.isoformat(),
+            "ephemeris_id": contact.ephemeris_id,
+        }
+
     def _frequency(
         self,
         configuration: ResolvedEstimateConfiguration,
@@ -106,18 +137,24 @@ class InputResolver:
         if not key:
             raise InputValidationError("KOGS credentials are not configured")
         request = configuration.request
-        ephemeris = kogs.get_ephemeris(
-            key, str(request.ephemeris_id), timeout_seconds=30
-        )
-        with adx.client_from_env() as client:
-            contacts, measurements = asyncio.run(
-                load_passes(
-                    [str(cid) for cid in request.contact_ids],
-                    kogs_api_key=key,
-                    adx_client=client,
-                    timeout_seconds=30,
+        try:
+            with adx.client_from_env() as client:
+                contacts, measurements = asyncio.run(
+                    load_passes(
+                        [str(cid) for cid in request.contact_ids],
+                        kogs_api_key=key,
+                        adx_client=client,
+                        timeout_seconds=30,
+                    )
                 )
-            )
+        except LoadError as exc:
+            if isinstance(exc.__cause__, kogs.KogsError):
+                raise InputValidationError(
+                    "Contact metadata or its associated ephemeris is unavailable or invalid; "
+                    "check the selected contact and its ephemeris in KOGS."
+                ) from exc
+            raise
+        ephemeris, prior_provenance = self._ephemeris(configuration, contacts)
         frequency, frequency_provenance = self._frequency(configuration, contacts)
         prior = prepare_prior(
             configuration, contacts, measurements, ephemeris, frequency
@@ -128,6 +165,7 @@ class InputResolver:
             prior,
             buffer.getvalue(),
             {
+                "prior_selection": prior_provenance,
                 "frequency": frequency_provenance,
                 "raw_samples": len(measurements),
                 "retained_samples": len(prior.observations.observations),

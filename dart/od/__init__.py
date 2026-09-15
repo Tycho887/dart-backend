@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 from collections.abc import Callable
+from dataclasses import replace
 
 import numpy as np
 import satkit as sk
@@ -20,7 +21,7 @@ from dart.forward_models import (
 )
 from dart.orbit import CartesianOrbit, OrbitSolution, Sgp4Orbit
 
-from .cca import compute_consider_covariance
+from .cca import compute_consider_covariance, full_consider_covariance
 from .schema import (
     OptimizerContext,
     OptimizerOutput,
@@ -136,6 +137,13 @@ def _validate_parameter(parameter: ParameterSpec) -> None:
         )
     if parameter.scale <= 0:
         raise ValueError(f"parameter {parameter.name!r} scale must be positive")
+    if parameter.prior_standard_uncertainty is not None and (
+        not math.isfinite(parameter.prior_standard_uncertainty)
+        or parameter.prior_standard_uncertainty <= 0
+    ):
+        raise ValueError(
+            f"parameter {parameter.name!r} prior standard uncertainty must be positive"
+        )
 
 
 def _validate_optimizer(
@@ -400,7 +408,7 @@ def fit(data: PriorStateData, optimizer: OptimizerContext) -> OptimizerOutput:
         function_evaluations = 1
         jacobian_evaluations = 0
     final = evaluator(canonical_final)
-    return OptimizerOutput(
+    output = OptimizerOutput(
         model_kind=optimizer.model,
         prior_source=prior_source,
         parameter_names=tuple(parameter.name for parameter in parameters),
@@ -417,6 +425,20 @@ def fit(data: PriorStateData, optimizer: OptimizerContext) -> OptimizerOutput:
         loss=optimizer.loss,
         jacobian_evaluations=jacobian_evaluations,
     )
+    covariance_enabled = bool(parameters) and all(
+        parameter.role != ParameterRole.FIXED
+        and parameter.prior_standard_uncertainty is not None
+        for parameter in parameters
+    )
+    if success and covariance_enabled:
+        covariance, rank = full_consider_covariance(output, parameters)
+        output = replace(
+            output,
+            covariance=covariance,
+            covariance_rank=rank,
+            covariance_method="classical_consider_v1",
+        )
+    return output
 
 
 __all__ = [

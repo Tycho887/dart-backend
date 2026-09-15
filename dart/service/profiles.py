@@ -3,7 +3,12 @@
 from typing import Literal
 
 from dart.od import OptimizerContext, OrbitModel, ParameterRole, ParameterSpec
-from dart.od.profiles import orbit_bias_profile, sgp4_bias_profile
+from dart.od.profiles import (
+    ORBIT_BOUNDS,
+    ORBIT_SCALES,
+    orbit_bias_profile,
+    sgp4_bias_profile,
+)
 
 from .models import (
     EstimateRequest,
@@ -22,6 +27,11 @@ def parameter_unit(name: str) -> str:
         "center_frequency_offset_hz": "Hz",
         "mean_longitude_deg": "deg",
         "mean_motion_rev_per_day": "rev/day",
+        "equinoctial_f": "1",
+        "equinoctial_g": "1",
+        "equinoctial_h": "1",
+        "equinoctial_k": "1",
+        "bstar": "1/Earth radii",
         "position_x_m": "m",
         "position_y_m": "m",
         "position_z_m": "m",
@@ -41,6 +51,7 @@ def _definition(parameter: ParameterSpec) -> ParameterDefinition:
         upper_bound=parameter.upper_bound,
         scale=parameter.scale,
         role=parameter.role.value,
+        prior_standard_uncertainty=parameter.prior_standard_uncertainty,
     )
 
 
@@ -96,7 +107,7 @@ def forward_model_profiles() -> list[ForwardModelProfile]:
             "Six GCRF Cartesian corrections plus contact biases; prior initialized from the selected TLE.",
         ),
     ]
-    return [
+    v1 = [
         ForwardModelProfile(
             name=n,
             label=label,
@@ -107,10 +118,128 @@ def forward_model_profiles() -> list[ForwardModelProfile]:
         )
         for n, label, model, params, description in definitions
     ]
+    return v1 + _covariance_profiles(v1)
+
+
+_PRIOR_SIGMAS = {
+    "mean_motion_rev_per_day": 0.001,
+    "equinoctial_f": 0.001,
+    "equinoctial_g": 0.001,
+    "equinoctial_h": 0.001,
+    "equinoctial_k": 0.001,
+    "mean_longitude_deg": 0.1,
+    "bstar": 1e-5,
+    "position_x_m": 10_000,
+    "position_y_m": 10_000,
+    "position_z_m": 10_000,
+    "velocity_x_m_s": 10,
+    "velocity_y_m_s": 10,
+    "velocity_z_m_s": 10,
+    "time_offset_s": 1,
+    "center_frequency_offset_hz": 100_000,
+}
+
+
+def _canonical_definitions(
+    model: Literal["sgp4", "full_state"],
+) -> list[ParameterDefinition]:
+    orbit_model = OrbitModel(model)
+    names = (
+        (
+            "mean_motion_rev_per_day",
+            "equinoctial_f",
+            "equinoctial_g",
+            "equinoctial_h",
+            "equinoctial_k",
+            "mean_longitude_deg",
+        )
+        if orbit_model == OrbitModel.SGP4
+        else (
+            "position_x_m",
+            "position_y_m",
+            "position_z_m",
+            "velocity_x_m_s",
+            "velocity_y_m_s",
+            "velocity_z_m_s",
+        )
+    )
+    values = [
+        ParameterDefinition(
+            name=name,
+            unit=parameter_unit(name),
+            lower_bound=-bound,
+            upper_bound=bound,
+            scale=scale,
+            prior_standard_uncertainty=_PRIOR_SIGMAS[name],
+        )
+        for name, bound, scale in zip(
+            names, ORBIT_BOUNDS[orbit_model], ORBIT_SCALES[orbit_model], strict=True
+        )
+    ]
+    if orbit_model == OrbitModel.SGP4:
+        values.append(
+            ParameterDefinition(
+                name="bstar",
+                unit="1/Earth radii",
+                lower_bound=-0.1,
+                upper_bound=0.1,
+                scale=1e-5,
+                prior_standard_uncertainty=_PRIOR_SIGMAS["bstar"],
+            )
+        )
+    values.extend(
+        [
+            ParameterDefinition(
+                name="time_offset_s",
+                unit="s",
+                lower_bound=-600,
+                upper_bound=600,
+                scale=1,
+                prior_standard_uncertainty=_PRIOR_SIGMAS["time_offset_s"],
+            ),
+            ParameterDefinition(
+                name="center_frequency_offset_hz",
+                unit="Hz",
+                lower_bound=-1e6,
+                upper_bound=1e6,
+                scale=1000,
+                prior_standard_uncertainty=_PRIOR_SIGMAS["center_frequency_offset_hz"],
+            ),
+        ]
+    )
+    return values
+
+
+def _covariance_profiles(v1: list[ForwardModelProfile]) -> list[ForwardModelProfile]:
+    profiles = []
+    for source in v1:
+        estimated = {parameter.name for parameter in source.parameters}
+        parameters = [
+            parameter.model_copy(
+                update={
+                    "role": "estimate" if parameter.name in estimated else "consider"
+                }
+            )
+            for parameter in _canonical_definitions(source.model)
+        ]
+        profiles.append(
+            source.model_copy(
+                update={
+                    "version": 2,
+                    "parameters": parameters,
+                    "pass_bias": source.pass_bias.model_copy(
+                        update={"prior_standard_uncertainty": 200, "role": "estimate"}
+                    ),
+                    "description": source.description
+                    + " Classical consider covariance includes all omitted parameters.",
+                }
+            )
+        )
+    return profiles
 
 
 def optimizer_profiles() -> list[OptimizerProfile]:
-    names = [p.name for p in forward_model_profiles()]
+    names = [p.name for p in forward_model_profiles() if p.version == 1]
     return [
         OptimizerProfile(
             name="least-squares", label="Least squares", compatible_models=names
@@ -184,6 +313,7 @@ def optimizer_context(configuration: ResolvedEstimateConfiguration) -> Optimizer
             p.upper_bound,
             p.scale,
             ParameterRole(p.role),
+            p.prior_standard_uncertainty,
         )
         for p in configuration.parameters
     )
@@ -204,7 +334,8 @@ def capabilities_document() -> dict:
         "contract_version": 1,
         "operations": ["estimate"],
         "max_contacts": 100,
-        "explicit_prior_required": True,
+        "explicit_prior_required": False,
+        "default_prior_source": "latest_contact",
         "same_spacecraft_required": True,
         "carrier_lock_required": True,
         "regularization": ["none"],

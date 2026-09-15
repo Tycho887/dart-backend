@@ -15,7 +15,7 @@ def element(name, title, kind="string", value="", **extra):
         "title": title,
         "type": kind,
         "value": value,
-        "labelWidth": 24,
+        "labelWidth": 32,
         **extra,
     }
 
@@ -58,14 +58,14 @@ def main():
         ),
         element(
             "ephemeris_id",
-            "Prior ephemeris",
-            tooltip="Explicit KOGS TLE ephemeris for the selected spacecraft.",
+            "Prior ephemeris UUID (optional)",
+            tooltip="Leave blank to use the ephemeris associated with the selected contact. For multiple contacts, uses the latest KOGS contact start time. An explicit UUID overrides this selection.",
         ),
         element(
             "forward_model",
             "Forward model",
             "select",
-            "lofi-time@1",
+            "lofi-time@2",
             optionsSource="Code",
             getOptions="return globalThis.dartEstimateForm?.modelOptions() ?? [];",
             options=[],
@@ -104,7 +104,7 @@ def main():
         ("max_abs_doppler_hz", "Max. |Doppler| (Hz)", 100000),
         ("min_samples_per_contact", "Min. samples/contact", 20),
         ("doppler_sigma_hz", "Doppler sigma (Hz)", 1),
-        ("nominal_center_frequency_hz", "Nominal frequency (Hz)", ""),
+        ("nominal_center_frequency_mhz", "Nominal frequency (MHz)", ""),
         ("max_evaluations", "Evaluation limit", ""),
     ]
     fields += [
@@ -172,19 +172,25 @@ def main():
     )
     parameters = table(
         4,
-        "Fitted parameters",
+        "Estimated and considered parameters",
         35,
         10,
         "SELECT parameter_name,role,value,unit,standard_uncertainty,initial_value,lower_bound,upper_bound,contact_id FROM dart.estimate_parameters_v1 "
         + where
         + " ORDER BY ordinal",
     )
+    parameters["fieldConfig"]["overrides"] = [
+        {
+            "matcher": {"id": "byName", "options": "standard_uncertainty"},
+            "properties": [{"id": "displayName", "value": "1σ uncertainty"}],
+        }
+    ]
     diagnostics = table(
         5,
         "Fit diagnostics",
         45,
         6,
-        "SELECT success,message,objective,optimality,function_evaluations,observation_count,residual_rms_hz,whitened_residual_rms,covariance_rank,warnings FROM dart.estimate_diagnostics_v1 "
+        "SELECT success,message,objective,optimality,function_evaluations,observation_count,residual_rms_hz,whitened_residual_rms,covariance_method,covariance_rank,warnings FROM dart.estimate_diagnostics_v1 "
         + where,
     )
     provenance = table(

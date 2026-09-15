@@ -1,5 +1,5 @@
 // Business Forms code shared by initial load, selection changes, and submission.
-globalThis.dartEstimateForm ??= (() => {
+globalThis.dartEstimateForm = globalThis.dartEstimateForm?.version === 2 ? globalThis.dartEstimateForm : (() => {
   const state = {models: [], optimizers: [], busy: false, accepted: null};
   const value = (elements, id) => elements.find(e => e.id === id)?.value;
   const scalar = v => Array.isArray(v) ? v[0] : v;
@@ -10,15 +10,19 @@ globalThis.dartEstimateForm ??= (() => {
     const number = id => { const parsed = Number(read(id)); if (!Number.isFinite(parsed)) throw new Error(`Invalid number: ${id}`); return parsed; };
     const body = {
       contact_ids: String(read('contact_ids') ?? '').split(/[\s,]+/).filter(Boolean),
-      ephemeris_id: String(read('ephemeris_id') ?? '').trim(),
       forward_model: ref(read('forward_model')), optimizer: ref(read('optimizer')),
       measurement_selection: {}, optimizer_overrides: {},
     };
+    if (!absent(read('ephemeris_id'))) body.ephemeris_id = String(read('ephemeris_id')).trim();
     for (const id of ['min_elevation_deg', 'min_ebn0_db', 'min_abs_doppler_hz', 'max_abs_doppler_hz', 'min_samples_per_contact', 'doppler_sigma_hz']) {
       if (!absent(read(id))) body.measurement_selection[id] = number(id);
     }
     if (!absent(read('max_evaluations'))) body.optimizer_overrides.max_evaluations = number('max_evaluations');
-    if (!absent(read('nominal_center_frequency_hz'))) body.nominal_center_frequency_hz = number('nominal_center_frequency_hz');
+    if (!absent(read('nominal_center_frequency_mhz'))) {
+      const mhz = number('nominal_center_frequency_mhz');
+      if (mhz < 1 || mhz > 100000) throw new Error('Nominal frequency must be between 1 and 100,000 MHz');
+      body.nominal_center_frequency_hz = mhz * 1e6;
+    }
     if (!absent(read('label'))) body.label = String(read('label')).trim();
     return body;
   }
@@ -92,5 +96,5 @@ globalThis.dartEstimateForm ??= (() => {
   }
   const modelOptions = () => state.models.map(option);
   const optimizerOptions = elements => state.optimizers.filter(p => p.compatible_models.includes(ref(value(elements, 'forward_model')).name)).map(option);
-  return {payload, load, change, submit, modelOptions, optimizerOptions};
+  return {version: 2, payload, load, change, submit, modelOptions, optimizerOptions};
 })();

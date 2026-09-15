@@ -4,6 +4,21 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync('deploy/grafana/form.js', 'utf8');
+const dashboard = JSON.parse(fs.readFileSync('deploy/grafana/dashboards/estimates.json', 'utf8'));
+test('dashboard defaults to v2 and displays native-unit one-sigma CCA uncertainty',()=>{
+  const form = dashboard.panels.find(p=>p.id===1);
+  assert.equal(form.options.elements.find(e=>e.id==='forward_model').value,'lofi-time@2');
+  const parameters = dashboard.panels.find(p=>p.id===4);
+  assert.match(parameters.targets[0].rawSql,/parameter_name,role,value,unit,standard_uncertainty/);
+  assert.match(parameters.targets[0].rawSql,/ORDER BY ordinal/);
+  const uncertainty = parameters.fieldConfig.overrides.find(o=>o.matcher.options==='standard_uncertainty');
+  assert.equal(uncertainty.properties.find(p=>p.id==='displayName').value,'1σ uncertainty');
+  assert.equal(parameters.fieldConfig.defaults.unit,undefined);
+  assert.equal(parameters.fieldConfig.defaults.noValue,'Unavailable');
+  const diagnostics = dashboard.panels.find(p=>p.id===5);
+  assert.match(diagnostics.targets[0].rawSql,/covariance_method,covariance_rank/);
+  for (const panel of [parameters,diagnostics]) assert.equal(panel.datasource.uid,'dart-estimates-db');
+});
 function fixture(fetch) {
   const storage = new Map();
   const sandbox = {fetch, AbortSignal, crypto: require('node:crypto').webcrypto,
@@ -16,16 +31,54 @@ function fixture(fetch) {
   return {form:sandbox.dartEstimateForm,context,storage,messages};
 }
 const response = body => ({ok:true,text:async()=>JSON.stringify(body)});
+test('updated form replaces stale browser code and retains current state on refresh',()=>{
+  const sandbox={dartEstimateForm:{payload(){throw new Error('stale form');}}};
+  vm.runInNewContext(source,sandbox);
+  const updated=sandbox.dartEstimateForm;
+  assert.equal(updated.version,2);
+  assert.equal(updated.payload([{id:'nominal_center_frequency_mhz',value:'437.5'}]).nominal_center_frequency_hz,437500000);
+  vm.runInNewContext(source,sandbox);
+  assert.equal(sandbox.dartEstimateForm,updated);
+});
 test('payload retains zeros and optional omission',()=>{
   const {form,context}=fixture(); const body=form.payload(context.panel.elements);
   assert.equal(body.measurement_selection.min_elevation_deg,0);
   assert.equal(body.measurement_selection.min_ebn0_db,0);
   assert.equal(body.nominal_center_frequency_hz,undefined);
   assert.deepEqual(Array.from(body.contact_ids),['a','b']);
-  context.panel.elements.push({id:'nominal_center_frequency_hz',value:'   '});
+  context.panel.elements.push({id:'nominal_center_frequency_mhz',value:'   '});
   assert.equal(form.payload(context.panel.elements).nominal_center_frequency_hz,undefined);
   context.panel.elements.at(-1).value='invalid';
   assert.throws(()=>form.payload(context.panel.elements),/Invalid number/);
+});
+test('MHz input converts once and enforces frequency bounds',()=>{
+  const {form,context}=fixture();
+  const frequency={id:'nominal_center_frequency_mhz',value:'437.5'};
+  context.panel.elements.push(frequency);
+  for (let attempt=0;attempt<2;attempt++) {
+    const body=form.payload(context.panel.elements);
+    assert.equal(body.nominal_center_frequency_hz,437500000);
+    assert.equal(body.nominal_center_frequency_mhz,undefined);
+    assert.equal(frequency.value,'437.5');
+  }
+  for (const value of ['0','0.99','100001','1e309','NaN','invalid']) {
+    frequency.value=value;
+    assert.throws(()=>form.payload(context.panel.elements));
+  }
+  for (const value of ['1','100000']) {
+    frequency.value=value;
+    assert.equal(form.payload(context.panel.elements).nominal_center_frequency_hz,Number(value)*1e6);
+  }
+});
+test('blank ephemeris is omitted and explicit ephemeris is retained',()=>{
+  const {form,context}=fixture();
+  const prior=context.panel.elements.find(e=>e.id==='ephemeris_id');
+  for (const value of ['', '   ', null, undefined]) {
+    prior.value=value;
+    assert.equal(Object.hasOwn(form.payload(context.panel.elements),'ephemeris_id'),false);
+  }
+  prior.value=' explicit-prior ';
+  assert.equal(form.payload(context.panel.elements).ephemeris_id,'explicit-prior');
 });
 test('uncertain submission retries retain the idempotency key',async()=>{
   let fail=true;const keys=[];

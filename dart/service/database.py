@@ -116,7 +116,9 @@ class Database:
         ):
             target = sql.Identifier(self.settings.database_schema, table)
             for profile in profiles:
-                data = profile.model_dump(mode="json")
+                # Keep stored v1 documents byte-compatible after optional
+                # profile fields are introduced in newer versions.
+                data = profile.model_dump(mode="json", exclude_none=True)
                 conn.execute(
                     sql.SQL(
                         "INSERT INTO {} (name,version,definition) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING"
@@ -518,13 +520,15 @@ class Database:
             self._owned_job(conn, job, worker_id)
             updated = conn.execute(
                 self.query("""UPDATE {s}.estimates SET prior=%s,epoch=to_timestamp(%s),
-                spacecraft_id=%s,spacecraft_name=%s,software_version=%s WHERE estimate_uuid=%s AND prior IS NULL RETURNING estimate_uuid"""),
+                spacecraft_id=%s,spacecraft_name=%s,software_version=%s,prior_ephemeris_id=%s
+                WHERE estimate_uuid=%s AND prior IS NULL RETURNING estimate_uuid"""),
                 (
                     Jsonb(prior),
                     prior["epoch_unix_s"],
                     prior["ephemeris"]["spacecraft_id"],
                     prior["contacts"][0]["spacecraft"],
                     Jsonb(versions),
+                    prior["ephemeris"]["ephemeris_id"],
                     job.estimate_uuid,
                 ),
             ).fetchone()
@@ -584,9 +588,9 @@ class Database:
             conn.execute(
                 self.query("""INSERT INTO {s}.estimate_diagnostics
                 (estimate_uuid,success,optimizer_status,message,objective,optimality,function_evaluations,jacobian_evaluations,
-                 observation_count,whitened_residual_rms,residual_rms_hz,covariance,covariance_rank,parameter_order,warnings)
+                 observation_count,whitened_residual_rms,residual_rms_hz,covariance,covariance_rank,covariance_method,parameter_order,warnings)
                 VALUES (%(estimate_uuid)s,%(success)s,%(optimizer_status)s,%(message)s,%(objective)s,%(optimality)s,%(function_evaluations)s,
-                %(jacobian_evaluations)s,%(observation_count)s,%(whitened_residual_rms)s,%(residual_rms_hz)s,%(covariance)s,%(covariance_rank)s,%(parameter_order)s,%(warnings)s)"""),
+                %(jacobian_evaluations)s,%(observation_count)s,%(whitened_residual_rms)s,%(residual_rms_hz)s,%(covariance)s,%(covariance_rank)s,%(covariance_method)s,%(parameter_order)s,%(warnings)s)"""),
                 values,
             )
             self.store_artifact(

@@ -106,13 +106,19 @@ fit whose only estimated parameter is `time_offset_s`; the legacy
 
 ## Consider covariance
 
-`compute_consider_covariance` accepts a linear-loss `OptimizerOutput` plus
+`compute_consider_covariance` accepts an `OptimizerOutput` plus
 prior covariance matrices ordered by the estimated and consider roles. It
 selects interleaved columns by role, ignores fixed columns, and returns the
 unconsidered covariance, consider covariance, estimated-to-consider
 sensitivity, and one-sigma perturbation matrix. Robust-loss outputs are
-rejected because their final Jacobian does not define the classical linear
-consider analysis used here.
+accepted, but their robust loss weights do not enter the classical analysis.
+
+Service forward-model profiles at version 2 run this classical analysis after
+a successful point fit. The optimizer itself is unchanged and considered
+parameters remain at their configured initial values. For robust fits the CCA
+uses the complete, unweighted Jacobian at the fitted point; this is not a
+robust sandwich covariance. Version 1 profiles remain available without
+automatic covariance for historical replay.
 
 ## Synthetic cross-model validation
 

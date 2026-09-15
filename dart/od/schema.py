@@ -49,6 +49,7 @@ class ParameterSpec:
     upper_bound: float
     scale: float
     role: ParameterRole = ParameterRole.ESTIMATE
+    prior_standard_uncertainty: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +102,7 @@ class OptimizerOutput:
     function_evaluations: int
     covariance: FloatArray | None = None
     covariance_rank: int | None = None
+    covariance_method: str | None = None
     jacobian_evaluations: int | None = None
 
 

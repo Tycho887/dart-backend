@@ -125,17 +125,25 @@ def _validate_output(
     optimizer: OptimizerContext, output: OptimizerOutput, count: int
 ) -> None:
     names = tuple(p.name for p in optimizer.parameters)
-    if names != output.parameter_names or len(output.parameters) != len(names):
+    if names != output.parameter_names or output.parameters.shape != (len(names),):
         raise ValueError("optimizer parameter order differs from resolved profile")
+    if tuple(p.role for p in optimizer.parameters) != output.parameter_roles:
+        raise ValueError("optimizer parameter roles differ from resolved profile")
     if output.residuals.shape != (count,):
         raise ValueError("residual count differs from stored observations")
+    _validate_covariance(output)
+
+
+def _validate_covariance(output: OptimizerOutput) -> None:
     covariance = output.covariance
-    if covariance is not None and (
-        covariance.shape != (len(names), len(names))
+    if covariance is None:
+        return
+    if (
+        covariance.shape != (len(output.parameter_names),) * 2
         or not np.isfinite(covariance).all()
     ):
         raise ValueError("invalid parameter covariance")
-    if covariance is not None and np.any(np.diag(covariance) < 0):
+    if np.any(np.diag(covariance) < 0):
         raise ValueError("negative parameter variance")
 
 
@@ -176,6 +184,12 @@ def _parameter_rows(
 def _diagnostics(prior: PriorStateData, output: OptimizerOutput) -> dict:
     covariance = output.covariance
     sigmas = np.sqrt([o.noise_cov[0][0] for o in prior.observations.observations])
+    warnings = [] if output.success else ["Optimizer did not converge."]
+    if output.covariance_method and output.loss != "linear":
+        warnings.append(
+            "Classical consider covariance uses the unweighted final Jacobian; "
+            "it is not a robust sandwich covariance."
+        )
     diagnostics = {
         "success": output.success,
         "optimizer_status": output.status,
@@ -189,8 +203,9 @@ def _diagnostics(prior: PriorStateData, output: OptimizerOutput) -> dict:
         "residual_rms_hz": float(np.sqrt(np.mean((output.residuals * sigmas) ** 2))),
         "covariance": None if covariance is None else covariance.tolist(),
         "covariance_rank": output.covariance_rank,
+        "covariance_method": output.covariance_method,
         "parameter_order": output.parameter_names,
-        "warnings": [] if output.success else ["Optimizer did not converge."],
+        "warnings": warnings,
     }
     return diagnostics
 
@@ -202,6 +217,14 @@ def result_rows(
     output: OptimizerOutput,
 ) -> tuple[list[dict], dict]:
     _validate_output(optimizer, output, len(prior.observations.observations))
+    expected_covariance = output.success and configuration.forward_model.version >= 2
+    if (output.covariance is not None) != expected_covariance:
+        raise ValueError(
+            "parameter covariance availability differs from fit profile/status"
+        )
+    expected_method = "classical_consider_v1" if expected_covariance else None
+    if output.covariance_method != expected_method:
+        raise ValueError("parameter covariance method differs from fit profile/status")
     parameters = _parameter_rows(configuration, optimizer, output)
     diagnostics = _diagnostics(prior, output)
     json_bytes([parameters, diagnostics])

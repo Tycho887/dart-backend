@@ -221,20 +221,21 @@ def test_consider_covariance_on_actual_fit(model: OrbitModel) -> None:
     for matrix in (unconsidered, considered, considered - unconsidered):
         np.testing.assert_allclose(matrix, matrix.T, atol=1e-12)
         assert np.linalg.eigvalsh(matrix).min() >= -1e-12
-    _, zero_consider, _, _ = compute_consider_covariance(
-        output, prior_estimated, np.zeros((1, 1))
-    )
     _, larger_consider, _, _ = compute_consider_covariance(
         output, prior_estimated, 4.0 * prior_consider
     )
-    np.testing.assert_allclose(zero_consider, unconsidered)
     np.testing.assert_allclose(
         larger_consider - unconsidered, 4.0 * (considered - unconsidered)
     )
-    with pytest.raises(ValueError, match="linear loss"):
-        compute_consider_covariance(
-            replace(output, loss="huber"), prior_estimated, prior_consider
-        )
+    with pytest.raises(ValueError, match="positive definite"):
+        compute_consider_covariance(output, prior_estimated, np.zeros((1, 1)))
+    robust = compute_consider_covariance(
+        replace(output, loss="huber"), prior_estimated, prior_consider
+    )
+    for actual, expected in zip(
+        robust, (unconsidered, considered, sensitivity, perturbation), strict=True
+    ):
+        np.testing.assert_allclose(actual, expected)
 
 
 @pytest.mark.parametrize("model", OrbitModel)

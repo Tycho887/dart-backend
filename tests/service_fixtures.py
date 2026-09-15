@@ -29,17 +29,21 @@ CONTACTS = [UUID(int=2), UUID(int=1)]
 EPHEMERIS = UUID(int=3)
 
 
-def configuration(model="lofi-time", optimizer="least-squares", multipass=True):
+def configuration(
+    model="lofi-time", optimizer="least-squares", multipass=True, model_version=1
+):
     request = EstimateRequest(
         contact_ids=CONTACTS if multipass else CONTACTS[:1],
         ephemeris_id=EPHEMERIS,
-        forward_model=ProfileRef(name=model),
+        forward_model=ProfileRef(name=model, version=model_version),
         optimizer=ProfileRef(name=optimizer),
         nominal_center_frequency_hz=400e6,
     )
-    models = {p.name: p for p in forward_model_profiles()}
-    optimizers = {p.name: p for p in optimizer_profiles()}
-    return resolve_configuration(request, models[model], optimizers[optimizer])
+    models = {(p.name, p.version): p for p in forward_model_profiles()}
+    optimizers = {(p.name, p.version): p for p in optimizer_profiles()}
+    return resolve_configuration(
+        request, models[model, model_version], optimizers[optimizer, 1]
+    )
 
 
 def prior_fixture(config):

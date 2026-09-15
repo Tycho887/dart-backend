@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -12,7 +14,8 @@ from dart.od import (
     PriorSource,
     compute_consider_covariance,
 )
-from dart.od.schema import LossKind
+from dart.od.cca import full_consider_covariance
+from dart.od.schema import LossKind, ParameterSpec
 
 
 def output(*, loss: LossKind = "linear") -> OptimizerOutput:
@@ -73,12 +76,59 @@ def test_consider_covariance_partitions_interleaved_roles() -> None:
     )
 
 
-def test_consider_covariance_rejects_robust_loss_and_invalid_priors() -> None:
-    with pytest.raises(ValueError, match="linear loss"):
-        compute_consider_covariance(output(loss="huber"), np.eye(2), np.eye(2))
+def test_consider_covariance_uses_unweighted_robust_jacobian_and_rejects_invalid_priors() -> (
+    None
+):
+    linear = compute_consider_covariance(output(), np.eye(2), np.eye(2))
+    robust = compute_consider_covariance(output(loss="huber"), np.eye(2), np.eye(2))
+    for actual, expected in zip(robust, linear, strict=True):
+        np.testing.assert_allclose(actual, expected)
     with pytest.raises(ValueError, match="positive definite"):
         compute_consider_covariance(output(), np.zeros((2, 2)), np.eye(2))
     with pytest.raises(ValueError, match="symmetric"):
         compute_consider_covariance(
             output(), np.eye(2), np.array([[1.0, 1.0], [0.0, 1.0]])
         )
+
+
+def test_empty_consider_set_and_full_interleaved_covariance() -> None:
+    base = output()
+    reduced = replace(
+        base,
+        parameter_names=("e1", "e2"),
+        parameter_roles=(ParameterRole.ESTIMATE, ParameterRole.ESTIMATE),
+        parameters=np.zeros(2),
+        jacobian=base.jacobian[:, [0, 3]],
+    )
+    unconsidered, considered, sensitivity, perturbation = compute_consider_covariance(
+        reduced, np.eye(2), np.empty((0, 0))
+    )
+    np.testing.assert_allclose(considered, unconsidered)
+    assert sensitivity.shape == perturbation.shape == (2, 0)
+
+    interleaved = replace(
+        base,
+        parameter_names=("e1", "c1", "e2", "c2"),
+        parameter_roles=(
+            ParameterRole.ESTIMATE,
+            ParameterRole.CONSIDER,
+            ParameterRole.ESTIMATE,
+            ParameterRole.CONSIDER,
+        ),
+        parameters=np.zeros(4),
+        jacobian=base.jacobian[:, [0, 1, 3, 4]],
+    )
+    specs = tuple(
+        ParameterSpec(name, 0, -10, 10, 1, role, sigma)
+        for name, role, sigma in zip(
+            interleaved.parameter_names,
+            interleaved.parameter_roles,
+            (2.0, 1.0, 3.0, 2.0),
+            strict=True,
+        )
+    )
+    covariance, rank = full_consider_covariance(interleaved, specs)
+    assert rank == 2
+    np.testing.assert_allclose(covariance, covariance.T)
+    np.linalg.cholesky(covariance)
+    np.testing.assert_allclose(covariance[np.ix_([1, 3], [1, 3])], np.diag([1, 4]))

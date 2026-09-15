@@ -7,6 +7,9 @@ same-origin gateway supplies the engineer's identity to the command API.
 
 ## Start the local integration
 
+For the complete operational workflow, including rebuilds after Python or
+container changes, see [Results stack operations](results-stack-operations.md).
+
 `deploy/compose.grafana.yml` reuses the existing `dart-test_grafana_data`
 volume. Set `DART_GRAFANA_VOLUME` to another existing volume when needed.
 The new `dart_estimates_results` volume is separate from historical databases.
@@ -33,6 +36,12 @@ the results views. This is an engineering-team deployment, not tenant isolation.
 The build uses a platform wheel and locked Python dependencies. The Python
 image is pinned; pin the Timescale/Grafana images to reviewed digests for your
 release process. A wheel SHA-256 is included in each stored software snapshot.
+ADX conversion requires the `azure-kusto-data[pandas]` and `polars[pandas]`
+runtime extras, which include pandas and pyarrow. The image build runs
+`pip check` and an offline smoke check with a synthetic Kusto response through
+the actual pandas/Polars conversion and Parquet serialization. This verifies
+optional runtime dependencies without relying on the development environment
+or querying live telemetry.
 
 Migrations are an explicit bootstrap step, run as the database owner.
 `dart_app` can operate the queue and results tables but cannot alter the schema
@@ -81,22 +90,45 @@ are measurement corrections, not orbital corrections.
 
 Forward-model profiles are versioned separately from optimizer profiles:
 
-| Model profile | Parameters |
+| Model profile | Estimated parameters |
 | --- | --- |
 | `lofi-time` | Global time offset and one bias per contact |
 | `lofi-time-frequency` | Time offset, center-frequency offset and contact biases |
 | `lofi-elements` | SGP4 mean longitude, mean motion and contact biases |
 | `hifi` | Six GCRF Cartesian corrections and contact biases |
 
-Omitted corrections are zero. Every current profile requires an explicitly
-selected same-spacecraft TLE prior; full state is initialized from that TLE.
+Version 1 profiles omit all other corrections and leave covariance unavailable.
+Version 2 profiles retain every canonical parameter: the listed parameters and
+contact biases are estimated, while omitted parameters are held at their
+initial values and treated as consider parameters. Each has a positive,
+physical-unit prior standard uncertainty used only by post-fit classical
+consider covariance. There are no fixed parameters in version 2 profiles.
+
+Every current profile requires a same-spacecraft
+TLE prior; full state is initialized from that TLE. An explicit `ephemeris_id`
+overrides automatic selection. If omitted or null, the worker uses the ephemeris
+associated with the selected contact. For multiple contacts it uses the latest
+KOGS contact start time, breaking equal-time ties by greatest contact UUID;
+request order and ephemeris epoch do not affect this selection. An unavailable
+or unsupported linked ephemeris fails validation without substituting another
+prior. The selected ID and source contact are saved with the frozen inputs.
+`prior_ephemeris_id` remains null until resolution for automatic requests;
+the original request stays unchanged, and retries reuse the frozen prior.
 The Cartesian epoch is one second before the earliest retained observation,
 leaving room for the numerical model's time derivatives. Parameter units are
 seconds, Hz, degrees, rev/day, metres and metres/second as appropriate.
 
 Model profiles own physical bounds/scales. The timing bound is ±600 seconds;
 frequency correction is bounded to ±1 MHz. Orbital and pass-bias settings reuse
-`dart.od.profiles`. These are search bounds, not prior uncertainty estimates.
+`dart.od.profiles`. Bounds and optimizer scales remain distinct from the
+version 2 prior uncertainty values.
+
+The provisional v2 one-sigma priors are 0.001 rev/day for mean motion,
+0.001 for each equinoctial f/g/h/k component, 0.1 degrees for mean longitude,
+1e-5 for B*, 10,000 m per Cartesian position axis, 10 m/s per velocity axis,
+1 second for time offset, 100,000 Hz for center-frequency offset, and 200 Hz
+for each contact bias. They are profile configuration, not calibrated
+uncertainty claims.
 
 Optimizer profiles are `least-squares`, `robust` (soft L1), `timing-scan` and
 `phase-scan`. Timing scan supports `lofi-time`; phase scan supports
@@ -138,11 +170,49 @@ Advanced. The default frequency comes from the spacecraft's reviewed V2
 ctrl-config link. No source credentials appear in requests, artifacts or
 persisted provider error messages.
 
+Grafana accepts the nominal-frequency override in **MHz**, converting it once
+to the REST field `nominal_center_frequency_hz` (for example, 437.5 MHz becomes
+437500000 Hz). Valid UI overrides range from 1 to 100,000 MHz. Leaving the field
+blank keeps the spacecraft-config default. Backend storage and numerical units
+remain Hz; Doppler and bias controls also remain in Hz.
+
 `/health/live`, `/health/ready`, and `/metrics` are internal operational
 endpoints. The API requires a gateway token and injected actor headers;
 clients cannot supply trusted identity through ingress. Historical solve/TDM
 submission paths return 410 rather than interpreting old requests as estimates.
 There is no REST results/search API.
+
+## Investigating worker failures
+
+New failures include `exception_type`, `phase`, and `run_id` in the existing
+`terminal_error` JSON shown by Grafana. A `ModuleNotFoundError` also includes
+`missing_module` when Python supplies a valid module identifier. For example,
+`detail` can read `Estimate failed during preparation: missing Python module
+'example'.` Execution phases distinguish `preparation`, `fitting`,
+`result_serialization`, and `persistence`; they do not change job status values
+or retry policy. Full tracebacks are not stored in the database.
+
+Worker stderr uses UTC timestamps. Each failure is one JSON log record with
+`estimate_uuid`, `job_id`, `run_id`, `attempt`, `worker_id`, `phase`, and a
+`traceback` array. The array lists the visible exception chain outermost first,
+with each exception's stack frames ordered from caller to failure. Frames
+contain filenames, functions, and line numbers. Arbitrary exception messages,
+notes, source lines, and local variables are omitted to avoid exposing provider
+credentials. Existing safe input-validation messages remain in the summary.
+Heartbeat and failure-recording errors include the same job identifiers;
+worker-loop errors have worker identity but may have no claimed job.
+
+```bash
+docker compose --env-file "${DART_RUNTIME_ENV:-/tmp/dart-results.env}" \
+  -p dart-results -f deploy/compose.grafana.yml -f deploy/compose.yml \
+  logs --since 1h --no-color worker
+```
+
+Search the output for the estimate UUID and then its run ID to distinguish
+attempts. The startup record reports the wheel's `build_sha256` (`unpackaged`
+outside a built image). Retain Docker logs before recreating a container if
+they are needed for investigation. Historical generic errors cannot recover
+discarded tracebacks, and deployment does not resubmit failed jobs.
 
 ## Dashboard and verification
 
@@ -160,7 +230,7 @@ with bounded queries. Select an estimate to inspect parameters, diagnostics,
 provenance and audit events, or cancel an active owned job.
 
 ```bash
-uv run pytest -q tests/test_service.py tests/test_service_gateway.py
+uv run pytest -q tests/test_service.py tests/test_service_gateway.py tests/test_service_diagnostics.py tests/test_service_resolver.py
 DART_TEST_DATABASE_URL=postgresql://... uv run pytest -q tests/test_service_database.py
 node --test --test-isolation=none tests/test_grafana_form.cjs
 ```
