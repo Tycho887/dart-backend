@@ -15,6 +15,11 @@ The time-offset experiment reproduces the earlier single-pass question.
 The low-fidelity SGP4 and high-fidelity full-state orbit experiments remain
 available through `--experiment orbit`; they do not measure the same outcome.
 
+The [shareable verification snapshot](../reports/forest-time-offset/20260503-04/README.md)
+contains the 15 fitted results, original historical comparison CSV, raw-input
+locations, and checksums. All required inputs are tracked in this repository;
+the offline replay does not need a `dart-python` checkout or files from `/tmp`.
+
 ## Recorded-data time-offset reproduction
 
 No environment file or network access is required:

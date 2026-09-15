@@ -1,0 +1,33 @@
+{
+  "path_base": "repository root",
+  "reproduction_commit": "a7d6a3b6f0e4f1b06425854f874543cf2233763f",
+  "description": "Each run-local raw input name maps to the identical tracked repository file. Archived run manifests and acquisition records are unchanged.",
+  "raw_inputs": {
+    "forest16": {
+      "source.parquet": "doppler_parquet/forest16.parquet",
+      "FOREST-16-BESTXYZ-position.csv": "gps-examples/FOREST-16-BESTXYZ-position.csv",
+      "FOREST-16-BESTXYZ-time.csv": "gps-examples/FOREST-16-BESTXYZ-time.csv",
+      "FOREST-16-BESTXYZ-velocity.csv": "gps-examples/FOREST-16-BESTXYZ-velocity.csv"
+    },
+    "forest17": {
+      "source.parquet": "doppler_parquet/forest17.parquet",
+      "FOREST-17-BESTXYZ-position.csv": "gps-examples/FOREST-17-BESTXYZ-position.csv",
+      "FOREST-17-BESTXYZ-time.csv": "gps-examples/FOREST-17-BESTXYZ-time.csv",
+      "FOREST-17-BESTXYZ-velocity.csv": "gps-examples/FOREST-17-BESTXYZ-velocity.csv"
+    },
+    "forest18": {
+      "source.parquet": "doppler_parquet/forest18.parquet",
+      "FOREST-18-BESTXYZ-position.csv": "gps-examples/FOREST-18-BESTXYZ-position.csv",
+      "FOREST-18-BESTXYZ-time.csv": "gps-examples/FOREST-18-BESTXYZ-time.csv",
+      "FOREST-18-BESTXYZ-velocity.csv": "gps-examples/FOREST-18-BESTXYZ-velocity.csv"
+    },
+    "forest19": {
+      "source.parquet": "doppler_parquet/forest19.parquet",
+      "FOREST-19-BESTXYZ-position.csv": "gps-examples/FOREST-19-BESTXYZ-position.csv",
+      "FOREST-19-BESTXYZ-time.csv": "gps-examples/FOREST-19-BESTXYZ-time.csv",
+      "FOREST-19-BESTXYZ-velocity.csv": "gps-examples/FOREST-19-BESTXYZ-velocity.csv"
+    }
+  },
+  "historical_baseline": "reports/forest-time-offset/20260503-04/historical/forest_leop_may_2026_data_used.csv",
+  "regression_fixture": "tests/fixtures/forest_time_offset.json"
+}

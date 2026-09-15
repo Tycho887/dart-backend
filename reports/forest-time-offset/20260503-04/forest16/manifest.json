@@ -1,0 +1,160 @@
+{
+  "experiment": "time_offset",
+  "model": "sgp4",
+  "spacecraft_id": "ebc4af2e-c5f5-4700-a103-d1fc1bf423bb",
+  "satellite": "FOREST-16",
+  "selection": [
+    {
+      "contact_id": "a6252615-8c19-4f78-a6f0-227e3da97c2e",
+      "raw_samples": 4134,
+      "retained_samples": 9
+    },
+    {
+      "contact_id": "b2bd28a8-6704-4a67-bd8b-2c84fb0473bc",
+      "raw_samples": 4204,
+      "retained_samples": 297
+    },
+    {
+      "contact_id": "9adbc5c4-0b67-471e-a286-dda9a089a49f",
+      "raw_samples": 1543,
+      "retained_samples": 0
+    },
+    {
+      "contact_id": "7815ef69-da31-40ef-853c-e552ebe841cc",
+      "raw_samples": 3751,
+      "retained_samples": 0
+    },
+    {
+      "contact_id": "1c36ca34-a985-4809-9ca7-65e422e6c47d",
+      "raw_samples": 3568,
+      "retained_samples": 187
+    },
+    {
+      "contact_id": "e5d79f0b-730b-4832-becf-f716d7322784",
+      "raw_samples": 4267,
+      "retained_samples": 340
+    },
+    {
+      "contact_id": "bcec2df5-c0d0-4e89-91ae-f0568424de8a",
+      "raw_samples": 3623,
+      "retained_samples": 44
+    },
+    {
+      "contact_id": "82723fb0-59f4-4de8-ac05-f9f3d9a7dcc7",
+      "raw_samples": 2529,
+      "retained_samples": 252
+    },
+    {
+      "contact_id": "7cb89272-0ba6-4eaf-8445-917ec34e727e",
+      "raw_samples": 2349,
+      "retained_samples": 192
+    },
+    {
+      "contact_id": "2a45c0d3-c3e9-45e8-a11f-5dbf6bda0693",
+      "raw_samples": 2841,
+      "retained_samples": 110
+    },
+    {
+      "contact_id": "33061519-fa11-49e4-becd-6c770efd6e11",
+      "raw_samples": 2863,
+      "retained_samples": 475
+    },
+    {
+      "contact_id": "85ec563d-ecb0-4c0b-9b2d-eeb9cec80587",
+      "raw_samples": 2843,
+      "retained_samples": 6
+    },
+    {
+      "contact_id": "556b1cfa-0a8e-4d19-8f95-b123fd47cd60",
+      "raw_samples": 2912,
+      "retained_samples": 401
+    }
+  ],
+  "excluded_contacts": [
+    "a6252615-8c19-4f78-a6f0-227e3da97c2e",
+    "b2bd28a8-6704-4a67-bd8b-2c84fb0473bc",
+    "9adbc5c4-0b67-471e-a286-dda9a089a49f",
+    "7815ef69-da31-40ef-853c-e552ebe841cc",
+    "1c36ca34-a985-4809-9ca7-65e422e6c47d",
+    "bcec2df5-c0d0-4e89-91ae-f0568424de8a",
+    "82723fb0-59f4-4de8-ac05-f9f3d9a7dcc7",
+    "7cb89272-0ba6-4eaf-8445-917ec34e727e",
+    "2a45c0d3-c3e9-45e8-a11f-5dbf6bda0693",
+    "85ec563d-ecb0-4c0b-9b2d-eeb9cec80587"
+  ],
+  "selection_policy": "finite |Doppler| >=0.1 Hz and 1<elevation<89 deg; >=301 samples",
+  "reference": "raw BESTXYZ at receiver UTC epochs; no GPS used in fitting",
+  "scoring": "SGP4 TEME at t+offset, transformed to ITRF at GPS epoch t",
+  "fit_time_convention": "complete measurement epoch, including station geometry",
+  "gps_sources_sha256": {
+    "FOREST-16-BESTXYZ-position.csv": "59de6be48cbc66b3fc73742604b6c80a1589043202b6200ba9f3651b4d3479bf",
+    "FOREST-16-BESTXYZ-time.csv": "d3528eb24489b33fc9dd86033df19832740340acb7b94edc21caa55546f4d817",
+    "FOREST-16-BESTXYZ-velocity.csv": "1078412ff3021ffae41fdff4b7e55265c26ab9b2bd3cedc15b810aee494680b2"
+  },
+  "gps_rejected": [
+    {
+      "line": 206,
+      "packet_ms": "1777826608449",
+      "reason": "position_uncertainty"
+    },
+    {
+      "line": 226,
+      "packet_ms": "1777828985696",
+      "reason": "position_uncertainty"
+    },
+    {
+      "line": 227,
+      "packet_ms": "1777829254685",
+      "reason": "position_uncertainty"
+    },
+    {
+      "line": 229,
+      "packet_ms": "1777829452688",
+      "reason": "position_uncertainty"
+    },
+    {
+      "line": 230,
+      "packet_ms": "1777829462686",
+      "reason": "position_uncertainty"
+    },
+    {
+      "line": 263,
+      "packet_ms": "1777831443492",
+      "reason": "position_uncertainty"
+    },
+    {
+      "line": 264,
+      "packet_ms": "1777832274504",
+      "reason": "position_uncertainty"
+    },
+    {
+      "line": 348,
+      "packet_ms": "1777837414011",
+      "reason": "packet_latency"
+    },
+    {
+      "line": 474,
+      "packet_ms": "1777849549796",
+      "reason": "position_uncertainty"
+    },
+    {
+      "line": 542,
+      "packet_ms": "1777853582051",
+      "reason": "position_uncertainty"
+    }
+  ],
+  "variance_hz2": 250000.0,
+  "max_evaluations": 1000,
+  "numerical_core_sha256": "44dce228ae42a2687d28ff78c084f941b19eec1389adbf72d1636e384c599304",
+  "input_sha256": {
+    "raw-measurements.parquet": "c6d785ae556e1a3e6db772ca6011665ef0217eec430c8886db6837878359bad8",
+    "contacts.json": "c18793c8ec1e1fbfbd07318b96f57007f5f79e1a819bc9480202f9a466eb4687",
+    "priors.json": "bd0fb5d98ca0e523ce4341fea38916b6267c4b0f89c2adce54bbd351c859a765"
+  },
+  "packages": {
+    "dart": "0.9.0",
+    "satkit": "0.20.2",
+    "numpy": "2.5.2",
+    "scipy": "1.18.0"
+  }
+}

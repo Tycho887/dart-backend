@@ -1,0 +1,182 @@
+{
+  "experiment": "time_offset",
+  "model": "sgp4",
+  "spacecraft_id": "b221e85e-a0d5-44bd-abd2-930ff3e849b5",
+  "satellite": "FOREST-18",
+  "selection": [
+    {
+      "contact_id": "53eafac8-7eae-4d9b-8adc-9066c668410c",
+      "raw_samples": 4111,
+      "retained_samples": 0
+    },
+    {
+      "contact_id": "3ccef2f9-751b-4153-b810-267dd4c64a31",
+      "raw_samples": 429,
+      "retained_samples": 0
+    },
+    {
+      "contact_id": "ca8d1c55-2725-4217-bc02-13672ceec9ae",
+      "raw_samples": 3930,
+      "retained_samples": 0
+    },
+    {
+      "contact_id": "a1bdfcbb-ff7d-47af-8ba1-7fb37ee15e65",
+      "raw_samples": 1228,
+      "retained_samples": 0
+    },
+    {
+      "contact_id": "6d7785df-a7a7-4963-8fcc-bdebf3a6dc80",
+      "raw_samples": 2323,
+      "retained_samples": 71
+    },
+    {
+      "contact_id": "f1550be3-6ca0-48b2-bd87-da21c1e885b6",
+      "raw_samples": 3636,
+      "retained_samples": 0
+    },
+    {
+      "contact_id": "a5dc9c5c-0fb7-4bc9-9ba3-89a37ff6fac1",
+      "raw_samples": 1756,
+      "retained_samples": 0
+    },
+    {
+      "contact_id": "b2015720-f0bb-48e7-b19a-131a592c9501",
+      "raw_samples": 3608,
+      "retained_samples": 29
+    },
+    {
+      "contact_id": "49e74a6c-b21d-46c0-87bb-e4195b4a0dab",
+      "raw_samples": 4017,
+      "retained_samples": 471
+    },
+    {
+      "contact_id": "6c22b929-f451-4e3f-bc5d-fc4e230c6c02",
+      "raw_samples": 3624,
+      "retained_samples": 32
+    },
+    {
+      "contact_id": "5f62261f-f193-475b-ad2d-94a8b9fd0e75",
+      "raw_samples": 1676,
+      "retained_samples": 0
+    },
+    {
+      "contact_id": "48de3125-1fd3-40df-be87-5fc55aa2485f",
+      "raw_samples": 2557,
+      "retained_samples": 341
+    },
+    {
+      "contact_id": "2735b79f-1ae2-4be6-9b13-774d026efd72",
+      "raw_samples": 2117,
+      "retained_samples": 336
+    },
+    {
+      "contact_id": "7654ef67-7aba-4f18-bf0a-65eacc1b6a22",
+      "raw_samples": 2857,
+      "retained_samples": 339
+    },
+    {
+      "contact_id": "105f1f16-870e-4658-9a38-41c74ea5939c",
+      "raw_samples": 2309,
+      "retained_samples": 322
+    },
+    {
+      "contact_id": "8db51bff-de04-4287-b3c8-4f949e7a8df1",
+      "raw_samples": 2485,
+      "retained_samples": 337
+    },
+    {
+      "contact_id": "7f6f30f5-0820-469d-9ab6-71b9523e8939",
+      "raw_samples": 2805,
+      "retained_samples": 170
+    },
+    {
+      "contact_id": "4d451626-a662-4148-8369-abbcd6001b6a",
+      "raw_samples": 2504,
+      "retained_samples": 212
+    }
+  ],
+  "excluded_contacts": [
+    "53eafac8-7eae-4d9b-8adc-9066c668410c",
+    "3ccef2f9-751b-4153-b810-267dd4c64a31",
+    "ca8d1c55-2725-4217-bc02-13672ceec9ae",
+    "a1bdfcbb-ff7d-47af-8ba1-7fb37ee15e65",
+    "6d7785df-a7a7-4963-8fcc-bdebf3a6dc80",
+    "f1550be3-6ca0-48b2-bd87-da21c1e885b6",
+    "a5dc9c5c-0fb7-4bc9-9ba3-89a37ff6fac1",
+    "b2015720-f0bb-48e7-b19a-131a592c9501",
+    "6c22b929-f451-4e3f-bc5d-fc4e230c6c02",
+    "5f62261f-f193-475b-ad2d-94a8b9fd0e75",
+    "7f6f30f5-0820-469d-9ab6-71b9523e8939",
+    "4d451626-a662-4148-8369-abbcd6001b6a"
+  ],
+  "selection_policy": "finite |Doppler| >=0.1 Hz and 1<elevation<89 deg; >=301 samples",
+  "reference": "raw BESTXYZ at receiver UTC epochs; no GPS used in fitting",
+  "scoring": "SGP4 TEME at t+offset, transformed to ITRF at GPS epoch t",
+  "fit_time_convention": "complete measurement epoch, including station geometry",
+  "gps_sources_sha256": {
+    "FOREST-18-BESTXYZ-position.csv": "460ddc8774ec6035030afa451299d55b286ec7b21fae6f3c838552f80fa1880d",
+    "FOREST-18-BESTXYZ-time.csv": "2b8a1ee4eec2dc39d20179fd9dbdca2a39156f27562e414b53eac2a06b1d94b5",
+    "FOREST-18-BESTXYZ-velocity.csv": "a99f72d7beb6116dd16f642be91366d2d242aba6ec0cfda884cc3505ed41fcca"
+  },
+  "gps_rejected": [
+    {
+      "line": 216,
+      "packet_ms": "1777827304448",
+      "reason": "position_uncertainty"
+    },
+    {
+      "line": 375,
+      "packet_ms": "1777837391579",
+      "reason": "position_uncertainty"
+    },
+    {
+      "line": 662,
+      "packet_ms": "1777859631867",
+      "reason": "position_uncertainty"
+    },
+    {
+      "line": 663,
+      "packet_ms": "1777859660867",
+      "reason": "position_uncertainty"
+    },
+    {
+      "line": 669,
+      "packet_ms": "1777860375889",
+      "reason": "missing_receiver_epoch"
+    },
+    {
+      "line": 749,
+      "packet_ms": "1777866195200",
+      "reason": "position_uncertainty"
+    },
+    {
+      "line": 3393,
+      "packet_ms": "1778071460279",
+      "reason": "invalid_number"
+    },
+    {
+      "line": 3517,
+      "packet_ms": "1778085620259",
+      "reason": "invalid_number"
+    },
+    {
+      "line": 4175,
+      "packet_ms": "1778139837135",
+      "reason": "invalid_number"
+    }
+  ],
+  "variance_hz2": 250000.0,
+  "max_evaluations": 1000,
+  "numerical_core_sha256": "44dce228ae42a2687d28ff78c084f941b19eec1389adbf72d1636e384c599304",
+  "input_sha256": {
+    "raw-measurements.parquet": "ec383ab0476de08e6ab73b747860ad62f50770bbc236481071e0f778223dc44d",
+    "contacts.json": "5b3f7c710109315b4b403cbadc66b652fac572332423bd7dad1acc9cc83e458d",
+    "priors.json": "75027546ef268bf2ad984e546344f718861836ff55801fad6d8edb6d3497aa71"
+  },
+  "packages": {
+    "dart": "0.9.0",
+    "satkit": "0.20.2",
+    "numpy": "2.5.2",
+    "scipy": "1.18.0"
+  }
+}

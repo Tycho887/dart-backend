@@ -1,0 +1,7 @@
+{
+  "provider": "parquet",
+  "path": "/home/tycho/orbital/dart-backend/doppler_parquet/forest17.parquet",
+  "sha256": "450d04da44ec705fa91cab1ec6806ef1dfc7301fe7553c839d02310a06556a9a",
+  "prior_policy": "recorded TLE per contact",
+  "contact_window_policy": "recorded telemetry extents"
+}
