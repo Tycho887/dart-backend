@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+import satkit as sk
 from dotenv import load_dotenv
 
 from dart.io import ContactMetadata, EphemerisMetadata, adx, kogs, load_passes
@@ -36,6 +37,8 @@ def _json_value(value: object) -> object:
         return value.tolist()
     if isinstance(value, np.generic):
         return value.item()
+    if isinstance(value, sk.time):
+        return value.as_unixtime()
     if isinstance(value, (datetime, Path)):
         return str(value)
     raise TypeError(f"cannot serialize {type(value).__name__}")

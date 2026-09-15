@@ -1,0 +1,4 @@
+experiment,model,satellite,contact_id,station,success,message,observations,gps_fixes,primary,time_offset_s,pass_bias_hz,position_median_km,position_rms_km,prior_position_median_km,reason
+time_offset,sgp4,FOREST-16,e5d79f0b-730b-4832-becf-f716d7322784,PUNTA_ARENAS,True,`ftol` termination condition is satisfied.,340,6,True,3.709202072519111,967.5952093977268,18.69662914777279,18.698703635776535,9.310026811534495,
+time_offset,sgp4,FOREST-16,33061519-fa11-49e4-becd-6c770efd6e11,SVALSAT,True,`ftol` termination condition is satisfied.,475,1,False,2.2606951489022014,648.1911724901454,1.1601235852953946,1.1601235852953946,18.167926316845634,
+time_offset,sgp4,FOREST-16,556b1cfa-0a8e-4d19-8f95-b123fd47cd60,PUNTA_ARENAS,True,`ftol` termination condition is satisfied.,401,11,True,3.165100730064987,730.0369101976128,2.7639854782002953,2.7727969177270064,21.142534048422466,

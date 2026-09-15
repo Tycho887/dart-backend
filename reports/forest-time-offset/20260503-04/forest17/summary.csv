@@ -1,0 +1,4 @@
+experiment,model,satellite,contact_id,station,success,message,observations,gps_fixes,primary,time_offset_s,pass_bias_hz,position_median_km,position_rms_km,prior_position_median_km,reason
+time_offset,sgp4,FOREST-17,2610bd5f-3a3f-4756-be38-d31392d4324c,HARTEBEESTHOEK,True,`xtol` termination condition is satisfied.,349,7,True,-4.1000312259113985,-934.8533700884652,24.586229337668346,24.588750719214225,6.394891635312474,
+time_offset,sgp4,FOREST-17,36c92afa-8853-4630-a788-ad2e63912d51,TROLL,True,`ftol` termination condition is satisfied.,370,10,True,-0.44022566516478007,71.95620567660784,3.863132525533903,3.862748433948506,7.1855997319868194,
+time_offset,sgp4,FOREST-17,d623db96-56fd-4783-9f1e-bf3933f4dbd8,PUNTA_ARENAS,True,`ftol` termination condition is satisfied.,344,5,True,-0.5380724743583452,747.2994951972778,4.276082015608044,4.296769604649844,8.334885484772098,

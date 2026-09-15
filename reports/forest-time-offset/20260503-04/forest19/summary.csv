@@ -1,0 +1,4 @@
+experiment,model,satellite,contact_id,station,success,message,observations,gps_fixes,primary,time_offset_s,pass_bias_hz,position_median_km,position_rms_km,prior_position_median_km,reason
+time_offset,sgp4,FOREST-19,d2af3474-5932-431d-ae42-c7ce901c93ba,TROLL,True,`ftol` termination condition is satisfied.,358,8,True,-0.36378904678788443,-84.50927124332779,5.151751957115482,5.160020497667731,2.436356643123269,
+time_offset,sgp4,FOREST-19,df2618ab-46b7-49bb-a148-ea9f89466869,AWARUA,True,`ftol` termination condition is satisfied.,521,11,True,0.2949411528907009,647.4816807014088,0.5506280422262928,0.5708603563155069,2.746679447696918,
+time_offset,sgp4,FOREST-19,e629dfe8-8210-4af9-a61d-f02b5377a4fd,SVALSAT,True,`ftol` termination condition is satisfied.,357,0,False,0.16635988900973878,866.2786277650708,,,,no raw GPS fixes in accepted Doppler window

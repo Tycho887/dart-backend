@@ -4,7 +4,7 @@ Run: uv run python experiment.py
 Results default to raw_results/forest-<UTC timestamp>/ relative to the repo.
 Rerun to reuse the default input cache; --output selects a custom directory.
 Edit gate_passes() to try another pass gate without reacquiring telemetry.
-Timing fits adjust the TLE epoch and score the serialized orbit product. Covariance is a local,
+Timing fits shift measurement time and use same-pass raw GPS phase scoring. Covariance is a local,
 residual-scaled diagnostic, not calibrated accuracy or proof of bad telemetry.
 """
 
@@ -17,7 +17,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from textwrap import fill
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import numpy as np
 import polars as pl
@@ -25,7 +25,13 @@ import satkit as sk
 
 from dart.forward_models import ReepochedTle, ReepochError, reepoch_tle
 from dart.io import ContactMetadata, EphemerisMetadata
-from dart.io.doppler import select_doppler, select_fit_doppler, selection_counts
+from dart.io.doppler import (
+    select_doppler,
+    select_fit_doppler,
+    select_time_offset_doppler,
+    selection_counts,
+)
+from dart.io.gps import load_bestxyz
 from dart.io.load import _contact_ids
 from dart.io.oem import read_oem
 from dart.od import (
@@ -35,13 +41,17 @@ from dart.od import (
     _source_tle_lines,
 )
 from dart.od.profiles import (
+    FOREST_VARIANCE_HZ2,
+    forest_profile,
     orbit_bias_profile,
     sgp4_bias_profile,
-    sgp4_epoch_bias_profile,
+    time_offset_profile,
 )
 from dart.od.schema import LossKind
 from experiments._benchmark_io import load_inputs, save_json
 from experiments.benchmark_gps_ref import BenchmarkResult, _bind_reference, benchmark
+from experiments.time_offset import MIN_SAMPLES as TIMING_MIN_SAMPLES
+from experiments.time_offset import benchmark_record, fit_contact, save_gps_sources
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -51,6 +61,14 @@ POSITION = ("dx_m", "dy_m", "dz_m")
 VELOCITY = ("dvx_m_s", "dvy_m_s", "dvz_m_s")
 Record = dict[str, Any]  # JSON records combine metadata, tables, and diagnostics.
 Checkpoint = Callable[[Record], None]
+
+
+class ForestOptimizerSettings(TypedDict):
+    time_offset_bound_s: float
+    loss: LossKind
+    loss_scale_hz: float
+    variance_hz2: float
+    max_evaluations: int
 
 
 def gate_passes(
@@ -85,18 +103,27 @@ def gate_passes(
 
 def configurations(
     contact_ids: list[str],
-    time_offset_bound_s: float = 600.0,
+    time_offset_bound_s: float = 120.0,
     *,
     loss: LossKind = "soft_l1",
-    loss_scale_hz: float = 200.0,
+    loss_scale_hz: float = 700.0,
+    variance_hz2: float = FOREST_VARIANCE_HZ2,
+    max_evaluations: int = 1000,
+    timing_ids: list[str] | None = None,
 ) -> Iterator[tuple[str, list[str], OptimizerContext]]:
-    """Independent epoch fits, sliding L+n triples, then full-state prefixes."""
+    """Independent timing inventory, sliding L+n triples, full-state prefixes."""
 
     def configured(profile: OptimizerContext) -> OptimizerContext:
-        return replace(profile, loss=loss, loss_scale=loss_scale_hz)
+        return replace(
+            forest_profile(
+                profile, variance_hz2=variance_hz2, loss_scale_hz=loss_scale_hz
+            ),
+            loss=loss,
+            max_evaluations=max_evaluations,
+        )
 
-    for cid in contact_ids:
-        profile = sgp4_epoch_bias_profile([cid], bound_s=time_offset_bound_s)
+    for cid in contact_ids if timing_ids is None else timing_ids:
+        profile = time_offset_profile(cid, bound_s=time_offset_bound_s)
         yield "timing", [cid], configured(profile)
     for index in range(len(contact_ids) - 2):
         group = contact_ids[index : index + 3]
@@ -289,7 +316,7 @@ def _checkpoint_writer(directory: Path) -> Checkpoint:
         cases[case["spacecraft_id"]] = case
         save_json(
             directory / "experiment.json.tmp",
-            {"format_version": 1, "spacecraft": list(cases.values())},
+            {"format_version": 2, "spacecraft": list(cases.values())},
         )
         (directory / "experiment.json.tmp").replace(directory / "experiment.json")
         rows = [row for c in cases.values() for row in _summary_rows(c)]
@@ -314,13 +341,17 @@ def _summary_rows(case: Record) -> list[Record]:
         {
             "spacecraft": case["name"],
             "stage": run["stage"],
+            "scoring_kind": run["metadata"].get("scoring_kind", "oem_window"),
             "run_id": run["run_id"],
             "pass_count": len(run["contact_ids"]),
             "success": run["metadata"]["output"]["success"],
             **row,
         }
         for run in case["runs"]
-        for row in run["statistics"]
+        for row in (
+            run["statistics"]
+            or ([run["timing_score"]] if "timing_score" in run else [])
+        )
     ]
 
 
@@ -382,8 +413,11 @@ async def experiment(
     min_ebn0_db: float = 3.0,
     max_abs_offset_hz: float = 100000.0,
     loss: LossKind = "soft_l1",
-    loss_scale_hz: float = 200.0,
-    time_offset_bound_s: float = 600.0,
+    loss_scale_hz: float = 700.0,
+    time_offset_bound_s: float = 120.0,
+    variance_hz2: float = FOREST_VARIANCE_HZ2,
+    max_evaluations: int = 1000,
+    gps_directory: Path = ROOT / "gps-examples",
     _checkpoint: Checkpoint | None = None,
 ) -> None:
     """Run one spacecraft; the CLI shares a checkpoint across all spacecraft."""
@@ -406,6 +440,9 @@ async def experiment(
         else "see source quality report",
         "input_sha256": hashes,
         "snapshot_dir": snapshot_dir,
+        "initial_ephemeris": prior,
+        "timing_scoring_kind": "raw_gps_phase",
+        "variance_hz2": variance_hz2,
         "min_samples": min_samples,
         "quality_selection": quality,
         "loss": loss,
@@ -415,12 +452,30 @@ async def experiment(
         "runs": [],
     }
     publish(case)
+    optimizer_settings = ForestOptimizerSettings(
+        time_offset_bound_s=time_offset_bound_s,
+        loss=loss,
+        loss_scale_hz=loss_scale_hz,
+        variance_hz2=variance_hz2,
+        max_evaluations=max_evaluations,
+    )
+    _run_timing_cases(
+        case,
+        contacts,
+        measurements,
+        prior,
+        center_frequency_hz,
+        gps_directory,
+        output_dir,
+        publish,
+        optimizer_settings,
+    )
     if not ids:
         case["unavailable_reason"] = "no passes satisfy the gate"
         _finish_case(case, publish, output_dir, _checkpoint is None)
         return
 
-    selected = select_fit_doppler(measurements, **quality).filter(
+    selected = select_fit_doppler(measurements, min_ebn0_db, max_abs_offset_hz).filter(
         pl.col("contact_id").is_in(ids)
     )
     center, epoch = scoring_epochs(selected)
@@ -457,6 +512,7 @@ async def experiment(
                 center_frequency_hz=center_frequency_hz,
                 snapshot_dir=snapshot_dir,
                 reference_spacecraft_id=spacecraft_id,
+                variance_hz2=variance_hz2,
                 min_samples=min_samples,
                 **quality,
                 epoch=epoch,
@@ -465,7 +521,7 @@ async def experiment(
                     if optimizer.model == OrbitModel.FULL_STATE
                     else None
                 ),
-                initialize_time=stage == "timing",
+                initialize_time=False,
                 preservation_window=(
                     sk.time.from_unixtime(derived.window_start_unix_s),
                     sk.time.from_unixtime(derived.window_stop_unix_s),
@@ -499,7 +555,7 @@ async def experiment(
 
     # The generator always ends with the all-pass full-state fit.
     for stage, group, optimizer in configurations(
-        ids, time_offset_bound_s, loss=loss, loss_scale_hz=loss_scale_hz
+        ids, timing_ids=[], **optimizer_settings
     ):
         result = await run_case(stage, group, optimizer, center, epoch)
     # The final full-state fit does not perform low-fidelity preparation.
@@ -524,14 +580,95 @@ async def experiment(
             "full_state_pruned",
             retained,
             replace(
-                orbit_bias_profile(OrbitModel.FULL_STATE, retained),
+                forest_profile(
+                    orbit_bias_profile(
+                        OrbitModel.FULL_STATE, retained, max_evaluations=max_evaluations
+                    ),
+                    variance_hz2=variance_hz2,
+                    loss_scale_hz=loss_scale_hz,
+                ),
                 loss=loss,
-                loss_scale=loss_scale_hz,
             ),
             center,
             epoch,
         )
     _finish_case(case, publish, output_dir, _checkpoint is None)
+
+
+def _run_timing_cases(
+    case: Record,
+    contacts: list[ContactMetadata],
+    measurements: pl.DataFrame,
+    prior: EphemerisMetadata,
+    center_frequency_hz: float,
+    gps_directory: Path,
+    output_dir: Path,
+    publish: Checkpoint,
+    settings: ForestOptimizerSettings,
+) -> None:
+    counts = selection_counts(
+        contacts, measurements, selector=select_time_offset_doppler
+    )
+    case["timing_inventory"] = counts
+    usable = {c.contact_id for c in counts if c.retained_samples >= TIMING_MIN_SAMPLES}
+    ordered = sorted(contacts, key=lambda c: (c.start, c.contact_id))
+    selected_contacts = {c.contact_id: c for c in ordered if c.contact_id in usable}
+    if not selected_contacts:
+        case["timing_unavailable_reason"] = (
+            "no contacts have 301 selected Doppler samples"
+        )
+        publish(case)
+        return
+    frozen = output_dir / case["name"] / "raw-gps"
+    frozen.mkdir(parents=True)
+    case["gps_sources_sha256"] = save_gps_sources(gps_directory, case["name"], frozen)
+    case["gps_directory"] = frozen
+    gps = load_bestxyz(
+        frozen,
+        case["name"],
+        cast(datetime, measurements["timestamp"].min()).timestamp(),
+        cast(datetime, measurements["timestamp"].max()).timestamp(),
+    )
+    case["gps_rejected"] = gps.rejected
+    for _, group, optimizer in configurations(
+        [], timing_ids=list(selected_contacts), **settings
+    ):
+        contact = selected_contacts[group[0]]
+        frame = measurements.filter(pl.col("contact_id") == contact.contact_id)
+        print(f"{case['name']}: timing, {contact.contact_id}", flush=True)
+        try:
+            result = fit_contact(
+                contact,
+                frame,
+                prior,
+                gps,
+                center_frequency_hz=center_frequency_hz,
+                optimizer=optimizer,
+                variance_hz2=settings["variance_hz2"],
+            )
+            case["runs"].append(
+                benchmark_record(result, f"timing-{len(case['runs']):03d}")
+            )
+        except ReepochError as exc:
+            _record_preparation_failure(case, "timing", group, optimizer, exc)
+            selected = select_time_offset_doppler(frame)
+            case["runs"][-1]["metadata"].update(
+                scoring_kind="raw_gps_phase",
+                selection_policy="forest_time_offset",
+                window_start_unix_s=cast(
+                    datetime, selected["timestamp"].min()
+                ).timestamp(),
+                window_stop_unix_s=cast(
+                    datetime, selected["timestamp"].max()
+                ).timestamp(),
+                selection=[
+                    {
+                        "contact_id": contact.contact_id,
+                        "retained_samples": selected.height,
+                    }
+                ],
+            )
+        publish(case)
 
 
 def _record_preparation_failure(
@@ -547,7 +684,7 @@ def _record_preparation_failure(
             "stage": stage,
             "contact_ids": group,
             "active_bounds": [],
-            "scoring_center_unix_s": case["scoring_center_unix_s"],
+            "scoring_center_unix_s": case.get("scoring_center_unix_s"),
             "statistics": [],
             "states": {},
             "doppler": {"timestamp_unix_s": [], "residual_hz": [], "contact_id": []},
@@ -593,7 +730,7 @@ def plot_accuracy(directory: Path) -> None:
 
 
 _ACCURACY_METHODS = (
-    ("timing", "TLE epoch + bias; independent passes", "Pass"),
+    ("timing", "Timing + bias; independent passes", "Pass"),
     ("sgp4_L+n", "Mean longitude + mean motion + biases", "Three-pass window"),
     ("full_state", "Cartesian full state + biases", "Cumulative pass count"),
 )
@@ -615,20 +752,39 @@ def accuracy_figure(cases: list[Record]) -> "Figure":
             for row, kind, unit in ((0, "position", "m"), (1, "velocity", "m_s")):
                 panel = axes[2 * index + row, column]
                 _plot_panel(panel, case, stage, kind, unit)
+                scoring = (
+                    "same-pass raw GPS"
+                    if stage == "timing" and case.get("timing_scoring_kind")
+                    else "one-hour OEM"
+                )
                 candidate = (
                     " (candidate reference)"
                     if case["reference_quality"] == "candidate"
+                    and scoring == "one-hour OEM"
                     else ""
                 )
-                panel.set(title=f"{case['name']}{candidate}\n{title}", xlabel=xlabel)
+                panel.set(
+                    title=f"{case['name']}{candidate}\n{title}\n{scoring}",
+                    xlabel=xlabel,
+                )
     fig.suptitle(
-        "One-hour OEM RMS errors • position uses log scale\n"
-        "Open markers: partial coverage; ×: optimizer failed; convergence does not guarantee accuracy"
+        "Position RMS uses log scale • GPS timing and OEM orbit scores use different windows\n"
+        "Open markers: partial OEM coverage or <5 GPS fixes; ×: optimizer failed; convergence does not guarantee accuracy"
     )
     return fig
 
 
 def _plot_panel(panel: Any, case: Record, stage: str, kind: str, unit: str) -> None:
+    if stage == "timing" and case.get("timing_scoring_kind") == "raw_gps_phase":
+        runs = [r for r in case["runs"] if r["stage"] == "timing"]
+        _plot_timing_accuracy(panel, runs, kind)
+    else:
+        _plot_orbit_accuracy(panel, case, stage, kind, unit)
+
+
+def _plot_orbit_accuracy(
+    panel: Any, case: Record, stage: str, kind: str, unit: str
+) -> None:
     stages = {stage, "full_state_pruned"} if stage == "full_state" else {stage}
     runs = [r for r in case["runs"] if r["stage"] in stages]
     ticks = list(range(1, len(runs) + 1))
@@ -656,6 +812,62 @@ def _plot_panel(panel: Any, case: Record, stage: str, kind: str, unit: str) -> N
             fontsize="small",
             transform=panel.transAxes,
         )
+
+
+def _plot_timing_accuracy(panel: Any, runs: list[Record], kind: str) -> None:
+    if kind == "velocity":
+        panel.set_axis_off()
+        panel.text(
+            0.5,
+            0.5,
+            "Phase-position diagnostic; velocity accuracy unavailable",
+            ha="center",
+            wrap=True,
+            transform=panel.transAxes,
+        )
+        return
+    indices = np.arange(1, len(runs) + 1)
+    primary = np.array(
+        [r.get("timing_score", {}).get("primary", False) for r in runs], dtype=bool
+    )
+    for field, label, color in (
+        ("source_position_rms_km", "separation prior", "0.65"),
+        ("prior_position_rms_km", "prepared prior", "0.3"),
+        ("position_rms_km", "corrected phase", "C0"),
+    ):
+        values = [r.get("timing_score", {}).get(field) for r in runs]
+        errors = np.array(
+            [v * 1000 if v is not None and v > 0 else np.nan for v in values]
+        )
+        panel.plot(
+            indices, errors, "o", label=label, color=color, markerfacecolor="none"
+        )
+        panel.plot(indices[primary], errors[primary], "o", color=color)
+    _timing_annotations(panel, runs)
+    panel.set_yscale("log")
+    panel.set_xticks(indices)
+    panel.set_ylabel("Same-pass raw-GPS position RMS (m)")
+    panel.grid(alpha=0.3, which="both")
+    panel.legend(fontsize="small")
+
+
+def _timing_annotations(panel: Any, runs: list[Record]) -> None:
+    for index, run in enumerate(runs, start=1):
+        note = ""
+        if not run["metadata"]["output"]["success"]:
+            note = "fit/preparation rejected"
+        elif not run.get("timing_score", {}).get("gps_fixes"):
+            note = "no GPS"
+        if note:
+            panel.text(
+                index,
+                0.03,
+                note,
+                rotation=90,
+                fontsize=8,
+                ha="center",
+                transform=panel.get_xaxis_transform(),
+            )
 
 
 def _accuracy_label(run: Record, index: int) -> str:
@@ -764,8 +976,11 @@ async def main() -> None:
     parser.add_argument("--min-ebn0-db", type=float, default=3.0)
     parser.add_argument("--max-abs-offset-hz", type=float, default=100000.0)
     parser.add_argument("--loss", choices=("linear", "soft_l1"), default="soft_l1")
-    parser.add_argument("--loss-scale-hz", type=float, default=200.0)
-    parser.add_argument("--time-offset-bound-s", type=float, default=600)
+    parser.add_argument("--loss-scale-hz", type=float, default=700.0)
+    parser.add_argument("--variance-hz2", type=float, default=FOREST_VARIANCE_HZ2)
+    parser.add_argument("--max-evaluations", type=int, default=1000)
+    parser.add_argument("--gps-directory", type=Path, default=ROOT / "gps-examples")
+    parser.add_argument("--time-offset-bound-s", type=float, default=120)
     parser.add_argument("--max-bias-variance-hz2", type=float)
     args = parser.parse_args()
     _validate_settings(
@@ -800,6 +1015,9 @@ async def main() -> None:
             loss=args.loss,
             loss_scale_hz=args.loss_scale_hz,
             time_offset_bound_s=args.time_offset_bound_s,
+            variance_hz2=args.variance_hz2,
+            max_evaluations=args.max_evaluations,
+            gps_directory=args.gps_directory,
             max_bias_variance_hz2=args.max_bias_variance_hz2,
             _checkpoint=publish,
         )

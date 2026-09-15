@@ -104,6 +104,13 @@ and propagation failures raise clear exceptions. A pure timing fit is an SGP4
 fit whose only estimated parameter is `time_offset_s`; the legacy
 `dart.time_solver` remains available only for compatibility.
 
+The FOREST reproduction uses `dart.od.profiles.time_offset_profile`: SGP4
+time offset plus a constant pass-frequency bias, with orbit corrections fixed.
+Its 700 Hz soft-L1 loss and raw-GPS same-pass position scoring are described in
+[the live/offline experiment guide](live-data-experiments.md). The diagnostic
+scorer applies an explicit phase shift; it does not alter the intentional
+complete-epoch timing model or materialize a timing correction as an orbit.
+
 ## Consider covariance
 
 `compute_consider_covariance` accepts an `OptimizerOutput` plus

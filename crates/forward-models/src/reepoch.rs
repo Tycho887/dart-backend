@@ -265,11 +265,12 @@ pub fn validate_refinement(
 ) -> Result<ReepochedTle, ReepochError> {
     let base = TLE::load_2line(&report.tle_lines[0], &report.tle_lines[1]).map_err(failed)?;
     let corrected = crate::tle_with_offset(&base, offsets)?;
-    report.tle_lines = serialize(&corrected, &report.original_tle_lines)?;
+    let times = validation_times(report.window_start_unix_s, report.window_stop_unix_s);
+    let fit_times = times.iter().step_by(2).copied().collect::<Vec<_>>();
+    report.tle_lines = serialize_refinement(&corrected, &report.original_tle_lines, &fit_times)?;
     let derived = TLE::load_2line(&report.tle_lines[0], &report.tle_lines[1]).map_err(failed)?;
     let original = TLE::load_2line(&report.original_tle_lines[0], &report.original_tle_lines[1])
         .map_err(failed)?;
-    let times = validation_times(report.window_start_unix_s, report.window_stop_unix_s);
     [
         report.position_rms_m,
         report.position_max_m,
@@ -279,6 +280,31 @@ pub fn validate_refinement(
     report.serialized_epoch_unix_s = derived.epoch.as_unixtime();
     report.converged = converged;
     accept(report)
+}
+
+/// Independent rounding of argument of perigee and mean anomaly can add a
+/// whole 0.0001-degree phase error. Select the nearest serialized phase using
+/// the continuous fitted trajectory at the fitting nodes, before validation.
+fn serialize_refinement(
+    fitted: &TLE,
+    original: &[String; 2],
+    fit_times: &[Instant],
+) -> Result<[String; 2], ReepochError> {
+    let mut best = serialize(fitted, original)?;
+    let parsed = TLE::load_2line(&best[0], &best[1]).map_err(failed)?;
+    let mut minimum = preservation(fitted, &parsed, fit_times)?[0];
+    for step in [-0.0001, 0.0001] {
+        let mut candidate = crate::fresh_tle(fitted)?;
+        candidate.mean_anomaly = (fitted.mean_anomaly + step).rem_euclid(360.0);
+        let lines = serialize(&candidate, original)?;
+        let parsed = TLE::load_2line(&lines[0], &lines[1]).map_err(failed)?;
+        let rms = preservation(fitted, &parsed, fit_times)?[0];
+        if rms < minimum {
+            minimum = rms;
+            best = lines;
+        }
+    }
+    Ok(best)
 }
 
 fn validation_times(start: f64, stop: f64) -> Vec<Instant> {
@@ -358,5 +384,26 @@ mod tests {
         };
         assert_eq!(diagnostics.fit_status, "DampingSaturated");
         assert_eq!(diagnostics.position_rms_m, 1.0);
+    }
+
+    #[test]
+    fn serialized_phase_avoids_compounded_angle_rounding() {
+        let lines: [String; 2] = [
+            "1 90916U 00000AAA 26123.39151149  .00000000  00000-0  15851-2 0  9994".into(),
+            "2 90916  97.7617  21.4277 0002400 218.8820 102.0181 14.92272573    07".into(),
+        ];
+        let mut fitted = TLE::load_2line(&lines[0], &lines[1]).unwrap();
+        fitted.arg_of_perigee += 0.000049;
+        fitted.mean_anomaly += 0.000049;
+        let t = fitted.epoch.as_unixtime();
+        let nodes = validation_times(t - 3000.0, t + 3000.0);
+        let plain_lines = serialize(&fitted, &lines).unwrap();
+        let plain = TLE::load_2line(&plain_lines[0], &plain_lines[1]).unwrap();
+        let selected_lines = serialize_refinement(&fitted, &lines, &nodes).unwrap();
+        let selected = TLE::load_2line(&selected_lines[0], &selected_lines[1]).unwrap();
+        assert!(preservation(&fitted, &plain, &nodes).unwrap()[0] > 10.0);
+        assert!(preservation(&fitted, &selected, &nodes).unwrap()[0] < 1.0);
+        assert_eq!(selected.epoch, fitted.epoch);
+        assert_eq!(&selected_lines[0][2..17], &lines[0][2..17]);
     }
 }

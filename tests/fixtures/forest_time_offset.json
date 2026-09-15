@@ -1,0 +1,128 @@
+{
+  "source": "reports/forest-time-offset/20260503-04/historical/forest_leop_may_2026_data_used.csv",
+  "source_sha256": "09d9fe67077a67fd97a39427cd6448df446efedea648cca3c45c76f88708b39f",
+  "convention": "historical spacecraft phase shift, observation-time frames; soft-L1 700 Hz; raw BESTXYZ receiver epochs",
+  "contacts": [
+    {
+      "satellite": "FOREST-16",
+      "contact_id": "e5d79f0b-730b-4832-becf-f716d7322784",
+      "observations": 340,
+      "gps_fixes": 6,
+      "time_offset_s": 3.7699129155484776,
+      "position_median_km": 19.15447413981539
+    },
+    {
+      "satellite": "FOREST-16",
+      "contact_id": "33061519-fa11-49e4-becd-6c770efd6e11",
+      "observations": 475,
+      "gps_fixes": 1,
+      "time_offset_s": 2.281825855467873,
+      "position_median_km": 1.014236929240361
+    },
+    {
+      "satellite": "FOREST-16",
+      "contact_id": "556b1cfa-0a8e-4d19-8f95-b123fd47cd60",
+      "observations": 401,
+      "gps_fixes": 11,
+      "time_offset_s": 3.197873916939136,
+      "position_median_km": 3.0134519445021715
+    },
+    {
+      "satellite": "FOREST-17",
+      "contact_id": "2610bd5f-3a3f-4756-be38-d31392d4324c",
+      "observations": 349,
+      "gps_fixes": 7,
+      "time_offset_s": -4.135697065127946,
+      "position_median_km": 24.85577728130217
+    },
+    {
+      "satellite": "FOREST-17",
+      "contact_id": "36c92afa-8853-4630-a788-ad2e63912d51",
+      "observations": 370,
+      "gps_fixes": 10,
+      "time_offset_s": -0.441063265943708,
+      "position_median_km": 3.8574238914078327
+    },
+    {
+      "satellite": "FOREST-17",
+      "contact_id": "d623db96-56fd-4783-9f1e-bf3933f4dbd8",
+      "observations": 344,
+      "gps_fixes": 5,
+      "time_offset_s": -0.5086520483805009,
+      "position_median_km": 4.499702101921929
+    },
+    {
+      "satellite": "FOREST-18",
+      "contact_id": "49e74a6c-b21d-46c0-87bb-e4195b4a0dab",
+      "observations": 471,
+      "gps_fixes": 9,
+      "time_offset_s": 0.1124594993088363,
+      "position_median_km": 10.825809886134873
+    },
+    {
+      "satellite": "FOREST-18",
+      "contact_id": "48de3125-1fd3-40df-be87-5fc55aa2485f",
+      "observations": 341,
+      "gps_fixes": 10,
+      "time_offset_s": -2.207008934592969,
+      "position_median_km": 1.376981683385441
+    },
+    {
+      "satellite": "FOREST-18",
+      "contact_id": "2735b79f-1ae2-4be6-9b13-774d026efd72",
+      "observations": 336,
+      "gps_fixes": 4,
+      "time_offset_s": -2.541022119061809,
+      "position_median_km": 4.768867400457262
+    },
+    {
+      "satellite": "FOREST-18",
+      "contact_id": "7654ef67-7aba-4f18-bf0a-65eacc1b6a22",
+      "observations": 339,
+      "gps_fixes": 3,
+      "time_offset_s": -2.2329643985300334,
+      "position_median_km": 0.3073251924913507
+    },
+    {
+      "satellite": "FOREST-18",
+      "contact_id": "105f1f16-870e-4658-9a38-41c74ea5939c",
+      "observations": 322,
+      "gps_fixes": 7,
+      "time_offset_s": -2.7698235502156416,
+      "position_median_km": 1.3903990627993104
+    },
+    {
+      "satellite": "FOREST-18",
+      "contact_id": "8db51bff-de04-4287-b3c8-4f949e7a8df1",
+      "observations": 337,
+      "gps_fixes": 8,
+      "time_offset_s": -3.042295412337625,
+      "position_median_km": 1.585250330942805
+    },
+    {
+      "satellite": "FOREST-19",
+      "contact_id": "d2af3474-5932-431d-ae42-c7ce901c93ba",
+      "observations": 358,
+      "gps_fixes": 8,
+      "time_offset_s": -0.3767139499919802,
+      "position_median_km": 5.249215136302601
+    },
+    {
+      "satellite": "FOREST-19",
+      "contact_id": "df2618ab-46b7-49bb-a148-ea9f89466869",
+      "observations": 521,
+      "gps_fixes": 11,
+      "time_offset_s": 0.303113094363039,
+      "position_median_km": 0.4939910631070172
+    },
+    {
+      "satellite": "FOREST-19",
+      "contact_id": "e629dfe8-8210-4af9-a61d-f02b5377a4fd",
+      "observations": 357,
+      "gps_fixes": 0,
+      "time_offset_s": 0.16792205650254227,
+      "position_median_km": null
+    }
+  ],
+  "original_source": "dart-python/reports/production/forest_leop_may_2026_data_used.csv"
+}

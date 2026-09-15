@@ -21,7 +21,7 @@ from experiment import POSITION, VELOCITY, Record, accuracy_figure
 
 def load_cases(directory: Path, forest: int | None) -> list[Record]:
     document = json.loads((directory / "experiment.json").read_text())
-    if document["format_version"] != 1:
+    if document["format_version"] not in {1, 2}:
         raise ValueError("unsupported experiment format_version")
     cases = document["spacecraft"]
     if forest is not None:
@@ -171,7 +171,7 @@ def timing_figure(case: Record) -> Figure:
 
     fig, panels = plt.subplots(2, 1, figsize=(12, 7), sharex=True, layout="constrained")
     for run in case["runs"]:
-        timing = run["metadata"].get("timing_initialization")
+        timing = _timing_diagnostic(run)
         times = run["doppler"]["timestamp_unix_s"]
         if not timing or not times:
             continue
@@ -189,6 +189,51 @@ def timing_figure(case: Record) -> Figure:
     for panel in panels:
         _format_time(panel)
     fig.suptitle(f"{case['name']}: timing fits; × marks bounds or nonconvergence")
+    return fig
+
+
+def _timing_diagnostic(run: Record) -> Record | None:
+    metadata = run["metadata"]
+    if metadata.get("scoring_kind") != "raw_gps_phase":
+        return metadata.get("timing_initialization")
+    output = metadata["output"]
+    if "parameters" not in output:
+        return None
+    values = dict(zip(output["parameter_names"], output["parameters"], strict=True))
+    return {
+        "parameter_name": "time_offset_s",
+        "refined_offset_s": values["time_offset_s"],
+        "at_bound": bool(run["active_bounds"]),
+        "success": output["success"],
+    }
+
+
+def gps_figure(case: Record, run: Record) -> Figure:
+    """Position-only phase diagnostics at the actual raw GPS timestamps."""
+    import matplotlib.pyplot as plt
+
+    fig, panel = plt.subplots(figsize=(12, 5), layout="constrained")
+    positions = run["timing_positions"]
+    times = np.asarray(_dates(positions["timestamp_unix_s"]))
+    reference = np.asarray(positions["reference_itrf_m"]).reshape(-1, 3)
+    for field, label in (
+        ("source_itrf_m", "separation prior"),
+        ("prior_itrf_m", "prepared prior"),
+        ("corrected_itrf_m", "corrected phase"),
+    ):
+        if positions[field] is None:
+            continue
+        errors = np.linalg.norm(
+            np.asarray(positions[field]).reshape(-1, 3) - reference, axis=1
+        )
+        panel.plot(times, np.where(errors > 0, errors, np.nan), ".", label=label)
+    panel.set_yscale("log")
+    panel.set_ylabel("Raw-GPS position error (m)")
+    panel.legend()
+    _format_time(panel)
+    fig.suptitle(
+        f"{case['name']}: {run['run_id']} • same-pass phase-position diagnostic"
+    )
     return fig
 
 
@@ -221,7 +266,7 @@ def plot_results(
 
 def _plot_case(directory: Path, case: Record, run: Record | None, show: bool) -> None:
     _save(accuracy_figure([case]), directory / f"{case['name']}_accuracy.png", show)
-    if any(r["metadata"].get("timing_initialization") for r in case["runs"]):
+    if any(_timing_diagnostic(r) for r in case["runs"]):
         _save(timing_figure(case), directory / f"{case['name']}_timing.png", show)
     if run is None:
         print(
@@ -230,6 +275,10 @@ def _plot_case(directory: Path, case: Record, run: Record | None, show: bool) ->
         )
         return
     stem = f"{case['name']}_{run['run_id']}"
+    if "timing_positions" in run:
+        _save(gps_figure(case, run), directory / f"{stem}_gps.png", show)
+        _save(doppler_figure(case, run), directory / f"{stem}_doppler.png", show)
+        return
     if not run["states"]:
         print(f"{stem}: {run['metadata']['unavailable_reason']}", flush=True)
         return

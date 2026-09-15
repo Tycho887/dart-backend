@@ -1,0 +1,5 @@
+# Keep the checksum inventory valid across checkouts with different EOL settings.
+* -text
+*.csv whitespace=cr-at-eol
+*.npz binary
+*.parquet binary

@@ -1,10 +1,58 @@
 """Reusable orbit/bias study profiles, in physical units."""
 
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Literal
 
 from . import _FULL_STATE_PARAMETER_NAMES, _SGP4_PARAMETER_NAMES
 from .schema import OptimizerContext, OrbitModel, ParameterSpec
+
+FOREST_VARIANCE_HZ2 = 500.0**2
+
+
+def forest_profile(
+    profile: OptimizerContext,
+    *,
+    variance_hz2: float = FOREST_VARIANCE_HZ2,
+    loss_scale_hz: float = 700.0,
+) -> OptimizerContext:
+    """FOREST noise/loss and optimizer settings, retaining model-specific scales."""
+    import math
+
+    if not all(math.isfinite(v) and v > 0 for v in (variance_hz2, loss_scale_hz)):
+        raise ValueError("variance and loss scale must be finite and positive")
+    return replace(
+        profile,
+        parameters=tuple(
+            replace(p, lower_bound=-100000, upper_bound=100000, scale=5000)
+            if p.name.startswith("pass_bias_hz:")
+            else p
+            for p in profile.parameters
+        ),
+        loss="soft_l1",
+        loss_scale=loss_scale_hz / math.sqrt(variance_hz2),
+        ftol=1e-10,
+        xtol=1e-10,
+        gtol=1e-10,
+        x_scale="profile",
+    )
+
+
+def time_offset_profile(
+    contact_id: str, *, max_evaluations: int = 1000, bound_s: float = 120.0
+) -> OptimizerContext:
+    """Single-pass measurement-time shift, including station geometry."""
+    return forest_profile(
+        OptimizerContext(
+            OrbitModel.SGP4,
+            (
+                ParameterSpec("time_offset_s", 0, -bound_s, bound_s, 30),
+                ParameterSpec(f"pass_bias_hz:{contact_id}", 0, -100000, 100000, 5000),
+            ),
+            max_evaluations=max_evaluations,
+        )
+    )
+
 
 # The existing burst-radio six/hifi study uses these same bounds and scales.
 # They are experiment configuration, not estimates of prior uncertainty.

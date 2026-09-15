@@ -4,7 +4,7 @@ import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import polars as pl
@@ -12,10 +12,11 @@ import satkit as sk
 
 from dart.forward_models import FloatArray, ForwardModelEvaluation, evaluate_sgp4_epoch
 from dart.io import ForwardModelContext
-from dart.io.doppler import prepare_doppler
+from dart.io.doppler import prepare_doppler, select_time_offset_doppler
 from dart.od import OrbitModel, PriorStateData, _canonical_parameter_names
-from experiment import Record
 from experiments._benchmark_io import _contact, _ephemeris, _read_snapshot
+
+Record = dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,11 @@ def _replay_context(run: Record, measurements: pl.DataFrame) -> ForwardModelCont
         min_samples=metadata["min_samples"],
         min_ebn0_db=metadata["min_ebn0_db"],
         max_abs_offset_hz=metadata["max_abs_offset_hz"],
+        selector=(
+            select_time_offset_doppler
+            if metadata.get("selection_policy") == "forest_time_offset"
+            else None
+        ),
     )
     if [c.retained_samples for c in counts] != [
         c["retained_samples"] for c in metadata["selection"]

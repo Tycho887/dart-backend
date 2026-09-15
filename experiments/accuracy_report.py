@@ -31,7 +31,7 @@ METRICS = {
     "velocity": ("velocity_rmse_m_s", "m/s", 1.0),
 }
 REPORT_NOTE = (
-    "Accuracy is sample-weighted RMS of the GCRF error-vector norm against the "
+    "OEM orbit accuracy is sample-weighted RMS of the GCRF error-vector norm against the "
     "OEM, at the common one-hour scoring window for each spacecraft. "
     "It is not accuracy during each individual pass or a forecast validation. "
     "The separation TLE is scored directly; the prepared prior and corrected "
@@ -158,6 +158,7 @@ def _run_row(
         "optimizer converged" if metadata["output"]["success"] else "optimizer failed"
     )
     row = {
+        "metric_kind": "oem_window",
         "spacecraft": case["name"],
         "reference_quality": case["reference_quality"],
         "reference_sha256": case["input_sha256"]["reference.oem"],
@@ -184,12 +185,76 @@ def _run_row(
 
 def comparison_rows(case: Record) -> list[Record]:
     """Build one row per saved timing/L+n attempt, retaining unavailable results."""
-    runs = [run for run in case["runs"] if run["stage"] in METHODS]
-    if not runs:
-        return []
-    errors, score = _separation_errors(case)
-    samples = _sample_keys(errors, "prior", score)
-    return [_run_row(case, run, score, samples) for run in runs]
+    orbit, timing = [], []
+    for run in case["runs"]:
+        if run["stage"] not in METHODS:
+            continue
+        target = (
+            timing if run["metadata"].get("scoring_kind") == "raw_gps_phase" else orbit
+        )
+        target.append(run)
+    rows = []
+    if orbit:
+        errors, score = _separation_errors(case)
+        samples = _sample_keys(errors, "prior", score)
+        rows.extend(_run_row(case, run, score, samples) for run in orbit)
+    if timing:
+        _verify_gps_sources(case)
+        rows.extend(_timing_row(case, run) for run in timing)
+    order = {run["run_id"]: i for i, run in enumerate(case["runs"])}
+    return sorted(rows, key=lambda row: order[row["run_id"]])
+
+
+def _verify_gps_sources(case: Record) -> None:
+    directory = Path(case["gps_directory"])
+    for name, expected in case["gps_sources_sha256"].items():
+        if hashlib.sha256((directory / name).read_bytes()).hexdigest() != expected:
+            raise ValueError("raw GPS reference checksum mismatch")
+
+
+def _gps_fields(score: Record, label: str, prefix: str) -> Record:
+    rms = score.get(prefix + "position_rms_km")
+    return {
+        f"{label}_position_rms": rms,
+        f"{label}_position_median_km": score.get(prefix + "position_median_km"),
+        f"{label}_velocity_rms": None,
+        f"{label}_coverage": "raw GPS samples" if rms is not None else "unavailable",
+        f"{label}_sample_count": score.get("gps_fixes", 0) if rms is not None else 0,
+    }
+
+
+def _timing_row(case: Record, run: Record) -> Record:
+    metadata, score = run["metadata"], run.get("timing_score", {})
+    preparation = metadata.get("sgp4_preparation") or {}
+    epoch = preparation.get("serialized_epoch_unix_s")
+    start, stop = metadata["window_start_unix_s"], metadata["window_stop_unix_s"]
+    row = {
+        "metric_kind": "raw_gps_phase",
+        "spacecraft": case["name"],
+        "reference_quality": "raw BESTXYZ GPS",
+        "reference_sha256": json.dumps(case["gps_sources_sha256"], sort_keys=True),
+        "separation_ephemeris_id": case["initial_ephemeris"]["ephemeris_id"],
+        "stage": "timing",
+        "method": "Single-pass measurement time offset (raw GPS)",
+        "run_id": run["run_id"],
+        "contact_ids": ";".join(run["contact_ids"]),
+        "pass_count": 1,
+        "prepared_epoch_utc": _utc(epoch) if epoch is not None else "",
+        "prepared_epoch_unix_s": epoch,
+        "window_start_unix_s": start,
+        "window_stop_unix_s": stop,
+        "window_start_utc": _utc(start),
+        "window_stop_utc": _utc(stop),
+        "primary_gps": score.get("primary", False),
+        "status": metadata["output"]["message"],
+        "comparison_unavailable_reason": score.get(
+            "reason", "fit/preparation unsuccessful"
+        ),
+        **_gps_fields(score, "separation", "source_"),
+        **_gps_fields(score, "prepared", "prior_"),
+        **_gps_fields(score, "corrected", ""),
+    }
+    return {**row, **_reductions(row)}
 
 
 def _utc(epoch: float) -> str:
@@ -282,13 +347,28 @@ def summary_markdown(rows: list[Record], gate: QualityGate = QualityGate()) -> s
         "other minima. Kept/scored/attempted counts distinguish filtered accuracy "
         "results from all scored fits and all attempted fits."
     )
+    orbit = [r for r in rows if r.get("metric_kind", "oem_window") == "oem_window"]
+    timing = [r for r in rows if r.get("metric_kind") == "raw_gps_phase"]
+    if timing:
+        sections.extend(
+            [
+                "### Same-pass raw-GPS timing accuracy (km)",
+                "Timing fits shift the complete measurement epoch, including station geometry. "
+                "Scoring uses SGP4 TEME at t+offset transformed to ITRF at GPS epoch t. "
+                "These phase-position diagnostics are not corrected orbit products, OEM-window "
+                "errors, or velocity accuracy. All methods use the same separation TLE; "
+                "timing uses the historical elevation/Doppler selector and ≥301 samples. "
+                "Primary contacts have ≥5 raw GPS fixes. Each contact has its own scoring window.",
+                _timing_summary(timing),
+            ]
+        )
     for metric, (_, unit, _) in METRICS.items():
         sections.extend(
             [
                 f"### Filtered {metric} RMS ({unit})",
-                _summary_metric(rows, metric, filtered=True),
+                _summary_metric(orbit, metric, filtered=True),
                 f"### Unfiltered {metric} RMS ({unit})",
-                _summary_metric(rows, metric),
+                _summary_metric(orbit, metric),
             ]
         )
     sections.append(
@@ -298,6 +378,42 @@ def summary_markdown(rows: list[Record], gate: QualityGate = QualityGate()) -> s
         "Reference-quality designations, including candidate references, are retained in the detailed report."
     )
     return "\n\n".join(sections) + "\n"
+
+
+def _timing_summary(rows: list[Record]) -> str:
+    table = []
+    for name in dict.fromkeys(r["spacecraft"] for r in rows):
+        group = [r for r in rows if r["spacecraft"] == name]
+        for filtered in (False, True):
+            table.append(_timing_summary_row(name, group, filtered))
+    return _table(
+        [
+            "Spacecraft",
+            "Selection",
+            "Scored/attempted",
+            "Source RMS median [range]",
+            "Prepared RMS median [range]",
+            "Corrected RMS median [range]",
+            "Corrected contact median [range]",
+        ],
+        table,
+    )
+
+
+def _timing_summary_row(name: str, group: list[Record], filtered: bool) -> list[str]:
+    selected = [
+        r for r in group if r["primary_gps"] and (not filtered or r["quality_accepted"])
+    ]
+    return [
+        name,
+        "screened primary" if filtered else "all primary",
+        f"{len(_values(selected, 'corrected_position_rms'))}/{len(group)}",
+        *[
+            _distribution(_values(selected, f"{p}_position_rms"))
+            for p in ("separation", "prepared", "corrected")
+        ],
+        _distribution(_values(selected, "corrected_position_median_km")),
+    ]
 
 
 def _detail_metric(rows: list[Record], metric: str) -> str:
@@ -330,16 +446,12 @@ def _detail_metric(rows: list[Record], metric: str) -> str:
 def _case_details(rows: list[Record]) -> str:
     first = rows[0]
     sections = [
-        f"## {first['spacecraft']}",
-        f"Reference quality: **{first['reference_quality']}**. Scoring window: "
-        f"{first['window_start_utc']} to {first['window_stop_utc']}. "
+        f"## {first['spacecraft']} — {first.get('metric_kind', 'oem_window')}",
+        f"Reference quality: **{first['reference_quality']}**. "
         f"Separation prior: `{first['separation_ephemeris_id']}`. "
-        f"OEM SHA-256: `{first['reference_sha256']}`.",
+        f"Reference SHA-256: `{first['reference_sha256']}`.",
     ]
-    for metric, (_, unit, _) in METRICS.items():
-        sections.extend(
-            [f"### {metric.title()} RMS ({unit})", _detail_metric(rows, metric)]
-        )
+    sections.extend(_accuracy_tables(rows))
     sections.extend(
         [
             "### Post-fit screening",
@@ -351,6 +463,7 @@ def _case_details(rows: list[Record]) -> str:
                     "Run",
                     "Method",
                     "Prepared epoch (UTC)",
+                    "Scoring window (UTC)",
                     "Coverage (samples)",
                     "Status",
                     "Comparison limitation",
@@ -360,6 +473,7 @@ def _case_details(rows: list[Record]) -> str:
                         r["run_id"],
                         r["method"],
                         r["prepared_epoch_utc"] or "—",
+                        f"{r['window_start_utc']} to {r['window_stop_utc']}",
                         " / ".join(
                             f"{r[p + '_coverage']} ({r[p + '_sample_count']})"
                             for p in ("separation", "prepared", "corrected")
@@ -378,6 +492,43 @@ def _case_details(rows: list[Record]) -> str:
         ]
     )
     return "\n\n".join(sections)
+
+
+def _accuracy_tables(rows: list[Record]) -> list[str]:
+    sections = []
+    for metric, (_, unit, _) in METRICS.items():
+        if metric == "velocity" and rows[0].get("metric_kind") == "raw_gps_phase":
+            continue
+        sections.extend(
+            [f"### {metric.title()} RMS ({unit})", _detail_metric(rows, metric)]
+        )
+    if rows[0].get("metric_kind") == "raw_gps_phase":
+        sections.extend(
+            [
+                "### Position medians (km)",
+                _table(
+                    [
+                        "Run",
+                        "Separation prior",
+                        "Prepared prior",
+                        "Corrected",
+                        "Primary GPS",
+                    ],
+                    [
+                        [
+                            r["run_id"],
+                            *[
+                                _number(r[f"{p}_position_median_km"])
+                                for p in ("separation", "prepared", "corrected")
+                            ],
+                            str(r["primary_gps"]),
+                        ]
+                        for r in rows
+                    ],
+                ),
+            ]
+        )
+    return sections
 
 
 def _quality_table(rows: list[Record]) -> str:
@@ -451,20 +602,77 @@ def _report_rows(case: Record, gate: QualityGate) -> list[Record]:
     ]
 
 
+def _orbit_pair(score: Record) -> str:
+    position = score.get("position_rmse_m")
+    return f"{_number(position / 1000 if position is not None else None)} / {_number(score.get('velocity_rmse_m_s'))}"
+
+
+def _full_state_summary(cases: list[Record]) -> str:
+    rows = []
+    for case in cases:
+        runs = [r for r in case["runs"] if r["stage"].startswith("full_state")]
+        if not runs:
+            continue
+        _, source = _separation_errors(case)
+        for run in runs:
+            scores = {s["solution"]: s for s in run["statistics"]}
+            rows.append(
+                [
+                    case["name"],
+                    run["run_id"],
+                    str(len(run["contact_ids"])),
+                    _orbit_pair(source),
+                    _orbit_pair(scores.get("prior", {})),
+                    _orbit_pair(scores.get("fitted", {})),
+                    str(run["metadata"]["output"]["success"]),
+                ]
+            )
+    if not rows:
+        return ""
+    return "\n\n".join(
+        [
+            "## Cartesian full-state accuracy",
+            "Common one-hour OEM RMSE: position km / velocity m/s. These prefix fits "
+            "are shown separately and are not subject to the low-fidelity post-fit screen.",
+            _table(
+                [
+                    "Spacecraft",
+                    "Run",
+                    "Passes",
+                    "Separation prior",
+                    "Prepared prior",
+                    "Corrected",
+                    "Converged",
+                ],
+                rows,
+            ),
+        ]
+    )
+
+
 def write_report(
     directory: Path, *, gate: QualityGate = QualityGate()
 ) -> tuple[Path, Path]:
     """Generate report/CSV and refresh the summary in an existing validation.md."""
     document = json.loads((directory / "experiment.json").read_bytes())
-    if document["format_version"] != 1:
+    if document["format_version"] not in {1, 2}:
         raise ValueError("unsupported experiment format")
     rows = [row for case in document["spacecraft"] for row in _report_rows(case, gate)]
     if not rows:
         raise ValueError("no saved low-fidelity attempts to report")
     summary = summary_markdown(rows, gate)
-    sections = ["# Low-fidelity prior and corrected accuracy", summary]
-    for name in dict.fromkeys(r["spacecraft"] for r in rows):
-        sections.append(_case_details([r for r in rows if r["spacecraft"] == name]))
+    sections = [
+        "# FOREST prior and corrected accuracy",
+        summary,
+        _full_state_summary(document["spacecraft"]),
+    ]
+    groups = dict.fromkeys((r["spacecraft"], r["metric_kind"]) for r in rows)
+    for name, kind in groups:
+        sections.append(
+            _case_details(
+                [r for r in rows if (r["spacecraft"], r["metric_kind"]) == (name, kind)]
+            )
+        )
     report, csv = (
         directory / "accuracy-report.md",
         directory / "accuracy-comparison.csv",

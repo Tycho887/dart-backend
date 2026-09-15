@@ -35,3 +35,8 @@ DEFAULT_REFERENCE_OEM = (
     Path(__file__).resolve().parents[2]
     / "reports/forest-gps/20260504/FOREST-18/FOREST-18.oem"
 )
+
+DOPPLER_PARQUET = (
+    Path(__file__).resolve().parents[2] / "doppler_parquet/forest18.parquet"
+)
+RAW_GPS_DIRECTORY = Path(__file__).resolve().parents[2] / "gps-examples"

@@ -394,9 +394,9 @@ def test_experiment_groups_and_parameter_sets():
         biases = {f"pass_bias_hz:{cid}" for cid in group}
         assert biases <= names
         assert optimizer.loss == "soft_l1"
-        assert optimizer.loss_scale == 200
+        assert optimizer.loss_scale == 1.4
         if stage == "timing":
-            assert names - biases == {"tle_epoch_offset_s"}
+            assert names - biases == {"time_offset_s"}
         elif stage == "sgp4_L+n":
             assert names - biases == {"mean_longitude_deg", "mean_motion_rev_per_day"}
         else:
@@ -610,23 +610,23 @@ def test_experiment_replays_gates_exports_and_refits_once(monkeypatch, data, tmp
             loss="linear",
         )
     )
-    assert len(calls) == 5  # two timing, two prefix fits, one pruned refit
+    assert len(calls) == 3  # timing has <301 samples; two prefixes and one pruned refit
     assert len(reepoch_calls) == 1
     assert len({call[2].as_unixtime() for call in calls}) == 1
     assert calls[-1][0] == ids[1:]
     assert calls[-1][2] == calls[-2][2]
     report = json.loads((directory / "experiment.json").read_text())["spacecraft"][0]
-    assert len(report["runs"]) == 5
+    assert len(report["runs"]) == 3
+    assert "301" in report["timing_unavailable_reason"]
     assert len({r["scoring_center_unix_s"] for r in report["runs"]}) == 1
     assert reepoch_calls[0][2] <= calls[0][2]
     assert report["initial_ephemeris"]["tle"] == data[2].tle
     assert report["pruning"]["removed_contact_ids"] == ids[:1]
-    assert report["runs"][0]["statistics"][1]["position_rmse_m"] is None
     assert (
         report["runs"][-1]["scoring_center_unix_s"]
         == report["runs"][-2]["scoring_center_unix_s"]
     )
-    assert pl.read_csv(directory / "summary.csv").height == 10
+    assert pl.read_csv(directory / "summary.csv").height == 6
     assert (directory / "accuracy.png").read_bytes().startswith(b"\x89PNG")
     with pytest.raises(FileExistsError):
         asyncio.run(
@@ -648,7 +648,7 @@ def test_experiment_replays_gates_exports_and_refits_once(monkeypatch, data, tmp
             min_samples=31,
         )
     )
-    assert len(calls) == 5
+    assert len(calls) == 3
     rejected = json.loads((gated / "experiment.json").read_text())["spacecraft"][0]
     assert rejected["unavailable_reason"] == "no passes satisfy the gate"
     assert all(c["exclusion_reason"] for c in rejected["inventory"])

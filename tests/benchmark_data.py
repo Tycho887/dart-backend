@@ -45,6 +45,7 @@ def data(tmp_path):
                 "system_id": contact.system_id,
                 "carrier_lock": "Locked",
                 "ebn0": 12.0,
+                "elevation_deg": 20.0,
                 "doppler_hz": 0.0,
             }
             for i in range(30)

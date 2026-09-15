@@ -40,21 +40,20 @@ def test_preparation_mean_duplicates_order_and_preservation(offsets):
     assert np.max(np.linalg.norm(errors[:, 3:], axis=1)) < 0.02
 
 
-def test_duplicate_mean_and_rejection_of_inaccurate_serialized_candidate():
+def test_duplicate_mean_and_serialized_phase_preservation():
     epoch = sk.TLE.from_lines(ISS_TLE).epoch
     times = [epoch + sk.duration(seconds=t) for t in (100, 0, 0)]
     mean, _, _ = models._native.sgp4_preparation_epochs(
         ISS_TLE, [t.as_unixtime() for t in times], None
     )
     assert mean == pytest.approx(epoch.as_unixtime() + 100 / 3, abs=1e-6, rel=0)
-    # This target fits continuously but TLE angular quantization violates the
-    # velocity RMS limit. Do not relax preservation to publish it.
-    with pytest.raises(models.ReepochError) as caught:
-        models.prepare_sgp4_tle(ISS_TLE, times)
-    report = caught.value.diagnostics
-    assert report is not None and report.converged
+    # Independent angle rounding used to violate the velocity RMS limit here.
+    # Selecting the neighboring serialized phase must satisfy the same limits.
+    report = models.prepare_sgp4_tle(ISS_TLE, times)
+    assert report.converged
     assert report.epoch_unix_s == pytest.approx(mean, abs=2e-6, rel=0)
-    assert report.velocity_rms_m_s >= 0.01
+    assert report.position_rms_m < 10
+    assert report.velocity_rms_m_s < 0.01
 
 
 def test_preparation_covers_wider_window_without_changing_mean():

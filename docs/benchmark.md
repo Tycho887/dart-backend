@@ -137,55 +137,65 @@ with a fresh timestamp for each invocation. The selected directory is printed at
 startup. Use `--output` to select another directory; existing run directories are
 never overwritten. Generated files under `raw_results/` are ignored by Git.
 
-All selected spacecraft are cached before fitting, using the recovered contact
-inventories and priors in `tests/live-data/forest16.py` through `forest19.py`.
-`--cache` defaults to `experiments/results/forest-inputs` relative to the repo.
-The cache preserves empty deliveries and raw observations; provider failures
-still raise. Observation selection requires finite Doppler, carrier lock,
-finite Eb/N0 ≥3 dB, and |Doppler| <100 kHz. `gate_passes()` excludes contacts
-with fewer than `--min-samples` selected samples (default 20). Configure the
-thresholds with `--min-ebn0-db` and `--max-abs-offset-hz`. The same selection
-controls pass counts, fit inputs, initialization, and the scoring center.
-Inventories record raw, locked, quality-retained, and excluded sample counts.
+All selected spacecraft are cached before fitting using the explicit inventories
+and separation priors in `tests/live-data/forest16.py` through `forest19.py`.
+`--cache` defaults to `experiments/results/forest-inputs`. The same source TLE is
+used for all three methods; contact-associated TLEs never replace it. Full-state
+initialization uses a Cartesian state derived from that prior. GPS/OEM references
+never initialize the fit.
 
-For each spacecraft the runner compares independent single-pass **TLE epoch
-adjustment** plus Doppler bias, sliding three-pass SGP4 mean longitude/mean motion
-plus per-pass biases, and Cartesian full-state corrections plus per-pass biases
-for chronological prefixes. All use the same source separation prior, with each
-low-fidelity fit prepared at the arithmetic mean of its own retained timestamps.
-They use existing bounds/scales, 1,000 evaluations, and **soft_l1** loss with a
-200 Hz transition at unit observation variance. `--loss linear` selects ordinary
-least squares; `--loss-scale-hz` changes the robust transition. Shared profile
-helpers preserve their existing linear defaults and expose a `robust` option.
+The three methods remain explicit:
 
-`sgp4_epoch_bias_profile` estimates `tle_epoch_offset_s` with the convention
-**corrected TLE epoch = prepared TLE epoch + offset**. Observation timestamps and
-station geometry epochs stay fixed. This is distinct from `time_offset_s`, whose
-legacy measurement-clock behavior remains available. A positive TLE epoch
-adjustment roughly delays orbital phase; it is not an exact negative
-measurement-clock adjustment.
+- **Single-pass measurement time offset + bias:** finite |Doppler| ≥0.1 Hz,
+  1° < elevation <89°, and at least 301 observations per contact. This historical
+  selector does not require lock or Eb/N0. The fitted offset shifts the complete
+  measurement epoch, including station geometry. It starts at zero with bounds
+  ±120 seconds and a 30-second scale; no phase scan is applied.
+- **Three-pass SGP4 L+n + biases:** sliding chronological triples selected with
+  finite locked Doppler, finite Eb/N0 ≥3 dB, |Doppler| <100 kHz, and at least
+  20 observations per pass. Existing orbit bounds and scales are retained.
+- **Cartesian full state + biases:** chronological prefixes of that same gated
+  orbit-fit inventory, retaining existing Cartesian bounds and scales.
 
-Timing scans `--time-offset-bound-s` (default ±600 seconds) at 10-second spacing,
-including zero and both endpoints. Each candidate fits bounded pass biases with
-the same loss as the final fit, using affine residuals/Jacobians from Rust.
-The lowest-cost candidate initializes continuous refinement. Successful timing
-fits now produce a serialized TLE and physical orbit errors. They do not seed
-the L+n or full-state stages. Metadata includes corrected lines, the offset
-convention, loss, and Doppler prediction differences caused by serialization.
+`--min-samples`, `--min-ebn0-db`, and `--max-abs-offset-hz` apply to the orbit-fit
+inventory. Timing has a separate inventory and fixed historical sample gate.
+Raw snapshots preserve every source measurement, including excluded observations.
 
-It writes one combined `experiment.json`, `summary.csv`, and `accuracy.png`.
-The JSON checkpoints every fit and contains column-oriented state/Doppler
-residual series, metadata, inventory exclusions, and final covariance diagnostics.
-The CSV reports sample-weighted error-norm RMSE, mean and population variance,
-plus signed component means/variances. Units are metres and metres/second;
-variance units are their squares. Empty scores are null/blank, never zero.
-Use a new output directory for every run; cached inputs are reusable offline.
+Named FOREST profiles share observation variance **500² Hz²**, **soft-L1** with a
+**700 Hz** transition (whitened `loss_scale=1.4`), profile parameter scaling,
+1,000 evaluations, and `ftol=xtol=gtol=1e-10`. Each pass bias starts at zero with
+bounds ±100,000 Hz and scale 5,000 Hz. These are study settings, not calibrated
+uncertainties or new service defaults. `--variance-hz2`, `--loss-scale-hz`,
+`--loss`, `--max-evaluations`, and `--time-offset-bound-s` override the effective
+settings; the physical loss scale is divided by the observation standard deviation.
+`forest_profile` preserves model-specific orbit parameters and scales.
 
-All stages share the midpoint of **all retained observations for the spacecraft**
-as their scoring center, with a ±30-minute window. Cartesian initialization is
-one second before the earlier of the first observation and scoring-window start.
-Actual OEM samples retain coverage labels; partial coverage uses open markers.
-TLE epoch adjustment changes the scored orbit while preserving OEM epochs.
+Timing scores the source prior, the exact prepared prior, and the corrected phase
+against **raw BESTXYZ GPS fixes within that pass's retained Doppler interval**.
+The historical scorer propagates TEME at t+offset and transforms to ITRF at GPS
+receiver epoch t. It reports position median and RMS; contacts with at least five
+GPS fixes are primary. This diagnostic does not materialize a corrected TLE or
+define velocity accuracy. Raw GPS files are frozen and hashed in the new run.
+`--gps-directory` overrides the repository `gps-examples` source directory.
+
+L+n and full-state keep their **common one-hour OEM scoring window**, centered on
+the midpoint between the first and last observations in the orbit-fit inventory.
+This is separate from each SGP4 fit's mean observation epoch and from timing's
+same-pass GPS interval. Cartesian initialization remains one second before the
+earlier of the first orbit-fit observation and scoring-window start.
+
+`experiment.json` format version **2** checkpoints each fit, with separate
+`timing_score`/`timing_positions` records and OEM state/statistics records.
+`summary.csv` includes their explicit fields; absent metrics remain blank.
+`accuracy.png` uses logarithmic position axes and labels the distinct references
+and intervals. Existing format-version-1 results remain readable by the reporters
+and visualizer. New runs never overwrite historical result directories.
+
+The epoch-adjustment capability remains available as `sgp4_epoch_bias_profile`
+and `tle_epoch_offset_s`: E′ = E + offset, with measurement timestamps fixed.
+It is distinct from the replacement benchmark baseline's `time_offset_s`.
+Historical offline reproduction with recorded per-contact priors is documented
+in [the offline guide](live-data-experiments.md).
 
 ### Prior and corrected accuracy report
 
@@ -227,7 +237,8 @@ and rejection reasons. Missing quality diagnostics cannot pass screening.
 No OEM accuracy value participates in the fit-quality decision.
 
 The report compares the original separation TLE, each fit's prepared prior,
-and the corrected orbit for **single-pass time offset** and **three-pass L+n**.
+and the correction. Version-2 timing reports use their separate raw-GPS phase
+metrics and primary-contact summaries; L+n and legacy version-1 timing use OEM metrics.
 Position RMS is in kilometres and velocity RMS in metres/second. Each spacecraft
 and method has corrected median/range and scored/attempted counts. Per-fit
 tables include both prior accuracies, corrected accuracy, percentage reductions
@@ -237,7 +248,7 @@ places for RMS and one for percentages.
 
 The separation TLE is propagated directly through the existing orbit/evaluation
 path after verifying snapshot hashes and source identity. Prepared and corrected
-scores reuse saved statistics. All use the common one-hour OEM scoring window,
+scores reuse saved statistics. OEM comparisons use the common one-hour scoring window,
 not the observation window of each individual fit. Percentage reductions require
 identical OEM timestamps/segments and matching coverage; scoring-window bounds
 allow 1 microsecond of serialization roundoff. Missing scores remain unavailable,
@@ -272,13 +283,16 @@ WGS84 propagation with DART's WGS72 propagation. No custom optimizer or Python
 numerical propagation is introduced.
 
 After preserving identifiers, the candidate is serialized, reloaded, and checked
-against the original at all fit nodes plus 120 interleaved epochs. Acceptance
+against the original at all fit nodes plus 120 interleaved epochs. Before this
+validation, Rust checks the adjacent ±0.0001° mean-anomaly serialization values
+and selects the closest position trajectory to the continuous fit at the fit
+nodes. This avoids compounded phase rounding without relaxing acceptance limits. Acceptance
 requires refinement success, position RMS/max <10/20 m, and velocity RMS/max
 <0.01/0.02 m/s. Serialization rounding is included. Stock fitter convergence,
 refinement termination, and final preservation errors are recorded separately;
 a stalled stock seed can be used only after successful refinement and validation.
 `ReepochError` rejects failures with diagnostics. Rejection of the common
-full-state prior skips the spacecraft; rejection of an individual low-fidelity
+full-state prior skips the orbit stages after retaining timing results; rejection of an individual low-fidelity
 preparation records an unavailable stage and allows other independent stages
 to continue. The original prior is not silently substituted.
 
@@ -310,9 +324,10 @@ hashes remain unchanged. The optional `derived_tle_lines` still selects an
 explicit input baseline, which SGP4 preparation then centers for the supplied
 observations. Full-state initialization keeps its common derived prior.
 
-The estimated timing adjustment is relative to the prepared epoch. It can move
-the final TLE epoch outside the observation window; only the prepared prior is
-centered. Observation and station timestamps remain fixed. `benchmark(initialize_time=True)` records its scan, costs,
+For the separate TLE-epoch correction method, the adjustment is relative to the
+prepared epoch and can move the final TLE epoch outside the observation window.
+Observation and station timestamps stay fixed for that method. The measurement
+time-offset baseline instead shifts their evaluation epochs and produces no TLE. `benchmark(initialize_time=True)` records its scan, costs,
 bounds, parameter name, loss, and convergence under `timing_initialization`.
 `initialize_sgp4_time` accepts either the TLE-epoch parameter or the legacy
 measurement-clock parameter, estimating only that parameter and pass biases.
