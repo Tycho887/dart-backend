@@ -21,8 +21,12 @@ from experiment import POSITION, VELOCITY, Record, accuracy_figure
 
 def load_cases(directory: Path, forest: int | None) -> list[Record]:
     document = json.loads((directory / "experiment.json").read_text())
-    if document["format_version"] not in {1, 2}:
+    if document["format_version"] not in {1, 2, 3}:
         raise ValueError("unsupported experiment format_version")
+    if document["format_version"] < 3:
+        from experiments.legacy_metrics import warn_legacy_metrics
+
+        warn_legacy_metrics("FOREST v1/v2 metric plots")
     cases = document["spacecraft"]
     if forest is not None:
         cases = [case for case in cases if case["name"] == f"FOREST-{forest}"]

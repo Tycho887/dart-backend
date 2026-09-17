@@ -1,4 +1,6 @@
-"""FOREST Parquet acquisition for the shared single-pass time-offset experiment.
+"""DEPRECATED experiment runner: frozen FOREST historical timing regression.
+
+The Parquet input loader remains usable; new studies use experiment.py v5.
 
 No credentials, KOGS requests, or imports from dart-python are required.
 """
@@ -17,6 +19,7 @@ from dart.io import ContactMetadata, EphemerisMetadata
 from dart.io.measurement import canonical_measurements
 from dart.io.parquet import _ADX_NAMES
 from experiments._benchmark_io import save_json
+from experiments.legacy_metrics import warn_legacy_metrics
 from experiments.time_offset import TimeOffsetResult, run_time_offset_loaded
 
 
@@ -130,6 +133,7 @@ def run_comparison(
     max_evaluations: int = 1000,
 ) -> list[TimeOffsetResult]:
     """Run recorded-prior regression through the shared timing fitter and scorer."""
+    warn_legacy_metrics("Historical offline FOREST experiment runner")
     contacts, frame, priors = load_experiment(
         path,
         spacecraft_id=spacecraft_id,

@@ -215,3 +215,80 @@ def test_changed_snapshot_or_source_is_rejected(report_case):
     (directory / "snapshot" / "reference.oem").write_text("modified")
     with pytest.raises(ValueError, match="snapshot checksum mismatch"):
         comparison_rows(original)
+
+
+def test_v3_report_uses_each_fit_window_and_includes_full_state(report_case):
+    directory, case = report_case
+    case["scoring_policy"] = "fit_mean_full_hour"
+    center = case["scoring_center_unix_s"]
+    for run in case["runs"]:
+        run["scoring_center_unix_s"] = center
+    full = deepcopy(case["runs"][0])
+    full.update(
+        stage="full_state", run_id="full_state-000", active_bounds=["position_x_m"]
+    )
+    case["runs"].append(full)
+    # Move only the L+n scoring hour beyond this fixture's OEM coverage.
+    moved = case["runs"][1]
+    moved["scoring_center_unix_s"] += 3600
+    moved["statistics"] = window_statistics(
+        pl.DataFrame(moved["states"]),
+        sk.time.from_unixtime(center + 3600),
+        require_full_hour=True,
+    )
+    save_json(
+        directory / "experiment.json", {"format_version": 3, "spacecraft": [case]}
+    )
+    report, csv = write_report(directory)
+    rows = pl.read_csv(csv).to_dicts()
+    assert len(rows) == 4
+    assert rows[0]["corrected_position_rms_km"] == 1
+    assert rows[1]["corrected_position_rms_km"] is None
+    assert rows[1]["source_position_rms_km"] is None
+    assert rows[1]["position_reduction_from_source_pct"] is None
+    assert rows[-1]["stage"] == "full_state"
+    assert not rows[-1]["quality_applicable"]
+    assert rows[-1]["active_bounds"] == "position_x_m"
+    assert "position_x_m" in report.read_text()
+    assert rows[1]["window_start_unix_s"] - rows[0]["window_start_unix_s"] == 3600
+    assert "arithmetic mean" in report.read_text()
+    assert "Historical measurement-time" in report.read_text()
+
+
+def test_legacy_report_warns_and_labels_deprecated_metrics(report_case):
+    directory, _ = report_case
+    with pytest.warns(FutureWarning, match="v1/v2 metric reports is deprecated"):
+        report, _ = write_report(directory)
+    assert "Deprecated historical metrics" in report.read_text()
+
+
+def test_v3_rescoring_is_idempotent_and_preserves_fit_data(report_case):
+    directory, case = report_case
+    case["scoring_policy"] = "fit_mean_full_hour"
+    for run in case["runs"]:
+        run["scoring_center_unix_s"] = case["scoring_center_unix_s"]
+    fits = [(r["metadata"], r["states"]) for r in case["runs"]]
+    # Simulate a stale derived metric. The saved residuals are authoritative.
+    case["runs"][0]["statistics"][1]["position_rmse_m"] = 9999999
+    save_json(
+        directory / "experiment.json", {"format_version": 3, "spacecraft": [case]}
+    )
+    write_report(directory)
+    first = (directory / "experiment.json").read_bytes()
+    saved = json.loads(first)["spacecraft"][0]
+    assert [(r["metadata"], r["states"]) for r in saved["runs"]] == fits
+    assert saved["runs"][0]["statistics"][1]["position_rmse_m"] == 1000
+    write_report(directory)
+    assert (directory / "experiment.json").read_bytes() == first
+
+
+def test_pooled_rmse_weights_samples_and_does_not_report_a_median():
+    from experiments.accuracy_report import _pooled_rms
+
+    rows = [
+        {"corrected_position_rms": 4, "corrected_sample_count": 1},
+        {"corrected_position_rms": 5, "corrected_sample_count": 4},
+        {"corrected_position_rms": None, "corrected_sample_count": 100},
+    ]
+    assert _pooled_rms(rows, "position") == pytest.approx(np.sqrt(116 / 5))
+    assert _pooled_rms([], "position") is None

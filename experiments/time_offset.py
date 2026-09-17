@@ -1,4 +1,6 @@
-"""Single-pass SGP4 timing experiment shared by live and recorded acquisition.
+"""DEPRECATED: historical timing/phase-position regression oracle.
+
+New FOREST studies must use experiment.py v5 with TLE epoch correction.
 
 The Rust fit shifts the complete measurement epoch. GPS scoring deliberately
 uses the historical phase-shift convention at the original GPS epochs. These
@@ -48,6 +50,7 @@ from dart.od.profiles import FOREST_VARIANCE_HZ2, time_offset_profile
 from experiments._benchmark_io import save_json
 from experiments.benchmark_gps_ref import _doppler_residuals
 from experiments.fit_quality import jacobian_diagnostics
+from experiments.legacy_metrics import warn_legacy_metrics
 
 MIN_SAMPLES = 301
 VARIANCE_HZ2 = FOREST_VARIANCE_HZ2
@@ -117,7 +120,8 @@ def fit_contact(
     optimizer: OptimizerContext | None = None,
     variance_hz2: float = VARIANCE_HZ2,
 ) -> TimeOffsetResult:
-    """Fit exactly one contact; GPS selects no observations or parameters."""
+    """Deprecated historical fit; retained solely for numerical regression."""
+    warn_legacy_metrics("Historical measurement-time/phase-position experiment")
     context, _ = prepare_doppler(
         [contact],
         frame,

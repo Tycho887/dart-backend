@@ -396,7 +396,7 @@ def test_experiment_groups_and_parameter_sets():
         assert optimizer.loss == "soft_l1"
         assert optimizer.loss_scale == 1.4
         if stage == "timing":
-            assert names - biases == {"time_offset_s"}
+            assert names - biases == {"tle_epoch_offset_s"}
         elif stage == "sgp4_L+n":
             assert names - biases == {"mean_longitude_deg", "mean_motion_rev_per_day"}
         else:
@@ -404,14 +404,15 @@ def test_experiment_groups_and_parameter_sets():
             assert len(names - biases) == 6
 
 
-def test_experiment_scoring_epochs_use_observed_midpoint(data):
+def test_experiment_scoring_epochs_use_retained_observation_mean(data):
     import experiment as study
 
     _, frame, prior, _ = data
+    frame = frame.slice(5)  # Unequal pass counts distinguish mean from midpoint.
     center, epoch = study.scoring_epochs(frame)
     first = sk.time.from_datetime(frame["timestamp"].min()).as_unixtime()
-    last = sk.time.from_datetime(frame["timestamp"].max()).as_unixtime()
-    assert center.as_unixtime() == pytest.approx((first + last) / 2)
+    expected = np.mean(frame["timestamp"].dt.epoch("us").to_numpy() / 1e6)
+    assert center.as_unixtime() == pytest.approx(expected, abs=1e-6, rel=0)
     assert epoch.as_unixtime() == pytest.approx(
         min(first, center.as_unixtime() - 1800) - 1
     )
@@ -520,34 +521,9 @@ def test_experiment_replays_gates_exports_and_refits_once(monkeypatch, data, tmp
     get_prior.reset_mock()
     fetch.reset_mock()
     calls = []
-    from dart.forward_models import ReepochedTle
-
-    original = tuple(data[2].tle.splitlines()[-2:])
-    reepoch_calls = []
-
-    def reepoch(lines, center, start, stop):
-        reepoch_calls.append((lines, center, start, stop))
-        return ReepochedTle(
-            lines,
-            original,
-            center.as_unixtime(),
-            center.as_unixtime(),
-            start.as_unixtime(),
-            stop.as_unixtime(),
-            "CostConverged",
-            True,
-            1,
-            2,
-            0.001,
-            0.002,
-        )
-
-    monkeypatch.setattr(study, "reepoch_tle", reepoch)
 
     async def fit_case(ids, path, *, optimizer, epoch, snapshot_dir, **kwargs):
-        assert kwargs["derived_tle_lines"] == (
-            original if optimizer.model == OrbitModel.FULL_STATE else None
-        )
+        assert kwargs["score_source"] is True
         assert kwargs["initialize_time"] == (
             optimizer.parameters[0].name == "tle_epoch_offset_s"
         )
@@ -611,20 +587,18 @@ def test_experiment_replays_gates_exports_and_refits_once(monkeypatch, data, tmp
         )
     )
     assert len(calls) == 3  # timing has <301 samples; two prefixes and one pruned refit
-    assert len(reepoch_calls) == 1
-    assert len({call[2].as_unixtime() for call in calls}) == 1
+    assert len({call[2].as_unixtime() for call in calls}) == 3
     assert calls[-1][0] == ids[1:]
-    assert calls[-1][2] == calls[-2][2]
+    assert calls[-1][2] != calls[-2][2]
     report = json.loads((directory / "experiment.json").read_text())["spacecraft"][0]
     assert len(report["runs"]) == 3
     assert "301" in report["timing_unavailable_reason"]
-    assert len({r["scoring_center_unix_s"] for r in report["runs"]}) == 1
-    assert reepoch_calls[0][2] <= calls[0][2]
+    assert len({r["scoring_center_unix_s"] for r in report["runs"]}) == 3
     assert report["initial_ephemeris"]["tle"] == data[2].tle
     assert report["pruning"]["removed_contact_ids"] == ids[:1]
     assert (
         report["runs"][-1]["scoring_center_unix_s"]
-        == report["runs"][-2]["scoring_center_unix_s"]
+        != report["runs"][-2]["scoring_center_unix_s"]
     )
     assert pl.read_csv(directory / "summary.csv").height == 6
     assert (directory / "accuracy.png").read_bytes().startswith(b"\x89PNG")
@@ -655,38 +629,67 @@ def test_experiment_replays_gates_exports_and_refits_once(monkeypatch, data, tmp
     assert_frame_equal(pl.read_parquet(snapshot / "raw-measurements.parquet"), data[1])
 
 
-def test_experiment_cli_caches_all_spacecraft_before_fitting(monkeypatch, tmp_path):
+@pytest.mark.parametrize("prior_source,scenarios", [("pre-launch", 1), ("both", 2)])
+def test_experiment_cli_caches_all_spacecraft_before_fitting(
+    monkeypatch, tmp_path, prior_source, scenarios
+):
     import sys
 
     import experiment as study
+    from experiments import forecast, results_v5
 
     events = []
+    exported = []
 
     async def acquire(ids, prior, reference, directory):
         events.append(("cache", reference.object_id))
 
-    async def fit_case(ids, path, **kwargs):
-        name = path.parent.name
+    async def fit_case(snapshot, category, settings, quality, publish):
+        name = snapshot.name
         events.append(("fit", name))
-        kwargs["_checkpoint"](
+        publish(
             {
-                "spacecraft_id": kwargs["spacecraft_id"],
+                "spacecraft_id": name,
                 "name": name,
                 "runs": [],
                 "reference_quality": "fixture",
             }
         )
 
-    monkeypatch.setattr(study, "load_inputs", acquire)
-    monkeypatch.setattr(study, "experiment", fit_case)
+    monkeypatch.setattr(forecast, "load_inputs", acquire)
+    monkeypatch.setattr(forecast, "run_spacecraft", fit_case)
+    monkeypatch.setattr(
+        forecast,
+        "freeze_prior",
+        lambda case, *args: events.append(("freeze", case["REFERENCE_OBJECT_ID"])),
+    )
+
+    def export(directories, output):
+        exported.extend(
+            json.loads((path / "experiment.json").read_text()) for path in directories
+        )
+        output.mkdir()
+
+    monkeypatch.setattr(results_v5, "publish_v5", export)
     monkeypatch.setenv("MPLCONFIGDIR", str(tmp_path / "matplotlib"))
     monkeypatch.setattr(
-        sys, "argv", ["experiment.py", "--output", str(tmp_path / "combined")]
+        sys,
+        "argv",
+        [
+            "experiment.py",
+            "--prior-source",
+            prior_source,
+            "--output",
+            str(tmp_path / "combined"),
+        ],
     )
     asyncio.run(study.main())
-    assert [event[0] for event in events] == ["cache"] * 4 + ["fit"] * 4
-    report = json.loads((tmp_path / "combined/experiment.json").read_text())
-    assert len(report["spacecraft"]) == 4
+    assert [event[0] for event in events] == ["cache"] * 4 + ["freeze"] * (
+        4 * scenarios
+    ) + ["fit"] * (4 * scenarios)
+    assert len(exported) == scenarios
+    assert all(len(report["spacecraft"]) == 4 for report in exported)
+    assert not (tmp_path / "combined.working").exists()
 
 
 def test_derived_prior_and_timing_metadata_preserve_original_snapshot(
@@ -744,21 +747,16 @@ def test_derived_prior_and_timing_metadata_preserve_original_snapshot(
     assert not timing["at_bound"]
 
 
-def test_experiment_rejected_reepoch_has_no_downstream_fits(
-    monkeypatch, data, tmp_path
-):
+def test_experiment_records_each_rejected_preparation(monkeypatch, data, tmp_path):
     import experiment as study
 
     install_providers(monkeypatch, data)
     from dart.forward_models import ReepochError
 
-    def reject(*args):
+    async def reject(*args, **kwargs):
         raise ReepochError("fixture preservation rejection")
 
-    monkeypatch.setattr(study, "reepoch_tle", reject)
-    monkeypatch.setattr(
-        study, "benchmark", lambda *args, **kwargs: pytest.fail("rejected prior used")
-    )
+    monkeypatch.setattr(study, "benchmark", reject)
     monkeypatch.setenv("MPLCONFIGDIR", str(tmp_path / "mpl"))
     directory = tmp_path / "rejected"
     asyncio.run(
@@ -773,10 +771,11 @@ def test_experiment_rejected_reepoch_has_no_downstream_fits(
         )
     )
     case = json.loads((directory / "experiment.json").read_text())["spacecraft"][0]
-    assert case["runs"] == []
-    assert case["reepoching"]["accepted"] is False
-    assert "preservation rejection" in case["reepoching"]["reason"]
-    assert "rejected" in case["unavailable_reason"]
+    assert len(case["runs"]) == 2
+    for run in case["runs"]:
+        assert not run["metadata"]["output"]["success"]
+        assert "preservation rejection" in run["metadata"]["unavailable_reason"]
+        assert run["scoring_center_unix_s"] is not None
     assert (directory / "accuracy.png").is_file()
     import visualize
 
@@ -824,3 +823,174 @@ def test_timing_visualizations_use_saved_diagnostics(monkeypatch, tmp_path):
     assert overview.axes[0].lines[0].get_ydata() == [8]
     plt.close(detail)
     plt.close(overview)
+
+
+@pytest.mark.parametrize("gap", ["start", "end", "interior", "all"])
+def test_v3_incomplete_hour_has_no_accuracy(gap):
+    import experiment as study
+
+    center = sk.time(2026, 5, 3, 15, 0, 0)
+    unix = center.as_unixtime()
+    times = unix + np.arange(-1860, 1861, 60)
+    states = pl.DataFrame(
+        {
+            "timestamp_unix_s": times,
+            "solution": ["fitted"] * len(times),
+            "dx_m": 3.0,
+            "dy_m": 4.0,
+            "dz_m": 0.0,
+            "dvx_m_s": 1.0,
+            "dvy_m_s": 2.0,
+            "dvz_m_s": 2.0,
+        }
+    )
+    complete = study.window_statistics(states, center, require_full_hour=True)[1]
+    assert complete["position_rmse_m"] == 5
+    assert complete["velocity_rmse_m_s"] == 3
+    intervals = {
+        "start": (-9999, -1800),
+        "end": (1800, 9999),
+        "interior": (0, 300),
+        "all": (-9999, 9999),
+    }
+    start, stop = intervals[gap]
+    partial = states.filter(
+        ~pl.col("timestamp_unix_s").is_between(unix + start, unix + stop)
+    )
+    score = study.window_statistics(partial, center, require_full_hour=True)[1]
+    assert score["coverage"] != "complete"
+    assert score["position_rmse_m"] is None
+    assert score["velocity_rmse_m_s"] is None
+    assert "complete scoring hour" in score["accuracy_unavailable_reason"]
+
+
+def test_benchmark_epoch_timing_uses_explicit_selector_and_scores_source(
+    monkeypatch, data
+):
+    from dart.io.doppler import select_time_offset_doppler
+    from dart.od.profiles import sgp4_epoch_bias_profile
+
+    contacts, frame, prior, reference = data
+    frame = frame.with_columns(
+        pl.lit(False).alias("carrier_lock"), pl.lit(0.0).alias("ebn0")
+    )
+    install_providers(monkeypatch, (contacts, frame, prior, reference))
+    result = run(
+        data,
+        optimizer=sgp4_epoch_bias_profile([c.contact_id for c in contacts]),
+        selector=select_time_offset_doppler,
+        score_source=True,
+    )
+    assert result.output.success
+    assert result.doppler.height == select_time_offset_doppler(frame).height
+    assert result.metadata["selection_policy"] == "forest_time_offset"
+    assert set(result.states["solution"]) == {"source", "prior", "fitted"}
+    assert "epoch_corrected_tle" in result.metadata
+
+
+def test_v3_coverage_uses_reference_bounds_before_prediction_initialization():
+    import experiment as study
+
+    center = sk.time(2026, 5, 3, 15, 0, 10)
+    unix = center.as_unixtime()
+    # The first prediction is at the first OEM sample after initialization.
+    times = unix + np.arange(-1750, 1861, 60)
+    states = pl.DataFrame(
+        {
+            "timestamp_unix_s": times,
+            "solution": ["fitted"] * len(times),
+            "dx_m": 3.0,
+            "dy_m": 4.0,
+            "dz_m": 0.0,
+            "dvx_m_s": 1.0,
+            "dvy_m_s": 2.0,
+            "dvz_m_s": 2.0,
+        }
+    )
+    score = study.window_statistics(
+        states, center, reference_bounds=(unix - 3600, unix + 3600)
+    )[1]
+    assert score["coverage"] == "complete"
+    assert score["position_rmse_m"] == 5
+    short = study.window_statistics(
+        states, center, reference_bounds=(unix - 1790, unix + 3600)
+    )[1]
+    assert short["coverage"] == "partial"
+    assert short["position_rmse_m"] is None
+
+
+def test_benchmark_other_supported_losses_do_not_require_quality_diagnostics(
+    monkeypatch, data
+):
+    install_providers(monkeypatch, data)
+    result = run(data, optimizer=OptimizerContext(OrbitModel.SGP4, (), loss="huber"))
+    assert result.output.loss == "huber"
+    assert "fit_diagnostics" not in result.metadata
+    assert result.doppler.height == data[1].height
+
+
+def test_recorded_prior_snapshot_preserves_raw_inputs(monkeypatch, data, tmp_path):
+    import experiment as study
+    from experiments._benchmark_io import _read_snapshot, load_inputs
+
+    contacts, frame, original, reference = data
+    install_providers(monkeypatch, data)
+    cache = tmp_path / "cache"
+    source = cache / reference.object_id
+    asyncio.run(
+        load_inputs(
+            tuple(c.contact_id for c in contacts),
+            original.ephemeris_id,
+            reference,
+            source,
+        )
+    )
+    before = {p.name: p.read_bytes() for p in source.iterdir()}
+    recorded = replace(
+        original, ephemeris_id="recorded-prior", origin="recorded Parquet"
+    )
+    monkeypatch.setattr(
+        "experiments.offline_data.load_experiment",
+        lambda *a, **k: (
+            contacts,
+            frame,
+            dict.fromkeys([c.contact_id for c in contacts], recorded),
+        ),
+    )
+    parquet = tmp_path / "recorded.parquet"
+    frame.write_parquet(parquet)
+    case = {
+        "REFERENCE_OBJECT_ID": reference.object_id,
+        "EPHEMERIS_ID": original.ephemeris_id,
+        "SPACECRAFT_ID": original.spacecraft_id,
+        "CENTER_FREQUENCY_HZ": 400e6,
+        "DOPPLER_PARQUET": parquet,
+    }
+    output = tmp_path / "recorded"
+    selected = study._freeze_prior_snapshot(
+        case, cache, output, "recorded", 20, 3, 100000
+    )
+    assert selected == recorded.ephemeris_id
+    snapshot = _read_snapshot(output / "inputs" / reference.object_id)
+    assert snapshot["raw-measurements.parquet"] == before["raw-measurements.parquet"]
+    assert snapshot["reference.oem"] == before["reference.oem"]
+    assert (
+        json.loads(snapshot["initial-ephemeris.json"])["ephemeris_id"]
+        == "recorded-prior"
+    )
+    assert before == {p.name: p.read_bytes() for p in source.iterdir()}
+    assert (
+        output / "prior-provenance" / reference.object_id / "source.parquet"
+    ).read_bytes() == parquet.read_bytes()
+
+
+def test_recorded_prior_selection_rejects_mixed_or_missing_priors(data):
+    import experiment as study
+
+    prior = data[2]
+    different = replace(prior, tle=prior.tle.replace("1 ", "1X", 1))
+    assert study._common_recorded_prior({"a": prior, "b": prior}, ["a", "b"]) == prior
+    with pytest.raises(ValueError, match="different recorded TLEs"):
+        study._common_recorded_prior({"a": prior, "b": different}, ["a", "b"])
+    with pytest.raises(ValueError, match="no eligible"):
+        study._common_recorded_prior({}, [])

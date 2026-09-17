@@ -1,4 +1,4 @@
-"""Report saved FOREST low-fidelity fits against their separation/prepared priors.
+"""Archive-only segmented FOREST reports (v1–v3 layouts).
 
 Run: python -m experiments.accuracy_report PATH_TO_RUN_DIRECTORY
 Uses local snapshots and existing propagation; never reruns an optimizer.
@@ -7,6 +7,7 @@ Uses local snapshots and existing propagation; never reruns an optimizer.
 import argparse
 import hashlib
 import json
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -17,14 +18,21 @@ import satkit as sk
 from dart.io.oem import read_oem
 from dart.od import _source_tle_lines
 from dart.orbit import Sgp4Orbit
-from experiment import Record, window_statistics
-from experiments._benchmark_io import _contact, _ephemeris, _read_snapshot
-from experiments.benchmark_gps_ref import _bind_reference, _state_errors
+from experiment import Record, _summary_rows, window_statistics
+from experiments._benchmark_io import _contact, _ephemeris, _read_snapshot, save_json
+from experiments.benchmark_gps_ref import (
+    _bind_reference,
+    _state_errors,
+    reference_bounds,
+)
 from experiments.fit_quality import QualityGate, case_quality
+from experiments.legacy_metrics import warn_legacy_metrics
 
 METHODS = {
     "timing": "Single-pass time offset",
     "sgp4_L+n": "Three-pass L+n",
+    "full_state": "Cartesian full-state prefix",
+    "full_state_pruned": "Cartesian full-state pruned",
 }
 METRICS = {
     "position": ("position_rmse_m", "km", 1000.0),
@@ -47,7 +55,26 @@ REPORT_NOTE = (
 )
 
 
-def _separation_errors(case: Record) -> tuple[pl.DataFrame, Record]:
+V3_REPORT_NOTE = (
+    "All v3 accuracy values are sample-weighted RMSE of the GCRF position/velocity error-vector "
+    "norm against the GPS-derived OEM. Each one-hour window is centered on the arithmetic mean "
+    "of the observations retained for that fit. The entire hour must have OEM coverage; "
+    "missing or partial coverage yields unavailable accuracy (—), without extrapolation. "
+    "Different fits can therefore use different scoring hours; these are not full-trajectory RMSEs.\n\n"
+    "Timing fits change only the prepared TLE epoch: corrected epoch = prepared epoch + offset. "
+    "Observation and station timestamps stay fixed. Accuracy uses the serialized corrected TLE. "
+    "Historical measurement-time fitting and phase-position scoring remain separate regression "
+    "diagnostics and are not interchangeable with v3 timing offsets.\n\n"
+    "All methods start from the scenario’s selected source TLE per spacecraft. Prepared means the re-epoched "
+    "SGP4 baseline or the Cartesian orbit initialized from that source TLE. Source, prepared, "
+    "and corrected scores use identical reference samples. The OEM is a GPS-derived model, "
+    "not raw GPS truth; FOREST-19 retains its candidate designation. Medians/ranges summarize "
+    "individual fit RMSEs, with equal weight per fit. Reductions are 100 × (prior − corrected) / prior; "
+    "negative values indicate degradation. Convergence alone does not establish accuracy."
+)
+
+
+def _source_errors(case: Record) -> tuple[pl.DataFrame, Record]:
     directory = Path(case["snapshot_dir"])
     snapshot = _read_snapshot(directory)
     hashes = {name: hashlib.sha256(raw).hexdigest() for name, raw in snapshot.items()}
@@ -62,6 +89,8 @@ def _separation_errors(case: Record) -> tuple[pl.DataFrame, Record]:
     reference = _bind_reference(
         read_oem(directory / "reference.oem"), contacts, case["spacecraft_id"]
     )
+    if case.get("scoring_policy") == "fit_mean_full_hour":
+        case["reference_bounds_unix_s"] = reference_bounds(reference)
     lines = _source_tle_lines(source.tle or "")[-2:]
     orbit = Sgp4Orbit(
         reference.segments[0].object_id,
@@ -70,11 +99,14 @@ def _separation_errors(case: Record) -> tuple[pl.DataFrame, Record]:
         (lines[0], lines[1]),
         (0.0,) * 7,
     )
-    center = sk.time.from_unixtime(case["scoring_center_unix_s"])
+    center_unix = case.get("scoring_center_unix_s")
+    if center_unix is None:
+        center_unix = min(r["scoring_center_unix_s"] for r in case["runs"])
+    center = sk.time.from_unixtime(center_unix)
     errors = _state_errors(
         orbit, reference, center - sk.duration(seconds=1800), "prior"
     )
-    return errors, window_statistics(errors, center)[0]
+    return errors, window_statistics(errors, center, require_full_hour=False)[0]
 
 
 def _sample_keys(
@@ -99,6 +131,8 @@ def _comparison_reason(
     run: Record, source: Record, samples: list[tuple[int, float]]
 ) -> str:
     scores = {s["solution"]: s for s in run["statistics"]}
+    if source.get("accuracy_unavailable_reason"):
+        return source["accuracy_unavailable_reason"]
     if not samples or not {"prior", "fitted"}.issubset(scores):
         return "prior or corrected accuracy unavailable"
     states = pl.DataFrame(run["states"])
@@ -153,18 +187,29 @@ def _run_row(
     metadata = run["metadata"]
     scores = {s["solution"]: s for s in run["statistics"]}
     prepared = scores.get("prior", {})
-    epoch = metadata.get("sgp4_preparation", {}).get("serialized_epoch_unix_s")
+    epoch = (metadata.get("sgp4_preparation") or {}).get(
+        "serialized_epoch_unix_s", metadata.get("epoch_unix_s")
+    )
     status = (
         "optimizer converged" if metadata["output"]["success"] else "optimizer failed"
     )
     row = {
         "metric_kind": "oem_window",
+        "prior_scenario": case.get("prior_scenario", "separation"),
         "spacecraft": case["name"],
         "reference_quality": case["reference_quality"],
         "reference_sha256": case["input_sha256"]["reference.oem"],
-        "separation_ephemeris_id": case["initial_ephemeris"]["ephemeris_id"],
+        "source_prior_ephemeris_id": case["initial_ephemeris"]["ephemeris_id"],
         "stage": run["stage"],
-        "method": METHODS[run["stage"]],
+        "method": "Single-pass TLE epoch offset"
+        if run["stage"] == "timing"
+        and case.get("timing_scoring_kind") == "tle_epoch_oem_window"
+        else METHODS[run["stage"]],
+        "scoring_policy": case.get("scoring_policy", "common_hour"),
+        "accuracy_unavailable_reason": source.get("accuracy_unavailable_reason", ""),
+        "tle_epoch_offset_s": metadata.get("epoch_corrected_tle", {}).get(
+            "tle_epoch_offset_s"
+        ),
         "run_id": run["run_id"],
         "contact_ids": ";".join(run["contact_ids"]),
         "pass_count": len(run["contact_ids"]),
@@ -175,6 +220,8 @@ def _run_row(
         "window_start_utc": _utc(source["window_start_unix_s"]),
         "window_stop_utc": _utc(source["window_stop_unix_s"]),
         "status": metadata.get("unavailable_reason") or status,
+        "optimizer_success": bool(metadata["output"]["success"]),
+        "active_bounds": ";".join(run.get("active_bounds", [])),
         "comparison_unavailable_reason": _comparison_reason(run, source, samples),
         **_rms_fields(source, "separation"),
         **_rms_fields(prepared, "prepared"),
@@ -195,14 +242,33 @@ def comparison_rows(case: Record) -> list[Record]:
         target.append(run)
     rows = []
     if orbit:
-        errors, score = _separation_errors(case)
-        samples = _sample_keys(errors, "prior", score)
-        rows.extend(_run_row(case, run, score, samples) for run in orbit)
+        errors, score = _source_errors(case)
+        for run in orbit:
+            if case.get("scoring_policy") == "fit_mean_full_hour":
+                _refresh_run_statistics(case, run)
+                score = window_statistics(
+                    errors,
+                    sk.time.from_unixtime(run["scoring_center_unix_s"]),
+                    require_full_hour=True,
+                    reference_bounds=case.get("reference_bounds_unix_s"),
+                )[0]
+            samples = _sample_keys(errors, "prior", score)
+            rows.append(_run_row(case, run, score, samples))
     if timing:
         _verify_gps_sources(case)
         rows.extend(_timing_row(case, run) for run in timing)
     order = {run["run_id"]: i for i, run in enumerate(case["runs"])}
     return sorted(rows, key=lambda row: order[row["run_id"]])
+
+
+def _refresh_run_statistics(case: Record, run: Record) -> None:
+    if not run["states"]:
+        return
+    run["statistics"] = window_statistics(
+        pl.DataFrame(run["states"]),
+        sk.time.from_unixtime(run["scoring_center_unix_s"]),
+        reference_bounds=case["reference_bounds_unix_s"],
+    )
 
 
 def _verify_gps_sources(case: Record) -> None:
@@ -233,7 +299,7 @@ def _timing_row(case: Record, run: Record) -> Record:
         "spacecraft": case["name"],
         "reference_quality": "raw BESTXYZ GPS",
         "reference_sha256": json.dumps(case["gps_sources_sha256"], sort_keys=True),
-        "separation_ephemeris_id": case["initial_ephemeris"]["ephemeris_id"],
+        "source_prior_ephemeris_id": case["initial_ephemeris"]["ephemeris_id"],
         "stage": "timing",
         "method": "Single-pass measurement time offset (raw GPS)",
         "run_id": run["run_id"],
@@ -310,7 +376,7 @@ def _summary_metric(rows: list[Record], metric: str, *, filtered: bool = False) 
                 spacecraft,
                 method,
                 counts,
-                _number(group[0][f"separation_{metric}_rms"]),
+                _distribution(_values(selected, f"separation_{metric}_rms")),
                 _distribution(prepared),
                 _distribution(corrected),
             ]
@@ -320,7 +386,7 @@ def _summary_metric(rows: list[Record], metric: str, *, filtered: bool = False) 
             "Spacecraft",
             "Method",
             "Kept/scored/attempted" if filtered else "Scored/attempted",
-            "Separation prior",
+            "Source median [range]",
             "Prepared median [range]",
             "Corrected median [range]",
         ],
@@ -329,7 +395,11 @@ def _summary_metric(rows: list[Record], metric: str, *, filtered: bool = False) 
 
 
 def summary_markdown(rows: list[Record], gate: QualityGate = QualityGate()) -> str:
-    sections = ["## Prior and corrected accuracy", REPORT_NOTE]
+    v3 = any(r.get("scoring_policy") == "fit_mean_full_hour" for r in rows)
+    sections = [
+        "## Prior and corrected accuracy",
+        V3_REPORT_NOTE if v3 else REPORT_NOTE,
+    ]
     sections.append(
         f"Post-fit screening requires **at least {gate.min_samples} retained Doppler "
         f"samples per {gate.sample_scope}**, successful optimization, no active bounds, "
@@ -347,7 +417,12 @@ def summary_markdown(rows: list[Record], gate: QualityGate = QualityGate()) -> s
         "other minima. Kept/scored/attempted counts distinguish filtered accuracy "
         "results from all scored fits and all attempted fits."
     )
-    orbit = [r for r in rows if r.get("metric_kind", "oem_window") == "oem_window"]
+    orbit = [
+        r
+        for r in rows
+        if r.get("metric_kind", "oem_window") == "oem_window"
+        and not r["stage"].startswith("full_state")
+    ]
     timing = [r for r in rows if r.get("metric_kind") == "raw_gps_phase"]
     if timing:
         sections.extend(
@@ -371,6 +446,7 @@ def summary_markdown(rows: list[Record], gate: QualityGate = QualityGate()) -> s
                 _summary_metric(orbit, metric),
             ]
         )
+    sections.append(_combined_summary(orbit, enabled=v3))
     sections.append(
         "Prepared summaries use available priors; corrected summaries use available "
         "corrected scores. See [per-fit scores, contacts, coverage and status](accuracy-report.md) "
@@ -378,6 +454,60 @@ def summary_markdown(rows: list[Record], gate: QualityGate = QualityGate()) -> s
         "Reference-quality designations, including candidate references, are retained in the detailed report."
     )
     return "\n\n".join(sections) + "\n"
+
+
+def _pooled_rms(rows: list[Record], metric: str) -> float | None:
+    selected = [
+        r
+        for r in rows
+        if r[f"corrected_{metric}_rms"] is not None and r["corrected_sample_count"] > 0
+    ]
+    if not selected:
+        return None
+    values = np.array([r[f"corrected_{metric}_rms"] for r in selected])
+    counts = [r["corrected_sample_count"] for r in selected]
+    return float(np.sqrt(np.average(values**2, weights=counts)))
+
+
+def _combined_summary(rows: list[Record], *, enabled: bool = True) -> str:
+    if not enabled:
+        return ""
+    table = []
+    for method in dict.fromkeys(r["method"] for r in rows):
+        group = [r for r in rows if r["method"] == method]
+        for label, selected in (
+            ("all", group),
+            ("screened", [r for r in group if r["quality_accepted"]]),
+        ):
+            table.append(_combined_row(method, label, selected))
+    return (
+        "### Combined spacecraft results\n\nMedian per-fit RMSE and pooled RMSE are distinct. Pooling weights each fit by its reference sample count; overlapping windows count once per fit.\n\n"
+        + _table(
+            [
+                "Method",
+                "Selection",
+                "Scored",
+                "Median position RMSE (km)",
+                "Pooled position RMSE (km)",
+                "Median velocity RMSE (m/s)",
+                "Pooled velocity RMSE (m/s)",
+            ],
+            table,
+        )
+    )
+
+
+def _combined_row(method: str, label: str, rows: list[Record]) -> list[str]:
+    result = [method, label, str(len(_values(rows, "corrected_position_rms")))]
+    for metric in METRICS:
+        values = _values(rows, f"corrected_{metric}_rms")
+        result.extend(
+            [
+                _number(float(np.median(values)) if values else None),
+                _number(_pooled_rms(rows, metric)),
+            ]
+        )
+    return result
 
 
 def _timing_summary(rows: list[Record]) -> str:
@@ -420,10 +550,10 @@ def _detail_metric(rows: list[Record], metric: str) -> str:
     return _table(
         [
             "Run",
-            "Separation prior",
+            "Source prior",
             "Prepared prior",
             "Corrected",
-            "Reduction vs separation (%)",
+            "Reduction vs source (%)",
             "Reduction vs prepared (%)",
         ],
         [
@@ -448,7 +578,7 @@ def _case_details(rows: list[Record]) -> str:
     sections = [
         f"## {first['spacecraft']} — {first.get('metric_kind', 'oem_window')}",
         f"Reference quality: **{first['reference_quality']}**. "
-        f"Separation prior: `{first['separation_ephemeris_id']}`. "
+        f"Source prior: `{first['source_prior_ephemeris_id']}`. "
         f"Reference SHA-256: `{first['reference_sha256']}`.",
     ]
     sections.extend(_accuracy_tables(rows))
@@ -509,7 +639,7 @@ def _accuracy_tables(rows: list[Record]) -> list[str]:
                 _table(
                     [
                         "Run",
-                        "Separation prior",
+                        "Source prior",
                         "Prepared prior",
                         "Corrected",
                         "Primary GPS",
@@ -539,6 +669,7 @@ def _quality_table(rows: list[Record]) -> str:
             "Minimum samples/pass",
             "Scaled κ₂(J)",
             "Rank/parameters",
+            "Active bounds",
             "Screening",
             "Rejection reasons",
         ],
@@ -549,7 +680,10 @@ def _quality_table(rows: list[Record]) -> str:
                 _number(r["minimum_pass_sample_count"], 0),
                 _number(r["quality_condition_number"]),
                 f"{_number(r['quality_rank'], 0)}/{_number(r['quality_parameter_count'], 0)}",
-                "kept" if r["quality_accepted"] else "rejected",
+                r.get("active_bounds", "") or "—",
+                ("kept" if r["quality_accepted"] else "rejected")
+                if r.get("quality_applicable", True)
+                else "not applied",
                 r["quality_rejection_reasons"] or "—",
             ]
             for r in rows
@@ -602,69 +736,105 @@ def _report_rows(case: Record, gate: QualityGate) -> list[Record]:
     ]
 
 
-def _orbit_pair(score: Record) -> str:
-    position = score.get("position_rmse_m")
-    return f"{_number(position / 1000 if position is not None else None)} / {_number(score.get('velocity_rmse_m_s'))}"
-
-
-def _full_state_summary(cases: list[Record]) -> str:
-    rows = []
-    for case in cases:
-        runs = [r for r in case["runs"] if r["stage"].startswith("full_state")]
-        if not runs:
-            continue
-        _, source = _separation_errors(case)
-        for run in runs:
-            scores = {s["solution"]: s for s in run["statistics"]}
-            rows.append(
-                [
-                    case["name"],
-                    run["run_id"],
-                    str(len(run["contact_ids"])),
-                    _orbit_pair(source),
-                    _orbit_pair(scores.get("prior", {})),
-                    _orbit_pair(scores.get("fitted", {})),
-                    str(run["metadata"]["output"]["success"]),
-                ]
-            )
-    if not rows:
+def _full_state_summary(rows: list[Record]) -> str:
+    full = [r for r in rows if r["stage"].startswith("full_state")]
+    if not full:
         return ""
     return "\n\n".join(
         [
             "## Cartesian full-state accuracy",
-            "Common one-hour OEM RMSE: position km / velocity m/s. These prefix fits "
-            "are shown separately and are not subject to the low-fidelity post-fit screen.",
+            "Position km / velocity m/s. Each prefix is evaluated at its recorded scoring window. "
+            "These fits are not subject to the low-fidelity post-fit screen; diagnostics and coverage appear below.",
             _table(
                 [
                     "Spacecraft",
                     "Run",
                     "Passes",
-                    "Separation prior",
-                    "Prepared prior",
+                    "Source",
+                    "Prepared",
                     "Corrected",
-                    "Converged",
+                    "Status",
                 ],
-                rows,
+                [
+                    [
+                        r["spacecraft"],
+                        r["run_id"],
+                        str(r["pass_count"]),
+                        *[
+                            f"{_number(r[f'{p}_position_rms'])} / {_number(r[f'{p}_velocity_rms'])}"
+                            for p in ("separation", "prepared", "corrected")
+                        ],
+                        r["status"],
+                    ]
+                    for r in full
+                ],
             ),
         ]
     )
 
 
+def _inventory_summary(cases: list[Record]) -> str:
+    rows = []
+    for case in cases:
+        for method, inventory in (
+            ("Timing", "timing_inventory"),
+            ("L+n / full-state", "inventory"),
+        ):
+            rows.extend(
+                [
+                    [
+                        case["name"],
+                        method,
+                        r["contact_id"],
+                        str(r["raw_samples"]),
+                        str(r["retained_samples"]),
+                        r["exclusion_reason"] or "eligible",
+                    ]
+                    for r in case.get(inventory, [])
+                ]
+            )
+    return "## Contact inventory\n\n" + _table(
+        [
+            "Spacecraft",
+            "Methods",
+            "Contact",
+            "Raw samples",
+            "Selected samples",
+            "Selection",
+        ],
+        rows,
+    )
+
+
+def _report_heading(version: int) -> str:
+    title = "# FOREST prior and corrected accuracy"
+    if version < 3:
+        warn_legacy_metrics("FOREST v1/v2 metric reports")
+        title += "\n\n> **Deprecated historical metrics.** Archive replay only; use the v5 runner for new accuracy studies. See [migration guidance](../../docs/benchmark.md#deprecated-experiments-and-metrics)."
+    return title
+
+
 def write_report(
     directory: Path, *, gate: QualityGate = QualityGate()
 ) -> tuple[Path, Path]:
-    """Generate report/CSV and refresh the summary in an existing validation.md."""
+    """Archive writer; v4 replays these metrics, while new studies use v5 forecasts."""
+    warnings.warn(
+        "Segmented FOREST reports are superseded by experiments.results_v4 export/rebuild. "
+        "This writer is archive-only; the complete one-hour RMSE definition is unchanged.",
+        FutureWarning,
+        stacklevel=2,
+    )
     document = json.loads((directory / "experiment.json").read_bytes())
-    if document["format_version"] not in {1, 2}:
+    if document["format_version"] not in {1, 2, 3}:
         raise ValueError("unsupported experiment format")
     rows = [row for case in document["spacecraft"] for row in _report_rows(case, gate)]
-    if not rows:
-        raise ValueError("no saved low-fidelity attempts to report")
     summary = summary_markdown(rows, gate)
     sections = [
-        "# FOREST prior and corrected accuracy",
+        _report_heading(document["format_version"]),
+        _scenario_label(document["spacecraft"]),
         summary,
-        _full_state_summary(document["spacecraft"]),
+        _full_state_summary(rows),
+        _inventory_summary(document["spacecraft"]),
     ]
     groups = dict.fromkeys((r["spacecraft"], r["metric_kind"]) for r in rows)
     for name, kind in groups:
@@ -678,6 +848,18 @@ def write_report(
         directory / "accuracy-comparison.csv",
     )
     report.write_text("\n\n".join(sections) + "\n")
+    _write_comparison_csv(rows, csv, document["format_version"])
+    _update_validation(directory / "validation.md", summary)
+    _persist_v3_statistics(directory, document)
+    return report, csv
+
+
+def _scenario_label(cases: list[Record]) -> str:
+    scenarios = dict.fromkeys(c.get("prior_scenario", "separation") for c in cases)
+    return "Prior scenario: **" + ", ".join(scenarios) + "**."
+
+
+def _write_comparison_csv(rows: list[Record], csv: Path, version: int) -> None:
     columns = {
         "separation_position_rms": "separation_position_rms_km",
         "prepared_position_rms": "prepared_position_rms_km",
@@ -686,9 +868,35 @@ def write_report(
         "prepared_velocity_rms": "prepared_velocity_rms_m_s",
         "corrected_velocity_rms": "corrected_velocity_rms_m_s",
     }
-    pl.DataFrame(rows, infer_schema_length=None).rename(columns).write_csv(csv)
-    _update_validation(directory / "validation.md", summary)
-    return report, csv
+    table = (
+        pl.DataFrame(rows, infer_schema_length=None)
+        if rows
+        else pl.DataFrame(schema=dict.fromkeys(columns, pl.Float64))
+    )
+    if version == 3:
+        columns.update(
+            {
+                key: key.replace("separation_", "source_")
+                for key in table.columns
+                if "separation_" in key
+            }
+        )
+        columns["separation_position_rms"] = "source_position_rms_km"
+        columns["separation_velocity_rms"] = "source_velocity_rms_m_s"
+    table.rename(columns).write_csv(csv)
+
+
+def _persist_v3_statistics(directory: Path, document: Record) -> None:
+    if document["format_version"] != 3:
+        return
+    # Only derived scoring fields change; optimizer outputs and state residuals stay intact.
+    save_json(directory / "experiment.json.tmp", document)
+    (directory / "experiment.json.tmp").replace(directory / "experiment.json")
+    rows = [row for case in document["spacecraft"] for row in _summary_rows(case)]
+    if rows:
+        pl.DataFrame(rows, infer_schema_length=None).write_csv(
+            directory / "summary.csv"
+        )
 
 
 def main() -> None:

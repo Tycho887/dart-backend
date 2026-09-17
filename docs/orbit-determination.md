@@ -1,5 +1,8 @@
 # Orbit-determination API
 
+The [mathematical specification](math.md) documents the implemented equations,
+force settings, optimizer profiles, uncertainty limits, and FOREST v4.1 results.
+
 `dart.od` fits normalized Doppler observations with one of DART's explicit
 orbit models. It owns optimizer policy but delegates propagation, frame
 conversion, residuals, and Jacobians to the Rust numerical core.
@@ -41,6 +44,10 @@ Model selection also determines how the source orbit is resolved:
 | `SGP4` | TLE from `EphemerisMetadata` | None; a source TLE is operationally required |
 | `FULL_STATE` | Supplied GCRF state at `PriorStateData.epoch` | Propagate the source TLE to that epoch and transform TEME to GCRF |
 
+The current `dart.od` wrapper validates canonical source TLE metadata even when
+a GCRF state is supplied. The low-level Cartesian forward-model API itself
+accepts a state without a TLE.
+
 The full-state fallback uses `dart.forward_models.tle_state_gcrf`, backed by
 the same Rust WGS-72/improved SGP4 and frame transformation used by the
 low-fidelity evaluator. DART does not infer a TLE from one Cartesian state and
@@ -58,7 +65,7 @@ the caller's desired result-column order:
 
 | Model | Ordered parameter names | Units |
 | --- | --- | --- |
-| `SGP4` | `mean_motion_rev_per_day`, `equinoctial_f`, `equinoctial_g`, `equinoctial_h`, `equinoctial_k`, `mean_longitude_deg`, `bstar`, `time_offset_s`, `center_frequency_offset_hz`, then `pass_bias_hz:<contact_id>` | rev/day, dimensionless, dimensionless, dimensionless, dimensionless, degree, dimensionless, s, Hz, Hz |
+| `SGP4` | `mean_motion_rev_per_day`, `equinoctial_f`, `equinoctial_g`, `equinoctial_h`, `equinoctial_k`, `mean_longitude_deg`, `bstar`, `time_offset_s`, `center_frequency_offset_hz`, then `pass_bias_hz:<contact_id>`, then `tle_epoch_offset_s` | rev/day, dimensionless, dimensionless, dimensionless, dimensionless, degree, TLE B* units, s, Hz, Hz, s |
 | `FULL_STATE` | `position_x_m`, `position_y_m`, `position_z_m`, `velocity_x_m_s`, `velocity_y_m_s`, `velocity_z_m_s`, `time_offset_s`, `center_frequency_offset_hz`, then `pass_bias_hz:<contact_id>` | m, m, m, m/s, m/s, m/s, s, Hz, Hz |
 
 Pass-bias order follows the contiguous pass indices in
@@ -68,6 +75,12 @@ remain at their initial values, while only estimated parameters enter SciPy.
 The time offset shifts the complete measurement epoch, including spacecraft
 propagation and station geometry. Time and center-frequency offsets are global;
 Doppler biases remain pass-specific.
+
+The separate `tle_epoch_offset_s` changes the TLE epoch while retaining the
+observation and station timestamps. SGP4 priors are automatically prepared at
+the mean retained observation time by a trajectory-preserving re-epoch fit.
+The preparation result is retained with the output; it is not an estimated
+measurement-clock shift. See [prior preparation](math.md#6-priors-re-epoching-and-materialized-products).
 
 The SGP4 orbit coordinates are additive corrections to the source TLE's mean
 elements. They use `f = e cos(Ω + ω)`, `g = e sin(Ω + ω)`,
@@ -85,13 +98,18 @@ identical parameter vector share one Rust evaluation.
 The result contains configured names, roles, final values, loss, final
 unmodified whitened residuals and matching Jacobian columns, robust cost,
 optimality, success/status/message, and function/Jacobian evaluation counts.
-Covariance and covariance rank intentionally remain `None`
-until DART adopts a reviewed uncertainty method. `resolve_solution(prior, result)`
+Covariance is optional: successful fits with prior standard uncertainties on
+every configured parameter, and no configured fixed parameters, trigger the
+classical consider analysis described below. Other fits retain `None`.
+`resolve_solution(prior, result)`
 materializes a separate typed orbit from the exact fit prior and successful
 named corrections; `resolve_prior(prior, model)` materializes the baseline.
 `dart.orbit.propagate` samples either through the Rust numerical core and
-`dart.io.oem.write_oem` serializes the resulting state history. Corrected-TLE
-text serialization remains a future product API.
+`dart.io.oem.write_oem` serializes the resulting state history. SGP4 products
+with an epoch correction use serialized corrected TLE lines; other SGP4
+products retain the prepared baseline and continuous element offsets.
+Measurement clock/frequency offsets and pass biases do not shift the physical
+orbit-product epochs.
 
 The selected fit ephemeris must belong to the observed spacecraft; it may
 differ from the ephemeris originally associated with each contact. Original
@@ -100,16 +118,17 @@ explicit initial ephemeris ID; see [contact-list benchmarking](benchmark.md).
 
 An unsuccessful optimizer exit returns an `OptimizerOutput` with
 `success=False`. Invalid contracts, source-identity mismatches, invalid TLEs,
-and propagation failures raise clear exceptions. A pure timing fit is an SGP4
-fit whose only estimated parameter is `time_offset_s`; the legacy
-`dart.time_solver` remains available only for compatibility.
+and propagation failures raise clear exceptions. Timing estimation can select
+`time_offset_s` for a measurement-clock shift or `tle_epoch_offset_s` for a
+physical TLE epoch correction, with optional pass biases.
 
-The FOREST reproduction uses `dart.od.profiles.time_offset_profile`: SGP4
-time offset plus a constant pass-frequency bias, with orbit corrections fixed.
-Its 700 Hz soft-L1 loss and raw-GPS same-pass position scoring are described in
-[the live/offline experiment guide](live-data-experiments.md). The diagnostic
-scorer applies an explicit phase shift; it does not alter the intentional
-complete-epoch timing model or materialize a timing correction as an orbit.
+The current FOREST comparison, called v4.1 in the report and stored under
+`forest-experiment-v5`, uses `sgp4_epoch_bias_profile` with FOREST overrides:
+one shared TLE epoch correction plus one bias per input pass. It scores physical
+orbit predictions during the hour following contact completion. The
+[historical live/offline guide](live-data-experiments.md) describes older
+measurement-time and raw-GPS same-pass studies; those scores have different
+semantics. See the [current methodology and metrics](math.md).
 
 ## Consider covariance
 

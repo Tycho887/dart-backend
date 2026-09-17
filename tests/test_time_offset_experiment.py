@@ -334,3 +334,9 @@ def test_timing_report_replays_prepared_prior_and_separates_gps_metrics(
     raw_gps.write_text("tampered")
     with pytest.raises(ValueError, match="GPS reference checksum"):
         write_report(tmp_path)
+
+
+def test_historical_phase_experiment_is_explicitly_deprecated(timing_data):
+    contact, frame, prior, gps = timing_data
+    with pytest.warns(FutureWarning, match="deprecated.*historical"):
+        time_offset.fit_contact(contact, frame, prior, gps, center_frequency_hz=400e6)

@@ -141,7 +141,7 @@ def test_filtered_summary_retains_unfiltered_scores_and_empty_groups(report_case
         "### Unfiltered position"
     )[0]
     assert "Single-pass time offset | 1/1/2" in filtered
-    assert "Three-pass L+n | 0/1/1 | 5.000 | — | —" in filtered
+    assert "Three-pass L+n | 0/1/1 | — | — | —" in filtered
     assert "8.000 [8.000–8.000]" in report
 
 

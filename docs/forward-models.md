@@ -1,5 +1,9 @@
 # Forward models
 
+The [mathematical specification](math.md) gives the effective force models,
+derivatives, versioned numerical settings, and FOREST v4.1 performance evidence.
+This page describes the callable interface.
+
 `dart.forward_models` is the supported Python interface to DART's Rust
 propagation and Doppler models. It evaluates a candidate parameter vector and
 returns the residual vector and matching Jacobian required by batch optimizers,
@@ -101,6 +105,13 @@ biases. It evaluates spacecraft and station geometry at the shifted epoch,
 uses a centered 1 ms observable difference for time, and uses the analytic
 frequency derivative `-range_rate / c`.
 
+`evaluate_sgp4_epoch` adds a final `tle_epoch_offset_s` column after those
+augmented columns and pass biases. It changes the TLE epoch while keeping
+observation and station times fixed. `prepare_sgp4_tle` instead performs a
+trajectory-preserving re-epoch fit before estimation. The
+[mathematical specification](math.md#4-timing-estimation-and-initialization)
+distinguishes these operations and their sensitivities.
+
 ### Full-state model
 
 `evaluate_full_state` adds a Cartesian correction to a nominal GCRF epoch
@@ -108,6 +119,13 @@ state and propagates it with satkit's high-precision propagator and
 state-transition matrix. The Python interface currently uses
 `PropSettings::default()`; propagation configuration is deliberately not part
 of this first boundary.
+
+For the locked Rust satkit 0.21.2 dependency, this means EGM96 degree/order 4,
+Sun/Moon gravity, solid Earth tides, relativistic acceleration, and RKV98
+integration. The adapter supplies no satellite properties, so drag, SRP, and
+thrust are inactive. Tide and relativistic partials are omitted from the STM.
+See [effective forces and tolerances](math.md#5-cartesian-forward-model-and-effective-forces)
+before interpreting the historical “high-fidelity” name as an accuracy claim.
 
 The parameter vector has length `6 + context.num_passes`:
 
@@ -198,6 +216,7 @@ NumPy arrays. For `N` observations and `P` passes, shapes are:
 | --- | --- | --- |
 | `evaluate_sgp4` | `(N,)` | `(N, 7 + P)` |
 | `evaluate_sgp4_augmented` | `(N,)` | `(N, 9 + P)` |
+| `evaluate_sgp4_epoch` | `(N,)` | `(N, 10 + P)` |
 | `evaluate_full_state` | `(N,)` | `(N, 6 + P)` |
 | `evaluate_full_state_augmented` | `(N,)` | `(N, 8 + P)` |
 

@@ -1,57 +1,59 @@
 """FOREST optimizer comparison using the shared benchmark and raw snapshots.
 
 Run: uv run python experiment.py
-Results default to raw_results/forest-<UTC timestamp>/ relative to the repo.
+Results default to raw_results/forest-experiment-v5/ relative to the repo.
 Rerun to reuse the default input cache; --output selects a custom directory.
 Edit gate_passes() to try another pass gate without reacquiring telemetry.
-Timing fits shift measurement time and use same-pass raw GPS phase scoring. Covariance is a local,
+V5 reports the forecast hour following contact completion; earlier layouts are archives.
+Covariance is a local,
 residual-scaled diagnostic, not calibrated accuracy or proof of bad telemetry.
 """
 
 import argparse
 import asyncio
+import hashlib
 import json
-import runpy
+import shutil
 from collections.abc import Callable, Iterator
 from dataclasses import replace
-from datetime import UTC, datetime
 from pathlib import Path
 from textwrap import fill
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import numpy as np
 import polars as pl
 import satkit as sk
 
-from dart.forward_models import ReepochedTle, ReepochError, reepoch_tle
+from dart.forward_models import ReepochError
 from dart.io import ContactMetadata, EphemerisMetadata
 from dart.io.doppler import (
-    select_doppler,
     select_fit_doppler,
     select_time_offset_doppler,
     selection_counts,
 )
-from dart.io.gps import load_bestxyz
 from dart.io.load import _contact_ids
 from dart.io.oem import read_oem
 from dart.od import (
     OptimizerContext,
     OptimizerOutput,
     OrbitModel,
-    _source_tle_lines,
 )
 from dart.od.profiles import (
     FOREST_VARIANCE_HZ2,
     forest_profile,
     orbit_bias_profile,
     sgp4_bias_profile,
-    time_offset_profile,
+    sgp4_epoch_bias_profile,
 )
 from dart.od.schema import LossKind
-from experiments._benchmark_io import load_inputs, save_json
-from experiments.benchmark_gps_ref import BenchmarkResult, _bind_reference, benchmark
+from experiments._benchmark_io import _contact, load_inputs, save_json
+from experiments.benchmark_gps_ref import (
+    BenchmarkResult,
+    _bind_reference,
+    benchmark,
+    reference_bounds,
+)
 from experiments.time_offset import MIN_SAMPLES as TIMING_MIN_SAMPLES
-from experiments.time_offset import benchmark_record, fit_contact, save_gps_sources
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -61,6 +63,12 @@ POSITION = ("dx_m", "dy_m", "dz_m")
 VELOCITY = ("dvx_m_s", "dvy_m_s", "dvz_m_s")
 Record = dict[str, Any]  # JSON records combine metadata, tables, and diagnostics.
 Checkpoint = Callable[[Record], None]
+
+
+class DopplerSelection(TypedDict):
+    selector: Callable[[pl.DataFrame], pl.DataFrame] | None
+    min_ebn0_db: float | None
+    max_abs_offset_hz: float
 
 
 class ForestOptimizerSettings(TypedDict):
@@ -123,7 +131,7 @@ def configurations(
         )
 
     for cid in contact_ids if timing_ids is None else timing_ids:
-        profile = time_offset_profile(cid, bound_s=time_offset_bound_s)
+        profile = sgp4_epoch_bias_profile([cid], bound_s=time_offset_bound_s)
         yield "timing", [cid], configured(profile)
     for index in range(len(contact_ids) - 2):
         group = contact_ids[index : index + 3]
@@ -138,75 +146,107 @@ def configurations(
 
 
 def scoring_epochs(measurements: pl.DataFrame) -> tuple[sk.time, sk.time]:
-    """Common scoring midpoint and an earlier forward-propagation epoch."""
-    selected = select_doppler(measurements)
-    first = sk.time.from_datetime(selected["timestamp"].min())
-    last = sk.time.from_datetime(selected["timestamp"].max())
-    center = sk.time.from_unixtime((first.as_unixtime() + last.as_unixtime()) / 2)
+    """Mean of already selected fit timestamps and an earlier propagation epoch."""
+    if measurements.is_empty():
+        raise ValueError("scoring requires retained observations")
+    times = measurements["timestamp"].dt.epoch("us").to_numpy() / 1e6
+    first = sk.time.from_unixtime(float(times.min()))
+    center = sk.time.from_unixtime(float(times.mean()))
     epoch = min(first, center - sk.duration(seconds=1800)) - sk.duration(seconds=1)
     return center, epoch
 
 
-def _reepoch_prior(
-    prior: EphemerisMetadata,
-    measurements: pl.DataFrame,
+def window_statistics(
+    states: pl.DataFrame,
     center: sk.time,
-    epoch: sk.time,
-    time_offset_bound_s: float,
-) -> ReepochedTle:
-    selected = select_doppler(measurements)
-    first = sk.time.from_datetime(selected["timestamp"].min())
-    last = sk.time.from_datetime(selected["timestamp"].max())
-    lines = _source_tle_lines(prior.tle or "")[-2:]
-    return reepoch_tle(
-        (lines[0], lines[1]),
-        center,
-        min(epoch, first - sk.duration(seconds=time_offset_bound_s)),
-        max(
-            center + sk.duration(seconds=1800),
-            last + sk.duration(seconds=time_offset_bound_s),
-        ),
-    )
-
-
-def window_statistics(states: pl.DataFrame, center: sk.time) -> list[Record]:
+    *,
+    require_full_hour: bool = True,
+    reference_bounds: tuple[float, float] | None = None,
+) -> list[Record]:
     """Sample-weighted norm RMSE/mean/variance and signed component moments.
 
     Coverage uses the OEM's observed median cadence; it does not fill gaps.
     Variances are population moments (ddof=0), in m² and (m/s)².
+    require_full_hour=False exists only to replay deprecated v1/v2 reports.
     """
     start, stop = center.as_unixtime() - 1800, center.as_unixtime() + 1800
-    rows = []
-    for solution in ("prior", "fitted"):
-        history = states.filter(pl.col("solution") == solution)
-        selected = history.filter(pl.col("timestamp_unix_s").is_between(start, stop))
+    labels = ["prior", "fitted"]
+    if "source" in states["solution"]:
+        labels.insert(0, "source")
+    return [
+        _window_score(states, label, start, stop, require_full_hour, reference_bounds)
+        for label in labels
+    ]
+
+
+def _window_score(
+    states: pl.DataFrame,
+    solution: str,
+    start: float,
+    stop: float,
+    require_full_hour: bool,
+    reference_bounds: tuple[float, float] | None,
+    *,
+    exclude_start: bool = False,
+) -> Record:
+    history = states.filter(pl.col("solution") == solution)
+    selected = history.filter(pl.col("timestamp_unix_s").is_between(start, stop))
+    times = np.unique(selected["timestamp_unix_s"].to_numpy())
+    complete = _complete_hour(
+        history, times, start, stop, require_full_hour, reference_bounds
+    )
+    if exclude_start:
+        selected = selected.filter(pl.col("timestamp_unix_s") > start)
         times = np.unique(selected["timestamp_unix_s"].to_numpy())
-        cadence = np.diff(np.unique(history["timestamp_unix_s"].to_numpy()))
-        complete = False
-        if times.size > 1 and cadence.size:
-            step = float(np.median(cadence))
-            complete = bool(
-                times[0] < start + step
-                and times[-1] > stop - step
-                and np.max(np.diff(times)) <= step * 1.5
-            )
-        row: Record = {
-            "solution": solution,
-            "window_start_unix_s": start,
-            "window_stop_unix_s": stop,
-            "sample_count": selected.height,
-            "coverage": "unavailable"
-            if not times.size
-            else "complete"
-            if complete
-            else "partial",
-            "first_sample_unix_s": float(times[0]) if times.size else None,
-            "last_sample_unix_s": float(times[-1]) if times.size else None,
-        }
-        row.update(_error_moments(selected, POSITION, "position", "m"))
-        row.update(_error_moments(selected, VELOCITY, "velocity", "m_s"))
-        rows.append(row)
-    return rows
+    row: Record = {
+        "solution": solution,
+        "window_start_unix_s": start,
+        "window_stop_unix_s": stop,
+        "sample_count": selected.height,
+        "coverage": "unavailable"
+        if not times.size
+        else "complete"
+        if complete
+        else "partial",
+        "first_sample_unix_s": float(times[0]) if times.size else None,
+        "last_sample_unix_s": float(times[-1]) if times.size else None,
+    }
+    row["accuracy_unavailable_reason"] = (
+        "OEM does not cover the complete scoring hour"
+        if require_full_hour and not complete
+        else ""
+    )
+    if require_full_hour and not complete:
+        selected = selected.head(0)
+    row.update(_error_moments(selected, POSITION, "position", "m"))
+    row.update(_error_moments(selected, VELOCITY, "velocity", "m_s"))
+    return row
+
+
+def _complete_hour(
+    history: pl.DataFrame,
+    times: np.ndarray,
+    start: float,
+    stop: float,
+    strict: bool,
+    reference_bounds: tuple[float, float] | None,
+) -> bool:
+    available = np.unique(history["timestamp_unix_s"].to_numpy())
+    if times.size < 2 or available.size < 2:
+        return False
+    bounds = (
+        reference_bounds
+        if reference_bounds is not None
+        else (available[0], available[-1])
+    )
+    if strict and (bounds[0] > start + 1e-6 or bounds[1] < stop - 1e-6):
+        return False
+    step = float(np.median(np.diff(available)))
+    return bool(
+        times[0] < start + step
+        and times[-1] > stop - step
+        and np.max(np.diff(times)) <= step * 1.5
+    )
 
 
 def _error_moments(
@@ -316,7 +356,7 @@ def _checkpoint_writer(directory: Path) -> Checkpoint:
         cases[case["spacecraft_id"]] = case
         save_json(
             directory / "experiment.json.tmp",
-            {"format_version": 2, "spacecraft": list(cases.values())},
+            {"format_version": 3, "spacecraft": list(cases.values())},
         )
         (directory / "experiment.json.tmp").replace(directory / "experiment.json")
         rows = [row for c in cases.values() for row in _summary_rows(c)]
@@ -350,7 +390,15 @@ def _summary_rows(case: Record) -> list[Record]:
         for run in case["runs"]
         for row in (
             run["statistics"]
-            or ([run["timing_score"]] if "timing_score" in run else [])
+            or [
+                {
+                    "solution": "fitted",
+                    "coverage": "unavailable",
+                    "accuracy_unavailable_reason": run["metadata"].get(
+                        "unavailable_reason", "accuracy unavailable"
+                    ),
+                }
+            ]
         )
     ]
 
@@ -417,8 +465,9 @@ async def experiment(
     time_offset_bound_s: float = 120.0,
     variance_hz2: float = FOREST_VARIANCE_HZ2,
     max_evaluations: int = 1000,
-    gps_directory: Path = ROOT / "gps-examples",
+    prior_scenario: str = "separation",
     _checkpoint: Checkpoint | None = None,
+    _optimizers: dict[tuple[str, tuple[str, ...]], OptimizerContext] | None = None,
 ) -> None:
     """Run one spacecraft; the CLI shares a checkpoint across all spacecraft."""
     _validate_settings(min_samples, time_offset_bound_s, max_bias_variance_hz2)
@@ -441,12 +490,19 @@ async def experiment(
         "input_sha256": hashes,
         "snapshot_dir": snapshot_dir,
         "initial_ephemeris": prior,
-        "timing_scoring_kind": "raw_gps_phase",
+        "prior_scenario": prior_scenario,
+        "timing_scoring_kind": "tle_epoch_oem_window",
+        "scoring_policy": "fit_mean_full_hour",
+        "reference_bounds_unix_s": reference_bounds(reference),
+        "timing_convention": "corrected TLE epoch = prepared epoch + offset; observation clocks fixed",
         "variance_hz2": variance_hz2,
         "min_samples": min_samples,
         "quality_selection": quality,
         "loss": loss,
         "loss_scale_hz": loss_scale_hz,
+        "center_frequency_hz": center_frequency_hz,
+        "max_evaluations": max_evaluations,
+        "time_offset_bound_s": time_offset_bound_s,
         "max_bias_variance_hz2": max_bias_variance_hz2,
         "inventory": inventory,
         "runs": [],
@@ -459,50 +515,39 @@ async def experiment(
         variance_hz2=variance_hz2,
         max_evaluations=max_evaluations,
     )
-    _run_timing_cases(
-        case,
-        contacts,
-        measurements,
-        prior,
-        center_frequency_hz,
-        gps_directory,
-        output_dir,
-        publish,
-        optimizer_settings,
-    )
-    if not ids:
-        case["unavailable_reason"] = "no passes satisfy the gate"
-        _finish_case(case, publish, output_dir, _checkpoint is None)
-        return
-
-    selected = select_fit_doppler(measurements, min_ebn0_db, max_abs_offset_hz).filter(
-        pl.col("contact_id").is_in(ids)
-    )
-    center, epoch = scoring_epochs(selected)
-    case["scoring_center_unix_s"] = center.as_unixtime()
-    case["initial_ephemeris"] = prior
-    try:
-        derived = _reepoch_prior(prior, selected, center, epoch, time_offset_bound_s)
-    except ReepochError as exc:
-        case["reepoching"] = {
-            "accepted": False,
-            "reason": str(exc),
-            "diagnostics": exc.diagnostics,
-        }
-        case["unavailable_reason"] = f"TLE re-epoching rejected: {exc}"
-        _finish_case(case, publish, output_dir, _checkpoint is None)
-        return
-    case["reepoching"] = {"accepted": True, "diagnostics": derived}
+    timing_ids, timing_inventory = _timing_inventory(contacts, measurements)
+    case["timing_inventory"] = timing_inventory
+    if not timing_ids:
+        case["timing_unavailable_reason"] = (
+            "no contacts have 301 selected Doppler samples"
+        )
     publish(case)
 
     async def run_case(
         stage: str,
         group: list[str],
         optimizer: OptimizerContext,
-        center: sk.time,
-        epoch: sk.time,
     ) -> BenchmarkResult | None:
+        if _optimizers is not None:
+            optimizer = _optimizers[(stage, tuple(group))]
         print(f"{reference.object_id}: {stage}, {len(group)} passes", flush=True)
+        frame = measurements.filter(pl.col("contact_id").is_in(group))
+        timing = stage == "timing"
+        selection = DopplerSelection(
+            selector=select_time_offset_doppler if timing else None,
+            min_ebn0_db=None if timing else min_ebn0_db,
+            max_abs_offset_hz=100000.0 if timing else max_abs_offset_hz,
+        )
+        selected = select_fit_doppler(frame, **selection)
+        center, epoch = scoring_epochs(selected)
+        window = (
+            epoch,
+            max(
+                center + sk.duration(seconds=1800),
+                sk.time.from_datetime(selected["timestamp"].max())
+                + sk.duration(seconds=time_offset_bound_s),
+            ),
+        )
         try:
             result = await benchmark(
                 group,
@@ -513,25 +558,28 @@ async def experiment(
                 snapshot_dir=snapshot_dir,
                 reference_spacecraft_id=spacecraft_id,
                 variance_hz2=variance_hz2,
-                min_samples=min_samples,
-                **quality,
+                min_samples=TIMING_MIN_SAMPLES if timing else min_samples,
+                **selection,
                 epoch=epoch,
-                derived_tle_lines=(
-                    derived.tle_lines
-                    if optimizer.model == OrbitModel.FULL_STATE
-                    else None
-                ),
                 initialize_time=False,
-                preservation_window=(
-                    sk.time.from_unixtime(derived.window_start_unix_s),
-                    sk.time.from_unixtime(derived.window_stop_unix_s),
-                ),
+                preservation_window=window,
+                score_source=True,
             )
         except ReepochError as exc:
             _record_preparation_failure(case, stage, group, optimizer, exc)
+            run = case["runs"][-1]
+            run["scoring_center_unix_s"] = center.as_unixtime()
+            run["metadata"]["selection"] = selection_counts(
+                contacts, frame, **selection
+            )
             publish(case)
             print(f"  preparation rejected: {exc}", flush=True)
             return None
+        result.metadata.update(
+            scoring_kind="oem_window",
+            scoring_policy="fit_mean_full_hour",
+            timing_convention=case["timing_convention"] if timing else "",
+        )
         bounds = active_bounds(result.output, optimizer)
         case["runs"].append(
             {
@@ -543,37 +591,38 @@ async def experiment(
                 "scoring_center_unix_s": center.as_unixtime(),
                 "states": result.states.to_dict(as_series=False),
                 "doppler": result.doppler.to_dict(as_series=False),
-                "statistics": window_statistics(result.states, center),
+                "statistics": window_statistics(
+                    result.states,
+                    center,
+                    require_full_hour=True,
+                    reference_bounds=case["reference_bounds_unix_s"],
+                ),
             }
         )
         print(
             f"  success={result.output.success}: {result.output.message}; active bounds={bounds}",
             flush=True,
         )
+        result.save(output_dir / case["name"] / case["runs"][-1]["run_id"])
         publish(case)
         return result
 
+    result = None
     # The generator always ends with the all-pass full-state fit.
     for stage, group, optimizer in configurations(
-        ids, timing_ids=[], **optimizer_settings
+        ids, timing_ids=timing_ids, **optimizer_settings
     ):
-        result = await run_case(stage, group, optimizer, center, epoch)
-    # The final full-state fit does not perform low-fidelity preparation.
-    assert result is not None
-    diagnostic = covariance_diagnostics(result.output, optimizer)
-    case["runs"][-1]["covariance"] = diagnostic
-    print(
-        f"{reference.object_id}: covariance rank={diagnostic['rank']}/{len(optimizer.parameters)}; "
-        f"{diagnostic['unavailable_reason'] or 'available (local approximation)'}",
-        flush=True,
+        result = await run_case(stage, group, optimizer)
+    if not ids:
+        case["unavailable_reason"] = "no passes satisfy the gate"
+    if result is None or not ids:
+        _finish_case(case, publish, output_dir, _checkpoint is None)
+        return
+    fitted_optimizer = result.metadata["optimizer"]
+    assert isinstance(fitted_optimizer, OptimizerContext)
+    retained, reason = _record_pruning(
+        case, ids, result, fitted_optimizer, max_bias_variance_hz2
     )
-    retained, reason = prune_passes(ids, diagnostic, max_bias_variance_hz2)
-    case["pruning"] = {
-        "reason": reason,
-        "retained_contact_ids": retained,
-        "removed_contact_ids": [cid for cid in ids if cid not in retained],
-    }
-    print(f"{reference.object_id}: pruning: {reason}", flush=True)
     publish(case)
     if reason == "refit":
         await run_case(
@@ -589,86 +638,53 @@ async def experiment(
                 ),
                 loss=loss,
             ),
-            center,
-            epoch,
         )
     _finish_case(case, publish, output_dir, _checkpoint is None)
 
 
-def _run_timing_cases(
+def _record_pruning(
     case: Record,
-    contacts: list[ContactMetadata],
-    measurements: pl.DataFrame,
-    prior: EphemerisMetadata,
-    center_frequency_hz: float,
-    gps_directory: Path,
-    output_dir: Path,
-    publish: Checkpoint,
-    settings: ForestOptimizerSettings,
-) -> None:
-    counts = selection_counts(
-        contacts, measurements, selector=select_time_offset_doppler
+    ids: list[str],
+    result: BenchmarkResult,
+    optimizer: OptimizerContext,
+    threshold: float | None,
+) -> tuple[list[str], str]:
+    diagnostic = covariance_diagnostics(result.output, optimizer)
+    case["runs"][-1]["covariance"] = diagnostic
+    print(
+        f"{case['name']}: covariance rank={diagnostic['rank']}/{len(optimizer.parameters)}; "
+        f"{diagnostic['unavailable_reason'] or 'available (local approximation)'}",
+        flush=True,
     )
-    case["timing_inventory"] = counts
-    usable = {c.contact_id for c in counts if c.retained_samples >= TIMING_MIN_SAMPLES}
+    retained, reason = prune_passes(ids, diagnostic, threshold)
+    case["pruning"] = {
+        "reason": reason,
+        "retained_contact_ids": retained,
+        "removed_contact_ids": [cid for cid in ids if cid not in retained],
+    }
+    print(f"{case['name']}: pruning: {reason}", flush=True)
+    return retained, reason
+
+
+def _timing_inventory(
+    contacts: list[ContactMetadata], measurements: pl.DataFrame
+) -> tuple[list[str], list[Record]]:
     ordered = sorted(contacts, key=lambda c: (c.start, c.contact_id))
-    selected_contacts = {c.contact_id: c for c in ordered if c.contact_id in usable}
-    if not selected_contacts:
-        case["timing_unavailable_reason"] = (
-            "no contacts have 301 selected Doppler samples"
-        )
-        publish(case)
-        return
-    frozen = output_dir / case["name"] / "raw-gps"
-    frozen.mkdir(parents=True)
-    case["gps_sources_sha256"] = save_gps_sources(gps_directory, case["name"], frozen)
-    case["gps_directory"] = frozen
-    gps = load_bestxyz(
-        frozen,
-        case["name"],
-        cast(datetime, measurements["timestamp"].min()).timestamp(),
-        cast(datetime, measurements["timestamp"].max()).timestamp(),
+    counts = selection_counts(
+        ordered, measurements, selector=select_time_offset_doppler
     )
-    case["gps_rejected"] = gps.rejected
-    for _, group, optimizer in configurations(
-        [], timing_ids=list(selected_contacts), **settings
-    ):
-        contact = selected_contacts[group[0]]
-        frame = measurements.filter(pl.col("contact_id") == contact.contact_id)
-        print(f"{case['name']}: timing, {contact.contact_id}", flush=True)
-        try:
-            result = fit_contact(
-                contact,
-                frame,
-                prior,
-                gps,
-                center_frequency_hz=center_frequency_hz,
-                optimizer=optimizer,
-                variance_hz2=settings["variance_hz2"],
-            )
-            case["runs"].append(
-                benchmark_record(result, f"timing-{len(case['runs']):03d}")
-            )
-        except ReepochError as exc:
-            _record_preparation_failure(case, "timing", group, optimizer, exc)
-            selected = select_time_offset_doppler(frame)
-            case["runs"][-1]["metadata"].update(
-                scoring_kind="raw_gps_phase",
-                selection_policy="forest_time_offset",
-                window_start_unix_s=cast(
-                    datetime, selected["timestamp"].min()
-                ).timestamp(),
-                window_stop_unix_s=cast(
-                    datetime, selected["timestamp"].max()
-                ).timestamp(),
-                selection=[
-                    {
-                        "contact_id": contact.contact_id,
-                        "retained_samples": selected.height,
-                    }
-                ],
-            )
-        publish(case)
+    inventory: list[Record] = [
+        {
+            "contact_id": c.contact_id,
+            "retained_samples": c.retained_samples,
+            "raw_samples": c.raw_samples,
+            "exclusion_reason": ""
+            if c.retained_samples >= TIMING_MIN_SAMPLES
+            else f"{c.retained_samples} selected samples; need {TIMING_MIN_SAMPLES}",
+        }
+        for c in counts
+    ]
+    return [r["contact_id"] for r in inventory if not r["exclusion_reason"]], inventory
 
 
 def _record_preparation_failure(
@@ -749,12 +765,15 @@ def accuracy_figure(cases: list[Record]) -> "Figure":
     )
     for index, case in enumerate(cases):
         for column, (stage, title, xlabel) in enumerate(_ACCURACY_METHODS):
+            if stage == "timing" and case.get("scoring_policy") == "fit_mean_full_hour":
+                title = "TLE epoch offset + bias; independent passes"
             for row, kind, unit in ((0, "position", "m"), (1, "velocity", "m_s")):
                 panel = axes[2 * index + row, column]
                 _plot_panel(panel, case, stage, kind, unit)
                 scoring = (
                     "same-pass raw GPS"
-                    if stage == "timing" and case.get("timing_scoring_kind")
+                    if stage == "timing"
+                    and case.get("timing_scoring_kind") == "raw_gps_phase"
                     else "one-hour OEM"
                 )
                 candidate = (
@@ -767,15 +786,24 @@ def accuracy_figure(cases: list[Record]) -> "Figure":
                     title=f"{case['name']}{candidate}\n{title}\n{scoring}",
                     xlabel=xlabel,
                 )
-    fig.suptitle(
-        "Position RMS uses log scale • GPS timing and OEM orbit scores use different windows\n"
-        "Open markers: partial OEM coverage or <5 GPS fixes; ×: optimizer failed; convergence does not guarantee accuracy"
-    )
+    fig.suptitle(_accuracy_caption(cases))
     return fig
 
 
+def _accuracy_caption(cases: list[Record]) -> str:
+    if any(case.get("scoring_policy") != "fit_mean_full_hour" for case in cases):
+        return "Deprecated historical metrics • position RMS uses log scale\nOriginal scoring conventions retained for archive replay; do not compare as v3 accuracy"
+    scenarios = ", ".join(
+        dict.fromkeys(c.get("prior_scenario", "separation") for c in cases)
+    )
+    return f"Prior scenario: {scenarios} • position RMSE uses log scale\nv3: complete one-hour OEM windows centered on each fit; unavailable scores leave gaps"
+
+
 def _plot_panel(panel: Any, case: Record, stage: str, kind: str, unit: str) -> None:
-    if stage == "timing" and case.get("timing_scoring_kind") == "raw_gps_phase":
+    if (
+        stage == "timing"
+        and case.get("timing_scoring_kind") == "raw_gps_phase" == "raw_gps_phase"
+    ):
         runs = [r for r in case["runs"] if r["stage"] == "timing"]
         _plot_timing_accuracy(panel, runs, kind)
     else:
@@ -789,7 +817,7 @@ def _plot_orbit_accuracy(
     runs = [r for r in case["runs"] if r["stage"] in stages]
     ticks = list(range(1, len(runs) + 1))
     labels = [_accuracy_label(run, i) for i, run in enumerate(runs, start=1)]
-    for solution, color in (("prior", "0.45"), ("fitted", "C0")):
+    for solution, color in (("source", "0.7"), ("prior", "0.35"), ("fitted", "C0")):
         _plot_curve(panel, runs, solution, color, f"{kind}_rmse_{unit}")
     panel.set(
         xticks=ticks,
@@ -800,7 +828,7 @@ def _plot_orbit_accuracy(
     if kind == "position":
         panel.set_yscale("log")
     panel.grid(alpha=0.3, which="both")
-    if panel.lines:
+    if panel.get_legend_handles_labels()[0]:
         panel.legend(fontsize="small")
     if not runs:
         panel.text(
@@ -890,7 +918,9 @@ def _plot_curve(
     panel: Any, runs: list[Record], solution: str, color: str, metric: str
 ) -> None:
     values = [_score(run, solution, metric) for run in runs]
-    label = solution
+    label = {"source": "source TLE", "prior": "prepared prior", "fitted": "fitted"}[
+        solution
+    ]
     for index, (run, (value, coverage)) in enumerate(
         zip(runs, values, strict=True), start=1
     ):
@@ -943,6 +973,8 @@ def _prefix_line(
         v if r["stage"] == "full_state" and v > 0 else np.nan
         for r, (v, _) in zip(runs, values, strict=True)
     ]
+    if not np.any(np.isfinite(y)):
+        return
     panel.plot(
         range(1, len(runs) + 1),
         y,
@@ -952,7 +984,84 @@ def _prefix_line(
     )
 
 
-async def main() -> None:
+def _freeze_prior_snapshot(
+    case: Record,
+    cache: Path,
+    output: Path,
+    prior_source: str,
+    min_samples: int,
+    min_ebn0_db: float,
+    max_abs_offset_hz: float,
+) -> str:
+    source, destination = (
+        cache / case["REFERENCE_OBJECT_ID"],
+        output / "inputs" / case["REFERENCE_OBJECT_ID"],
+    )
+    shutil.copytree(source, destination)
+    if prior_source == "separation":
+        return case["EPHEMERIS_ID"]
+    from experiments.offline_data import load_experiment
+
+    _, _, priors = load_experiment(
+        case["DOPPLER_PARQUET"],
+        spacecraft_id=case["SPACECRAFT_ID"],
+        satellite=case["REFERENCE_OBJECT_ID"],
+        center_frequency_hz=case["CENTER_FREQUENCY_HZ"],
+    )
+    contacts = [_contact(c) for c in json.loads((source / "contacts.json").read_text())]
+    measurements = pl.read_parquet(source / "raw-measurements.parquet")
+    timing, _ = _timing_inventory(contacts, measurements)
+    gated = gate_passes(
+        contacts,
+        measurements,
+        min_samples,
+        min_ebn0_db=min_ebn0_db,
+        max_abs_offset_hz=max_abs_offset_hz,
+    )
+    eligible = sorted(
+        set(timing) | {cid for cid, reason in gated.items() if not reason}
+    )
+    prior = _common_recorded_prior(priors, eligible)
+    save_json(destination / "initial-ephemeris.json", prior)
+    manifest_path = destination / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["sha256"]["initial-ephemeris.json"] = hashlib.sha256(
+        (destination / "initial-ephemeris.json").read_bytes()
+    ).hexdigest()
+    save_json(manifest_path, manifest)
+    provenance = output / "prior-provenance" / case["REFERENCE_OBJECT_ID"]
+    provenance.mkdir(parents=True)
+    shutil.copy2(case["DOPPLER_PARQUET"], provenance / "source.parquet")
+    save_json(
+        provenance / "selection.json",
+        {
+            "prior_scenario": "recorded",
+            "eligible_contact_ids": eligible,
+            "selected_prior": prior,
+            "source_sha256": hashlib.sha256(
+                (provenance / "source.parquet").read_bytes()
+            ).hexdigest(),
+            "policy": "all eligible timing/orbit contacts must have the same recorded TLE; otherwise reject before fitting",
+        },
+    )
+    return prior.ephemeris_id
+
+
+def _common_recorded_prior(
+    priors: dict[str, EphemerisMetadata], contact_ids: list[str]
+) -> EphemerisMetadata:
+    if not contact_ids:
+        raise ValueError("no eligible contacts from which to select a recorded prior")
+    selected = [priors[cid] for cid in contact_ids]
+    lines = {tuple((prior.tle or "").splitlines()[-2:]) for prior in selected}
+    if len(lines) != 1 or len(next(iter(lines))) != 2:
+        raise ValueError(
+            "eligible contacts have different recorded TLEs; select explicit per-fit priors"
+        )
+    return selected[0]
+
+
+def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--forest",
@@ -964,13 +1073,23 @@ async def main() -> None:
     parser.add_argument(
         "--output",
         type=Path,
-        default=ROOT
-        / "raw_results"
-        / datetime.now(UTC).strftime("forest-%Y%m%dT%H%M%S.%fZ"),
-        help="Results directory (default: repo-relative raw_results/forest-<UTC timestamp>/)",
+        default=ROOT / "raw_results" / "forest-experiment-v5",
+        help="New v5 results directory (README.md, fits.csv, timeline.png, experiment.zip)",
     )
     parser.add_argument(
         "--cache", type=Path, default=ROOT / "experiments/results/forest-inputs"
+    )
+    parser.add_argument(
+        "--prior-source",
+        choices=(
+            "pre-launch",
+            "payload-separation-update",
+            "both",
+            "recorded",
+            "separation",
+        ),
+        default="pre-launch",
+        help="Fixed source prior; recorded/separation are deprecated aliases",
     )
     parser.add_argument("--min-samples", type=int, default=20)
     parser.add_argument("--min-ebn0-db", type=float, default=3.0)
@@ -979,36 +1098,51 @@ async def main() -> None:
     parser.add_argument("--loss-scale-hz", type=float, default=700.0)
     parser.add_argument("--variance-hz2", type=float, default=FOREST_VARIANCE_HZ2)
     parser.add_argument("--max-evaluations", type=int, default=1000)
-    parser.add_argument("--gps-directory", type=Path, default=ROOT / "gps-examples")
     parser.add_argument("--time-offset-bound-s", type=float, default=120)
     parser.add_argument("--max-bias-variance-hz2", type=float)
-    args = parser.parse_args()
-    _validate_settings(
-        args.min_samples, args.time_offset_bound_s, args.max_bias_variance_hz2
-    )
-    publish = _checkpoint_writer(args.output)
-    print(f"Results: {args.output}", flush=True)
-    cases = [
-        runpy.run_path(str(ROOT / f"tests/live-data/forest{n}.py"))
-        for n in dict.fromkeys(args.forest)
-    ]
-    # Freeze every selected spacecraft before any gate or optimizer is invoked.
-    for case in cases:
-        await load_inputs(
-            tuple(case["CONTACT_IDS"]),
-            case["EPHEMERIS_ID"],
-            read_oem(case["DEFAULT_REFERENCE_OEM"]),
-            args.cache / case["REFERENCE_OBJECT_ID"],
+    return parser.parse_args()
+
+
+async def main() -> None:
+    from experiments.forecast import main as run_v5
+
+    await run_v5(_arguments())
+
+
+def _freeze_cases(
+    cases: list[Record], args: argparse.Namespace, directory: Path, scenario: str
+) -> list[str]:
+    return [
+        _freeze_prior_snapshot(
+            case,
+            args.cache,
+            directory,
+            scenario,
+            args.min_samples,
+            args.min_ebn0_db,
+            args.max_abs_offset_hz,
         )
-    for case in cases:
+        for case in cases
+    ]
+
+
+async def _run_cases(
+    cases: list[Record],
+    args: argparse.Namespace,
+    directory: Path,
+    publish: Checkpoint,
+    selected_priors: list[str],
+    scenario: str,
+) -> None:
+    for case, prior_id in zip(cases, selected_priors, strict=True):
         await experiment(
             list(case["CONTACT_IDS"]),
             case["DEFAULT_REFERENCE_OEM"],
-            ephemeris_id=case["EPHEMERIS_ID"],
+            ephemeris_id=prior_id,
             spacecraft_id=case["SPACECRAFT_ID"],
             center_frequency_hz=case["CENTER_FREQUENCY_HZ"],
-            output_dir=args.output,
-            snapshot_dir=args.cache / case["REFERENCE_OBJECT_ID"],
+            output_dir=directory,
+            snapshot_dir=directory / "inputs" / case["REFERENCE_OBJECT_ID"],
             min_samples=args.min_samples,
             min_ebn0_db=args.min_ebn0_db,
             max_abs_offset_hz=args.max_abs_offset_hz,
@@ -1017,11 +1151,10 @@ async def main() -> None:
             time_offset_bound_s=args.time_offset_bound_s,
             variance_hz2=args.variance_hz2,
             max_evaluations=args.max_evaluations,
-            gps_directory=args.gps_directory,
             max_bias_variance_hz2=args.max_bias_variance_hz2,
+            prior_scenario=scenario,
             _checkpoint=publish,
         )
-    plot_accuracy(args.output)
 
 
 if __name__ == "__main__":

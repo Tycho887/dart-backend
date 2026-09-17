@@ -4,6 +4,7 @@ See docs/benchmark.md for acquisition, snapshot replay, and CSV export.
 Numerical work is delegated to the existing DART library.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, fields, replace
 from datetime import UTC, datetime
 from importlib.metadata import version
@@ -14,9 +15,9 @@ import polars as pl
 import satkit as sk
 
 from dart.evaluation import compare_states
-from dart.forward_models import evaluate_sgp4_augmented
+from dart.forward_models import ForwardModelEvaluation, evaluate_sgp4_augmented
 from dart.io import ContactMetadata, ForwardModelContext
-from dart.io.doppler import prepare_doppler
+from dart.io.doppler import prepare_doppler, select_time_offset_doppler
 from dart.io.load import _contact_ids
 from dart.io.oem import OemEphemeris, read_oem
 from dart.od import (
@@ -24,6 +25,7 @@ from dart.od import (
     OptimizerOutput,
     OrbitModel,
     PriorStateData,
+    _source_tle_lines,
     fit,
     prepare_sgp4_prior,
     resolve_prior,
@@ -32,6 +34,7 @@ from dart.od import (
 from dart.od.initialization import initialize_sgp4_time, timing_parameter_name
 from dart.orbit import OrbitSolution, Sgp4Orbit, StateHistory, propagate
 from experiments._benchmark_io import load_inputs, save_json
+from experiments.fit_quality import jacobian_diagnostics
 
 _ERROR_COLUMNS = ("dx_m", "dy_m", "dz_m", "dvx_m_s", "dvy_m_s", "dvz_m_s")
 _STATE_SCHEMA = {
@@ -81,6 +84,14 @@ def _bind_reference(
     return replace(
         reference,
         segments=tuple(replace(s, object_id=cospar) for s in reference.segments),
+    )
+
+
+def reference_bounds(reference: OemEphemeris) -> tuple[float, float]:
+    """Original reference support, independent of prediction initialization."""
+    return (
+        min(s.epochs[0].as_unixtime() for s in reference.segments),
+        max(s.epochs[-1].as_unixtime() for s in reference.segments),
     )
 
 
@@ -151,6 +162,8 @@ async def benchmark(
     derived_tle_lines: tuple[str, str] | None = None,
     initialize_time: bool = False,
     preservation_window: tuple[sk.time, sk.time] | None = None,
+    selector: Callable[[pl.DataFrame], pl.DataFrame] | None = None,
+    score_source: bool = False,
 ) -> BenchmarkResult:
     """Fit exactly these contacts once and return signed residuals in SI/Hz.
 
@@ -176,6 +189,7 @@ async def benchmark(
         min_samples=min_samples,
         min_ebn0_db=min_ebn0_db,
         max_abs_offset_hz=max_abs_offset_hz,
+        selector=selector,
     )
     epoch = _initial_epoch(context, epoch)
     prior = PriorStateData(
@@ -201,6 +215,16 @@ async def benchmark(
                 ),
             ]
         )
+    if score_source:
+        lines = _source_tle_lines(ephemeris.tle or "")[-2:]
+        source = Sgp4Orbit(
+            initial.object_id,
+            ephemeris,
+            ephemeris.ephemeris_id,
+            (lines[0], lines[1]),
+            (0.0,) * 7,
+        )
+        states = pl.concat([_state_errors(source, reference, epoch, "source"), states])
     metadata: dict[str, object] = {
         "format_version": 1,
         "created_at": datetime.now(UTC),
@@ -222,6 +246,7 @@ async def benchmark(
         "min_ebn0_db": min_ebn0_db,
         "max_abs_offset_hz": max_abs_offset_hz,
         "selection": counts,
+        "selection_policy": _selection_policy(selector),
         "input_sha256": hashes,
         "reference_path": oem_path,
         "reference_object_id": reference.object_id,
@@ -240,11 +265,33 @@ async def benchmark(
             for name in ("dart", "satkit", "oem", "numpy", "scipy", "polars")
         },
     }
+    metadata.update(_fit_diagnostics(output, optimizer))
     metadata.update(timing)
     metadata.update(_epoch_product_metadata(prior, output))
     return BenchmarkResult(
         states, _doppler_residuals(context, output), epoch, output, metadata
     )
+
+
+def _selection_policy(selector: Callable[[pl.DataFrame], pl.DataFrame] | None) -> str:
+    if selector is None:
+        return "quality_gate"
+    return "forest_time_offset" if selector is select_time_offset_doppler else "custom"
+
+
+def _fit_diagnostics(
+    output: OptimizerOutput, optimizer: OptimizerContext
+) -> dict[str, object]:
+    if optimizer.loss not in {"linear", "soft_l1"}:
+        return {}
+    return {
+        "fit_diagnostics": jacobian_diagnostics(
+            ForwardModelEvaluation(output.residuals, output.jacobian),
+            np.array([p.scale for p in optimizer.parameters]),
+            optimizer.loss,
+            optimizer.loss_scale,
+        )
+    }
 
 
 def _initial_epoch(context: ForwardModelContext, epoch: sk.time | None) -> sk.time:

@@ -68,6 +68,11 @@ def jacobian_diagnostics(
 
 def _replay_context(run: Record, measurements: pl.DataFrame) -> ForwardModelContext:
     metadata = run["metadata"]
+    if metadata.get("selection_policy", "quality_gate") not in {
+        "quality_gate",
+        "forest_time_offset",
+    }:
+        raise ValueError("unsupported saved observation selector for quality replay")
     contacts = [_contact(c) for c in metadata["contacts"]]
     selected = measurements.filter(pl.col("contact_id").is_in(run["contact_ids"]))
     context, counts = prepare_doppler(
@@ -127,6 +132,8 @@ def _replay_evaluation(
 
 
 def _diagnostics(run: Record, measurements: pl.DataFrame) -> Record:
+    if run["stage"].startswith("full_state") and "fit_diagnostics" in run["metadata"]:
+        return run["metadata"]["fit_diagnostics"]
     unavailable = {
         "quality_condition_number": None,
         "quality_rank": None,
@@ -207,10 +214,20 @@ def case_quality(case: Record, gate: QualityGate) -> dict[str, Record]:
     measurements = pl.read_parquet(io.BytesIO(snapshot["raw-measurements.parquet"]))
     results = {}
     for run in case["runs"]:
-        if run["stage"] not in {"timing", "sgp4_L+n"}:
+        if run["stage"] not in {
+            "timing",
+            "sgp4_L+n",
+            "full_state",
+            "full_state_pruned",
+        }:
             continue
         diagnostic = _diagnostics(run, measurements)
-        results[run["run_id"]] = quality_decision(
-            run, _sample_counts(case, run), diagnostic, gate
-        )
+        decision = quality_decision(run, _sample_counts(case, run), diagnostic, gate)
+        decision["quality_applicable"] = not run["stage"].startswith("full_state")
+        if not decision["quality_applicable"]:
+            decision.update(
+                quality_accepted=False,
+                quality_rejection_reasons="screening not applied to full-state fits",
+            )
+        results[run["run_id"]] = decision
     return results
