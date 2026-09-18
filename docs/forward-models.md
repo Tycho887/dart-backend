@@ -122,8 +122,8 @@ of this first boundary.
 
 For the locked Rust satkit 0.21.2 dependency, this means EGM96 degree/order 4,
 Sun/Moon gravity, solid Earth tides, relativistic acceleration, and RKV98
-integration. The adapter supplies no satellite properties, so drag, SRP, and
-thrust are inactive. Tide and relativistic partials are omitted from the STM.
+integration. Drag defaults to zero; SRP and thrust are inactive. Tide and
+relativistic partials are omitted from the STM.
 See [effective forces and tolerances](math.md#5-cartesian-forward-model-and-effective-forces)
 before interpreting the historical “high-fidelity” name as an accuracy claim.
 
@@ -150,6 +150,24 @@ columns before the pass biases. One propagated arc contains every shifted
 observation epoch and its +/- 1 ms nodes, so the complete Doppler time
 derivative does not trigger duplicate high-fidelity propagations. All nodes,
 including the negative derivative step, must be at or after the state epoch.
+
+With `include_drag=True`, append absolute `cd_a_over_m_m2_kg` after all pass
+biases. The coefficient must be finite and nonnegative. The shared Rust
+propagator supplies it to satkit's NRLMSISE-00 drag model with fixed F10.7 =
+F10.7A = 150 and Ap = 4. Satkit includes drag's state partials in the six-state
+STM. Only the additional coefficient column uses finite differences: a centered
+step `max(1e-6, 1e-3 * coefficient)` m²/kg, or a second-order forward difference
+near zero. Existing vector layouts remain valid without the opt-in.
+For a fixed coefficient, `cd_a_over_m_m2_kg=...` retains the original vector
+layout and avoids computing its derivative. The OD optimizer uses this path
+for fixed/considered drag and calculates the complete final Jacobian once.
+
+`dart.od.fit` enables this column when the profile contains
+`ParameterSpec("cd_a_over_m_m2_kg", ...)`, supporting both fixed and estimated
+roles. `CartesianOrbit` retains the resolved coefficient, and
+`full_state_states_gcrf(..., cd_a_over_m_m2_kg=...)` uses identical forces when
+sampling it. This is an effective drag susceptibility, not separate estimates
+of density, area, mass, or Cd. See [v6 experiments](drag-v6.md).
 
 The Rust crate also exposes step-wise trajectory and local-sensor operations
 for Rust consumers. Both legacy and augmented batch objectives cross the

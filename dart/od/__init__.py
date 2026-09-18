@@ -52,6 +52,7 @@ _FULL_STATE_PARAMETER_NAMES = (
     "velocity_z_m_s",
 )
 _SHARED_PARAMETER_NAMES = ("time_offset_s", "center_frequency_offset_hz")
+_DRAG_PARAMETER_NAME = "cd_a_over_m_m2_kg"
 _LOSSES = {"linear", "soft_l1", "huber", "cauchy", "arctan"}
 FloatArray = NDArray[np.float64]
 Evaluator = Callable[[FloatArray], ForwardModelEvaluation]
@@ -151,6 +152,7 @@ def _pass_parameter_names(data: PriorStateData) -> tuple[str, ...]:
 def _canonical_parameter_names(
     data: PriorStateData,
     model: OrbitModel,
+    include_drag: bool = False,
 ) -> tuple[str, ...]:
     pass_names = _pass_parameter_names(data)
     if model == OrbitModel.SGP4:
@@ -160,7 +162,10 @@ def _canonical_parameter_names(
             + pass_names
             + ("tle_epoch_offset_s",)
         )
-    return _FULL_STATE_PARAMETER_NAMES + _SHARED_PARAMETER_NAMES + pass_names
+    drag_names = (_DRAG_PARAMETER_NAME,) if include_drag else ()
+    return (
+        _FULL_STATE_PARAMETER_NAMES + _SHARED_PARAMETER_NAMES + pass_names + drag_names
+    )
 
 
 def _validate_parameter(parameter: ParameterSpec) -> None:
@@ -187,6 +192,8 @@ def _validate_parameter(parameter: ParameterSpec) -> None:
         )
     if parameter.scale <= 0:
         raise ValueError(f"parameter {parameter.name!r} scale must be positive")
+    if parameter.name == _DRAG_PARAMETER_NAME and parameter.lower_bound < 0:
+        raise ValueError("Cd A/m bounds must be nonnegative (m²/kg)")
     if parameter.prior_standard_uncertainty is not None and (
         not math.isfinite(parameter.prior_standard_uncertainty)
         or parameter.prior_standard_uncertainty <= 0
@@ -203,7 +210,7 @@ def _validate_optimizer(
     if not isinstance(optimizer.model, OrbitModel):
         raise TypeError("optimizer model must be an OrbitModel")
     names = tuple(parameter.name for parameter in optimizer.parameters)
-    canonical = _canonical_parameter_names(data, optimizer.model)
+    canonical = _canonical_parameter_names(data, optimizer.model, include_drag=True)
     if len(set(names)) != len(names):
         raise ValueError("optimizer parameter names must be unique")
     unknown = tuple(name for name in names if name not in canonical)
@@ -275,7 +282,14 @@ def _materialize_orbit(
         [values.get(name, 0.0) for name in _FULL_STATE_PARAMETER_NAMES]
     )
     state = tuple(float(value) for value in nominal + correction)
-    return CartesianOrbit(object_id, data.ephemeris, solution_id, data.epoch, state)
+    return CartesianOrbit(
+        object_id,
+        data.ephemeris,
+        solution_id,
+        data.epoch,
+        state,
+        cd_a_over_m_m2_kg=values.get(_DRAG_PARAMETER_NAME, 0.0),
+    )
 
 
 def _sgp4_product(
@@ -292,11 +306,19 @@ def _sgp4_product(
     return Sgp4Orbit(object_id, data.ephemeris, solution_id, lines, offsets)
 
 
-def resolve_prior(data: PriorStateData, model: OrbitModel) -> OrbitSolution:
+def resolve_prior(
+    data: PriorStateData,
+    model: OrbitModel,
+    *,
+    cd_a_over_m_m2_kg: float = 0.0,
+) -> OrbitSolution:
     """Materialize the selected uncorrected prior for baseline evaluation."""
     if model == OrbitModel.SGP4:
+        if cd_a_over_m_m2_kg != 0:
+            raise ValueError("Cd A/m is only supported for Cartesian propagation")
         data = prepare_sgp4_prior(data)
-    return _materialize_orbit(data, model, {})
+    values = {_DRAG_PARAMETER_NAME: cd_a_over_m_m2_kg} if cd_a_over_m_m2_kg else {}
+    return _materialize_orbit(data, model, values)
 
 
 def resolve_solution(data: PriorStateData, output: OptimizerOutput) -> OrbitSolution:
@@ -312,7 +334,9 @@ def resolve_solution(data: PriorStateData, output: OptimizerOutput) -> OrbitSolu
     if not np.all(np.isfinite(output.parameters)):
         raise ValueError("fit parameters must be finite")
     values = dict(zip(output.parameter_names, output.parameters.tolist(), strict=True))
-    unknown = values.keys() - set(_canonical_parameter_names(data, output.model_kind))
+    unknown = values.keys() - set(
+        _canonical_parameter_names(data, output.model_kind, include_drag=True)
+    )
     if unknown:
         raise ValueError(f"unknown fit parameters: {sorted(unknown)}")
     if output.prepared_tle is not None:
@@ -340,12 +364,23 @@ def _full_state(
     return np.ascontiguousarray(state), PriorSource.FULL_STATE
 
 
-def _full_state_evaluator(data: PriorStateData) -> tuple[Evaluator, PriorSource]:
+def _full_state_evaluator(
+    data: PriorStateData,
+    include_drag: bool = False,
+    fixed_drag: bool = False,
+) -> tuple[Evaluator, PriorSource]:
     tle_lines = _canonical_tle(data)
     state, source = _full_state(data, tle_lines)
 
     def evaluate(x: FloatArray) -> ForwardModelEvaluation:
-        return evaluate_full_state_augmented(x, state, data.epoch, data.observations)
+        return evaluate_full_state_augmented(
+            x[:-1] if fixed_drag else x,
+            state,
+            data.epoch,
+            data.observations,
+            include_drag=include_drag and not fixed_drag,
+            cd_a_over_m_m2_kg=float(x[-1]) if fixed_drag else 0.0,
+        )
 
     return evaluate, source
 
@@ -466,18 +501,31 @@ def fit(data: PriorStateData, optimizer: OptimizerContext) -> OptimizerOutput:
 
     _validate_data(data)
     _validate_optimizer(data, optimizer)
+    include_drag = any(p.name == _DRAG_PARAMETER_NAME for p in optimizer.parameters)
     if optimizer.model == OrbitModel.SGP4:
         data = prepare_sgp4_prior(data, optimizer)
         evaluator, prior_source = _sgp4_evaluator(data)
     else:
-        evaluator, prior_source = _full_state_evaluator(data)
+        evaluator, prior_source = _full_state_evaluator(data, include_drag=include_drag)
 
     parameters = optimizer.parameters
-    canonical_names = _canonical_parameter_names(data, optimizer.model)
+    canonical_names = _canonical_parameter_names(data, optimizer.model, include_drag)
     configured_indices = np.array(
         [canonical_names.index(p.name) for p in parameters], dtype=np.intp
     )
-    canonical_final, result = _fit_estimated(evaluator, optimizer, canonical_names)
+    optimization_evaluator = evaluator
+    if any(
+        p.name == _DRAG_PARAMETER_NAME and p.role != ParameterRole.ESTIMATE
+        for p in parameters
+    ):
+        # The optimizer projects onto estimated columns, so it does not need the
+        # terminal fixed/considered drag derivative. Recompute it once below.
+        optimization_evaluator, _ = _full_state_evaluator(
+            data, include_drag=True, fixed_drag=True
+        )
+    canonical_final, result = _fit_estimated(
+        optimization_evaluator, optimizer, canonical_names
+    )
     final = evaluator(canonical_final)
     output = OptimizerOutput(
         model_kind=optimizer.model,

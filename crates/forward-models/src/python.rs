@@ -6,8 +6,8 @@
 
 use crate::{
     BatchEvaluationResult, EstimationEngine, FmResult, ForwardModelError, MeasurementKind,
-    ObservationRecord, hifi_evaluate, hifi_evaluate_augmented, lofi_evaluate,
-    lofi_evaluate_augmented, propagate_arc, propagate_sgp4_gcrf, tle_with_offset,
+    ObservationRecord, hifi_evaluate, hifi_evaluate_augmented_with_drag, lofi_evaluate,
+    lofi_evaluate_augmented, propagate_sgp4_gcrf, tle_with_offset,
 };
 use numeris::{DynMatrix, DynVector, Vector6};
 use pyo3::exceptions::PyValueError;
@@ -311,13 +311,15 @@ fn evaluate_full_state(
     .map_err(python_error)
 }
 
-#[pyfunction]
+#[pyfunction(signature = (x, nominal_state_gcrf_si, epoch_unix, inputs, *, include_drag=false, cd_a_over_m_m2_kg=0.0))]
 fn evaluate_full_state_augmented(
     py: Python<'_>,
     x: Vec<f64>,
     nominal_state_gcrf_si: Vec<f64>,
     epoch_unix: f64,
     inputs: PythonInputs,
+    include_drag: bool,
+    cd_a_over_m_m2_kg: f64,
 ) -> PyResult<PythonEvaluation> {
     py.allow_threads(move || {
         if nominal_state_gcrf_si.len() != 6 {
@@ -332,15 +334,32 @@ fn evaluate_full_state_augmented(
             nominal_state_gcrf_si[4],
             nominal_state_gcrf_si[5],
         ]);
-        hifi_evaluate_augmented(
-            &inputs.engine,
-            &x,
-            &nominal,
-            &Instant::from_unixtime(epoch_unix),
-            &inputs.observations,
-            &PropSettings::default(),
-        )
-        .map(python_result)
+        let result = if include_drag {
+            if cd_a_over_m_m2_kg != 0.0 {
+                return Err(invalid_input(
+                    "supply Cd A/m in the vector or as a fixed value, not both",
+                ));
+            }
+            crate::drag::evaluate(
+                &inputs.engine,
+                &x,
+                &nominal,
+                &Instant::from_unixtime(epoch_unix),
+                &inputs.observations,
+                &PropSettings::default(),
+            )
+        } else {
+            hifi_evaluate_augmented_with_drag(
+                &inputs.engine,
+                &x,
+                &nominal,
+                &Instant::from_unixtime(epoch_unix),
+                &inputs.observations,
+                &PropSettings::default(),
+                cd_a_over_m_m2_kg,
+            )
+        };
+        result.map(python_result)
     })
     .map_err(python_error)
 }
@@ -488,12 +507,13 @@ fn sgp4_states_gcrf(
     .map_err(python_error)
 }
 
-#[pyfunction]
+#[pyfunction(signature = (state, epoch_unix, epochs_unix, *, cd_a_over_m_m2_kg=0.0))]
 fn full_state_states_gcrf(
     py: Python<'_>,
     state: Vec<f64>,
     epoch_unix: f64,
     epochs_unix: Vec<f64>,
+    cd_a_over_m_m2_kg: f64,
 ) -> PyResult<Vec<Vec<f64>>> {
     py.allow_threads(move || {
         let state: [f64; 6] = state
@@ -506,11 +526,12 @@ fn full_state_states_gcrf(
         let mut nodes = times.clone();
         nodes.sort();
         nodes.dedup();
-        let arc = propagate_arc(
+        let arc = crate::propagate_arc_with_drag(
             &Vector6::from_array(state),
             &Instant::from_unixtime(epoch_unix),
             &nodes,
             &PropSettings::default(),
+            cd_a_over_m_m2_kg,
         )?;
         times
             .iter()

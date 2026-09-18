@@ -21,13 +21,14 @@
 
 use numeris::{DynMatrix, DynVector, Matrix, Vector3, Vector6};
 use satkit::frametransform::{itrf_to_gcrf_state, transform_state};
-use satkit::orbitprop::{CovState, PropSettings, propagate};
+use satkit::orbitprop::{CovState, PropSettings, SatPropertiesSimple, propagate};
 use satkit::sgp4::{GravConst, OpsMode, SGP4Error, sgp4_full};
 use satkit::{Duration, Frame, ITRFCoord, Instant, TLE};
 use std::fmt;
 
 pub mod cca;
 pub mod diagnostics;
+pub mod drag;
 pub mod frame_cache;
 mod python;
 pub mod reepoch;
@@ -596,6 +597,18 @@ pub fn propagate_arc(
     node_times: &[Instant],
     settings: &PropSettings,
 ) -> FmResult<TrajectoryArc> {
+    propagate_arc_with_drag(state0, epoch, node_times, settings, 0.0)
+}
+
+/// Fixed-activity NRLMSISE-00 drag; the coefficient is Cd A/m in m²/kg.
+pub fn propagate_arc_with_drag(
+    state0: &Vector6<f64>,
+    epoch: &Instant,
+    node_times: &[Instant],
+    settings: &PropSettings,
+    cd_a_over_m: f64,
+) -> FmResult<TrajectoryArc> {
+    drag::validate_coefficient(cd_a_over_m)?;
     let t_end = node_times.last().ok_or_else(|| {
         ForwardModelError::InvalidInput("propagate_arc requires at least one node".to_string())
     })?;
@@ -627,7 +640,10 @@ pub fn propagate_arc(
     let samples = if *t_end == *epoch {
         vec![cov_state]
     } else {
-        let result = propagate(&cov_state, epoch, t_end, settings, None)
+        let mut settings = settings.clone();
+        settings.use_spaceweather = false;
+        let properties = SatPropertiesSimple::new(cd_a_over_m, 0.0);
+        let result = propagate(&cov_state, epoch, t_end, &settings, Some(&properties))
             .map_err(|error| ForwardModelError::Propagation(error.to_string()))?;
         result
             .interp_batch(node_times)
@@ -747,6 +763,19 @@ pub fn hifi_evaluate_augmented(
     observations: &[ObservationRecord],
     settings: &PropSettings,
 ) -> FmResult<BatchEvaluationResult> {
+    hifi_evaluate_augmented_with_drag(engine, x, nominal0, epoch, observations, settings, 0.0)
+}
+
+/// Existing augmented objective with an externally supplied fixed coefficient.
+pub fn hifi_evaluate_augmented_with_drag(
+    engine: &EstimationEngine,
+    x: &[f64],
+    nominal0: &Vector6<f64>,
+    epoch: &Instant,
+    observations: &[ObservationRecord],
+    settings: &PropSettings,
+    cd_a_over_m: f64,
+) -> FmResult<BatchEvaluationResult> {
     engine.validate()?;
     let expected = 8 + engine.num_passes;
     if x.len() != expected || !x.iter().all(|value| value.is_finite()) {
@@ -784,7 +813,7 @@ pub fn hifi_evaluate_augmented(
         .collect::<Vec<_>>();
     node_times.sort();
     node_times.dedup();
-    let arc = propagate_arc(&state0, epoch, &node_times, settings)?;
+    let arc = propagate_arc_with_drag(&state0, epoch, &node_times, settings, cd_a_over_m)?;
 
     let columns = expected;
     let mut residuals = DynVector::<f64>::zeros(observations.len());

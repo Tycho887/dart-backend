@@ -201,7 +201,10 @@ async def benchmark(
     )
     if optimizer.model == OrbitModel.SGP4:
         prior = prepare_sgp4_prior(prior, optimizer)
-    initial = resolve_prior(prior, optimizer.model)
+    coefficient = next(
+        (p.initial for p in optimizer.parameters if p.name == "cd_a_over_m_m2_kg"), 0.0
+    )
+    initial = resolve_prior(prior, optimizer.model, cd_a_over_m_m2_kg=coefficient)
     output, optimizer, timing = _fit_with_initialization(
         prior, optimizer, initialize_time
     )

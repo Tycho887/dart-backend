@@ -372,11 +372,19 @@ def evaluate_full_state_augmented(
     nominal_state_gcrf_si: ArrayLike,
     epoch: sk.time,
     context: ForwardModelContext,
+    *,
+    include_drag: bool = False,
+    cd_a_over_m_m2_kg: float = 0.0,
 ) -> ForwardModelEvaluation:
     """Evaluate full-state Doppler with global time/frequency offsets.
 
     ``x`` is ordered as six Cartesian corrections, time offset (s),
     center-frequency offset (Hz), then one Doppler bias (Hz) per pass.
+    With ``include_drag``, append absolute Cd A/m in m²/kg. NRLMSISE-00
+    uses fixed F10.7 = F10.7A = 150 and Ap = 4; only this extra column is
+    numerically differenced, while state columns retain satkit's STM.
+    Alternatively, supply a fixed ``cd_a_over_m_m2_kg`` with the original
+    vector layout; no coefficient derivative is calculated in that case.
     """
 
     inputs = _native_inputs(context)
@@ -387,6 +395,8 @@ def evaluate_full_state_augmented(
             nominal,
             _unix_seconds(epoch),
             inputs,
+            include_drag=include_drag,
+            cd_a_over_m_m2_kg=cd_a_over_m_m2_kg,
         )
     )
 
@@ -433,6 +443,8 @@ def full_state_states_gcrf(
     state_gcrf_si: ArrayLike,
     epoch: sk.time,
     epochs: Sequence[sk.time],
+    *,
+    cd_a_over_m_m2_kg: float = 0.0,
 ) -> FloatArray:
     """Return (N, 6) hifi GCRF states in m and m/s, preserving epoch order.
 
@@ -444,6 +456,7 @@ def full_state_states_gcrf(
             _parameter_vector(state_gcrf_si),
             _unix_seconds(epoch),
             [_unix_seconds(value) for value in epochs],
+            cd_a_over_m_m2_kg=cd_a_over_m_m2_kg,
         ),
         dtype=np.float64,
     )

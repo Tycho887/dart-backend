@@ -52,8 +52,9 @@ observations while preserving its predicted trajectory.
 **Cartesian full-state estimation** adjusts all three position and three
 velocity components at a reference epoch. Numerical propagation uses Earth
 gravity through degree and order four, Sun and Moon attraction, tides, and
-relativistic corrections. Atmospheric drag is omitted because this configuration
-has no supplied spacecraft drag properties. The additional state freedom allows
+relativistic corrections. The baseline omits atmospheric drag because it has no
+supplied spacecraft drag properties; the v6 extension below tests its inclusion.
+The additional state freedom allows
 correction of orbit shape and plane, but requires more observational information
 to constrain the solution.
 
@@ -187,6 +188,52 @@ Orbit epochs are identified separately. These are the same cases selected for
 their next-hour accuracy, carried through the complete reference window without
 further updates. The contrast shows why the sub-kilometre result is tied to its
 forecast horizon. [Vector figure for export](figures/forest-best-case-ric-48h.svg).
+
+## Atmospheric drag on short arcs (v6)
+
+Atmospheric drag can be included by adding an effective coefficient
+$q=C_D A/m$ to the estimated state and pass biases. Its acceleration is
+$a_D=-\tfrac12\rho q\|v_{\mathrm{rel}}\|v_{\mathrm{rel}}$, where $\rho$ is
+atmospheric density and $v_{\mathrm{rel}}$ is velocity relative to the atmosphere
+(using consistent SI units). Each trial coefficient changes the propagated
+trajectory and predicted Doppler; the same bounded least-squares fit estimates
+it jointly with the orbit. V6 uses NRLMSISE-00 with fixed solar and geomagnetic
+activity ($F_{10.7}=F_{10.7A}=150$, $A_p=4$). Consequently, the fitted coefficient
+absorbs density-model error as well as spacecraft properties: density scaling
+and $C_D A/m$ cannot be identified separately from their product. A separate
+SGP4 experiment estimates an empirical $B^*$ correction alongside six orbital
+parameters.
+
+**No-drag and fixed-drag fits give approximately the same accuracy.** Across
+FOREST-16–19 and both initial-orbit scenarios, fixing $C_D A/m$ at 0.01, 0.02,
+or 0.04 m²/kg changes next-hour position RMSE by less than 0.25 km relative to
+no drag. Mean held-out Doppler shape RMSE changes by less than 0.6 Hz, with no
+improvement in any spacecraft/prior combination. This agreement supports the
+adequacy of the no-drag baseline at the accuracy and forecast horizon studied.
+It does not establish that physical drag is absent: refitting the initial state
+can accommodate part of its accumulated effect over a short arc.
+
+**Co-estimation did not yield stable drag estimates on these approximately
+24-hour arcs.** All-pass $C_D A/m$ estimates approached the lower bound for
+FOREST-16/19 and upper bound for FOREST-17/18, without improving mean held-out
+Doppler accuracy. Every all-pass $B^*$ correction reached a bound. FOREST-19's
+next-hour SGP4 position RMSE nevertheless improved from 4.07 to 2.05 km with
+$B^*$ estimation, demonstrating possible predictive benefit in an individual
+case. Its candidate GPS reference and bound-limited empirical coefficient
+prevent interpreting this as a reliable physical drag measurement.
+
+For LEOP and short-term studies with comparable passive-Doppler data, especially
+arcs shorter than a day, these results provide no basis for relying on drag
+co-estimation or making it a routine fit parameter. Short arcs can leave drag
+effects difficult to distinguish from initial-state errors and pass biases.
+Longer arcs may improve that separation, but **24 hours is not a universal
+observability threshold**: altitude, atmospheric conditions, geometry, and
+measurement quality also matter. The practical conclusion concerns estimating
+drag from these data; whether propagation needs a prescribed drag model also
+depends on the required accuracy and prediction horizon.
+
+Details: [v6 setup](drag-v6.md) and
+[v6 results](../raw_results/forest-experiment-v6/README.md).
 
 References: [SGP4 methodology](https://celestrak.org/publications/AIAA/2006-6753/),
 [full experiment results](../raw_results/forest-experiment-v5/README.md), and

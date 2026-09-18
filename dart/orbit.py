@@ -36,6 +36,11 @@ class CartesianOrbit:
     solution_id: str
     epoch: sk.time
     state_gcrf_si: tuple[float, ...]
+    cd_a_over_m_m2_kg: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not np.isfinite(self.cd_a_over_m_m2_kg) or self.cd_a_over_m_m2_kg < 0:
+            raise ValueError("Cd A/m must be finite and nonnegative (m²/kg)")
 
 
 OrbitSolution = Sgp4Orbit | CartesianOrbit
@@ -84,7 +89,12 @@ def propagate(solution: OrbitSolution, epochs: Sequence[sk.time]) -> StateHistor
     if isinstance(solution, Sgp4Orbit):
         states = sgp4_states_gcrf(solution.offsets, solution.tle_lines, times)
     elif isinstance(solution, CartesianOrbit):
-        states = full_state_states_gcrf(solution.state_gcrf_si, solution.epoch, times)
+        states = full_state_states_gcrf(
+            solution.state_gcrf_si,
+            solution.epoch,
+            times,
+            cd_a_over_m_m2_kg=solution.cd_a_over_m_m2_kg,
+        )
     else:
         raise TypeError("unsupported orbit solution")
     return StateHistory(solution.object_id, solution.solution_id, times, states)
