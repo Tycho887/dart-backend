@@ -514,6 +514,7 @@ dependencies = [
     { name = "astropy" },
     { name = "azure-kusto-data", extra = ["pandas"] },
     { name = "fastapi" },
+    { name = "filterpy" },
     { name = "msgpack" },
     { name = "numpy" },
     { name = "oem" },
@@ -547,6 +548,7 @@ requires-dist = [
     { name = "astropy", specifier = ">=5.0.8" },
     { name = "azure-kusto-data", extras = ["pandas"], specifier = ">=6.0.4" },
     { name = "fastapi", specifier = ">=0.116.0" },
+    { name = "filterpy", specifier = ">=1.4.5" },
     { name = "msgpack", specifier = ">=1.2.1" },
     { name = "numpy", specifier = ">=2.5.2" },
     { name = "oem", specifier = ">=0.4.5,<0.5" },
@@ -599,6 +601,17 @@ sdist = { url = "https://files.pythonhosted.org/packages/8a/02/91e3416a8fdd715ab
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/03/10388a42375ee7e4ac9b94eb2c5c569c8b5795e377e701c9ac3ad63de890/fastapi-0.141.1-py3-none-any.whl", hash = "sha256:bfb91aa2d334c61cb35ba9a116fc123b3d3df31640b801cf57a7a78ec3f603b3", size = 131954, upload-time = "2026-07-29T17:18:04.364Z" },
 ]
+
+[[package]]
+name = "filterpy"
+version = "1.4.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f6/1d/ac8914360460fafa1990890259b7fa5ef7ba4cd59014e782e4ab3ab144d8/filterpy-1.4.5.zip", hash = "sha256:4f2a4d39e4ea601b9ab42b2db08b5918a9538c168cff1c6895ae26646f3d73b1", size = 177985, upload-time = "2018-10-10T22:38:24.63Z" }
 
 [[package]]
 name = "fonttools"

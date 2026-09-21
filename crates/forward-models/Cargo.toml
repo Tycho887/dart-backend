@@ -13,6 +13,10 @@ extension-module = ["pyo3/extension-module"]
 
 [dependencies]
 satkit = "0.21.2"
-numeris = "0.5"
+numeris = { version = "0.5.19", features = ["estimate"] }
 lru = "0.16"
 pyo3 = { version = "0.23.5", features = ["abi3-py39"] }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }

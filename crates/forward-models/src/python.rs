@@ -179,6 +179,85 @@ fn python_error(error: ForwardModelError) -> PyErr {
     PyValueError::new_err(error.to_string())
 }
 
+type PythonFilterState = (f64, [f64; 3], [[f64; 3]; 3]);
+
+fn filter_state(result: crate::filters::FilterState) -> PythonFilterState {
+    (
+        result.epoch_unix_s,
+        std::array::from_fn(|i| result.state[i]),
+        std::array::from_fn(|i| std::array::from_fn(|j| result.covariance[(i, j)])),
+    )
+}
+
+#[pyclass(name = "DopplerFilter", module = "dart._forward_models")]
+struct PythonDopplerFilter {
+    inner: crate::filters::DopplerFilter,
+}
+
+#[pymethods]
+impl PythonDopplerFilter {
+    #[new]
+    #[pyo3(signature = (*, tle_lines, receiver, center_frequency_hz, epoch_unix_s,
+        initial_state, initial_covariance, process_noise_rates, kind="ukf", innovation_gate=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        py: Python<'_>,
+        tle_lines: (String, String),
+        receiver: ReceiverGeodetic,
+        center_frequency_hz: f64,
+        epoch_unix_s: f64,
+        initial_state: [f64; 3],
+        initial_covariance: [[f64; 3]; 3],
+        process_noise_rates: [f64; 3],
+        kind: &str,
+        innovation_gate: Option<f64>,
+    ) -> PyResult<Self> {
+        py.allow_threads(move || {
+            let (lat, lon, altitude) = receiver;
+            if !lat.is_finite() || !lon.is_finite() || !altitude.is_finite() || lat.abs() > 90.0 {
+                return Err(invalid_input("receiver must have finite geodetic coordinates and latitude within ±90 degrees"));
+            }
+            let tle = TLE::load_2line(&tle_lines.0, &tle_lines.1)
+                .map_err(|error| invalid_input(error.to_string()))?;
+            let inner = crate::filters::DopplerFilter::new(
+                tle,
+                ITRFCoord::from_geodetic_deg(lat, lon, altitude),
+                center_frequency_hz,
+                epoch_unix_s,
+                numeris::Vector::from_array(initial_state),
+                numeris::Matrix::new(initial_covariance),
+                numeris::Vector::from_array(process_noise_rates),
+                kind,
+                innovation_gate,
+            )?;
+            Ok(Self { inner })
+        })
+        .map_err(python_error)
+    }
+
+    fn get_state(&self) -> PythonFilterState {
+        filter_state(self.inner.get_state())
+    }
+
+    fn predict(&mut self, py: Python<'_>, epoch_unix_s: f64) -> PyResult<PythonFilterState> {
+        py.allow_threads(|| self.inner.predict(epoch_unix_s))
+            .map(filter_state)
+            .map_err(python_error)
+    }
+
+    fn update(
+        &mut self,
+        py: Python<'_>,
+        epoch_unix_s: f64,
+        doppler_hz: f64,
+        variance_hz2: f64,
+    ) -> PyResult<(bool, Option<f64>)> {
+        py.allow_threads(|| self.inner.update(epoch_unix_s, doppler_hz, variance_hz2))
+            .map(|nis| (nis.is_some(), nis))
+            .map_err(python_error)
+    }
+}
+
 #[pyfunction]
 fn evaluate_sgp4(
     py: Python<'_>,
@@ -385,6 +464,7 @@ fn tle_state_gcrf(
 
 #[pymodule]
 fn _forward_models(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<PythonDopplerFilter>()?;
     for function in [
         wrap_pyfunction!(consider_covariance, module),
         wrap_pyfunction!(reepoch_tle, module),

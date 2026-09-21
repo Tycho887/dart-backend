@@ -46,6 +46,7 @@ use std::fmt;
 use std::num::NonZeroUsize;
 use std::sync::{Mutex, OnceLock};
 
+pub mod filters;
 mod python;
 
 // ---------------------------------------------------------------------------
@@ -1215,7 +1216,7 @@ pub fn propagate_sgp4_gcrf(tle: &TLE, times: &[Instant]) -> FmResult<Vec<Vector6
 /// `TLE` caches its SGP4 `SatRec` in a `pub(crate)` field, and mutating the
 /// public element fields does not invalidate it. Copying the public fields
 /// into a fresh `TLE` leaves the cache empty, so offsets actually take effect.
-fn tle_with_offset(base: &TLE, offsets: &[f64]) -> FmResult<TLE> {
+pub fn tle_with_offset(base: &TLE, offsets: &[f64]) -> FmResult<TLE> {
     if offsets.len() != SGP4_PARAMS.len() || !offsets.iter().all(|value| value.is_finite()) {
         return Err(ForwardModelError::InvalidInput(format!(
             "expected {} finite SGP4 offsets, got {}",
@@ -1586,7 +1587,7 @@ fn predictions(
 }
 
 /// Legacy augmented vector followed by one TLE epoch adjustment in seconds.
-pub(crate) fn lofi_evaluate_epoch(
+pub fn lofi_evaluate_epoch(
     engine: &EstimationEngine,
     x: &[f64],
     base: &TLE,

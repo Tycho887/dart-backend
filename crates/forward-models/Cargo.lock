@@ -164,6 +164,8 @@ dependencies = [
  "numeris",
  "pyo3",
  "satkit",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
