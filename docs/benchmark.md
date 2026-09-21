@@ -39,6 +39,10 @@ In a notebook, call `await benchmark(...)` directly. The function is asynchronou
 for acquisition; fitting itself is synchronous local work. It does not submit
 service jobs or contact an antenna controller.
 
+Historical V5–V7 outputs are stored outside this checkout; see
+[archive and restore instructions](experiment-archive.md) before running a
+command against the original `raw_results/` paths.
+
 ## Inputs and replay
 
 The prior ephemeris ID and nominal frequency are explicit. Contacts must belong
@@ -126,11 +130,12 @@ of tables to distinguish settings and inputs when combining runs.
 ## FOREST experiment v5
 
 The [mathematical specification](math.md) calls this study FOREST v4.1 and
-documents the effective models, optimizer settings, and measured performance.
+documents the effective models and optimizer settings. Measured performance
+is preserved with the [archived results](experiment-archive.md).
 The existing v5 artifact paths and bundle identifiers are preserved.
 
 [experiment.py](../experiment.py) runs five post-pass prediction families. The
-published [FOREST v5 comparison](../raw_results/forest-experiment-v5/README.md)
+published [FOREST v5 comparison](experiment-archive.md)
 contains 254 family-level attempts for FOREST-16–19 and both prior categories.
 
 ```bash
@@ -225,7 +230,7 @@ uv run python -m experiments.forecast_v7 --output raw_results/forest-experiment-
 uv run python -m experiments.results_v7 raw_results/forest-experiment-v7
 ```
 
-The [V7 report](../raw_results/forest-experiment-v7/README.md) includes curves,
+The [V7 report](experiment-archive.md) includes curves,
 full-precision fit/prefix/attainment tables, and frozen source/input provenance.
 Per-fit artifacts are checksummed; rebuilding recomputes forecast scores from
 saved residual histories without refitting. Resume verifies the frozen source,
@@ -234,9 +239,11 @@ V5 and V6 selection and execution defaults remain unchanged.
 
 ## Archive: FOREST experiment v4
 
-The archived v4 layout publishes one table of fits and a portable data
-bundle. The May 3–4, 2026 LEOP study includes FOREST-16–19 with both selected
-priors: 154 attempts in [one table](../raw_results/forest-experiment-v4/README.md).
+The v4 tools remain available for user-supplied historical bundles. The older
+local V3/V4 raw outputs were discarded during cleanup; only V5–V7 artifacts
+are retained in [the experiment archive](experiment-archive.md). The commands
+below illustrate the historical layout and require those older inputs to be
+provided separately.
 
 ```bash
 .venv/bin/python -m experiments.results_v4 export raw_results/forest-experiment-v3/recorded-prior raw_results/forest-experiment-v3/separation-prior --output raw_results/forest-experiment-v4

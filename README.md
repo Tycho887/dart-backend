@@ -102,8 +102,10 @@ updates, rebuilds, migrations, and dashboard workflow.
 For Doppler fitting against a reference OEM, use the single
 [`benchmark` function](docs/benchmark.md). It accepts contact IDs, a selected
 prior and optimizer, returns raw state/Doppler residual tables, and supports
-frozen-input replay and CSV export. Previous study results and tuned settings
-are summarized in [the benchmark notes](experiments/notes.md).
+frozen-input replay and CSV export. All current study runners, plotting tools,
+and tests remain available. See [reference inventories](experiments/notes.md)
+for recorded inputs and [the experiment archive](docs/experiment-archive.md)
+for V5–V7 results and restoration instructions.
 
 `uv run python scripts/smooth_gps.py run` fits the FOREST GPS observations with
 GMAT over May 3–5, 2026 (noon UTC endpoints). It produces one-minute EME2000 OEMs
@@ -112,4 +114,4 @@ and independent withheld-GPS validation reports. See
 resuming interrupted runs, and the output quality gates.
 
 The recorded FOREST-16 through FOREST-19 OEMs and their quality reports are in
-[the May 2026 results](reports/forest-gps/20260504/README.md).
+[the May 2026 reference data](reports/forest-gps/20260504/README.md).

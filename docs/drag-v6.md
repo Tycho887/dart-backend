@@ -40,6 +40,10 @@ variation across folds. Equal-pass means and paired changes use only mutually
 scored folds and always report their counts. These diagnostics do not establish
 calibrated uncertainty or a physical drag measurement.
 
+Restore the saved V5 input bundle using the
+[archive instructions](experiment-archive.md), or pass its external path as
+the positional bundle argument.
+
 ```bash
 uv run python -m experiments.drag_v6 raw_results/forest-experiment-v5/experiment.zip --output raw_results/forest-experiment-v6 --workers 4
 uv run python -m experiments.drag_v6 --resume --output raw_results/forest-experiment-v6 --workers 4

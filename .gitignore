@@ -228,5 +228,13 @@ __marimo__/
 experiments/results/
 /raw_results/
 
+# Generated study reports and delivery examples. Keep reference OEMs and their
+# quality metadata in reports/forest-gps available to tools and tests.
+/report/
+/reports/*
+!/reports/forest-gps/
+/output/
+*:Zone.Identifier
+
 # Results service deployment wheel artifacts (contains no runtime credentials).
 /deploy/wheels/

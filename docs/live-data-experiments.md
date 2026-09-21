@@ -41,7 +41,7 @@ Primary contacts have ≥5 raw GPS fixes. GPS never selects fitting observations
 
 See [benchmark configuration and quality screening](benchmark.md) for the other
 two methods. Original regression artifacts and checksums remain under
-[forest-time-offset](../reports/forest-time-offset/20260503-04/README.md).
+`reports/forest-time-offset` on the [archive branch](experiment-archive.md).
 The regression requires all 15 contacts, exact sample/GPS counts, offset errors
 below 0.1 seconds, and position-score differences below 0.8 km. Archived results
 remain unchanged when replaying through the current automatic TLE preparation.

@@ -1,37 +1,10 @@
-# Previous benchmark findings
+# Benchmark reference inventories
 
-These results belong to the retired FOREST studies, not benchmark defaults.
-Historical source is available at Git revision `e5e851d`; publication manifests
-also identify their own source snapshots. Reports and bundles remain under
-[reports/forest-studies](../reports/forest-studies/README.md).
-
-## Tuned optimizer settings
-
-All settings below used six SGP4 orbit corrections plus one Doppler bias per
-contact, unit observation variance, the existing orbit bounds/scales,
-`x_scale="profile"`, and `max_evaluations=1000`. The historical runs also used
-quality screening and a Doppler-only phase scan. Passing the optimizer settings
-alone to the new benchmark does not reproduce that preprocessing/initialization.
-Each search used all six matched anchors, 100 trials, seed 42; these are
-**dataset-specific results, not holdout validation**.
-
-| Passes | loss | loss_scale | ftol | xtol | gtol |
-| --- | --- | --- | --- | --- | --- |
-| 5 | cauchy | 962.0911382672281 | 8.024043405411047e-06 | 2.7504149061003033e-12 | 1.8066064221763204e-07 |
-| 6 | soft_l1 | 340.2722778658969 | 9.488348606577822e-05 | 1.446437141665793e-12 | 9.751969812940085e-09 |
-| 8 | soft_l1 | 443.84115662271665 | 2.1903756539591055e-05 | 2.1352005373497463e-12 | 4.012528472626066e-09 |
-
-Mean local position RMS improved from 5.553/4.121/4.161 km to
-4.664/3.709/3.798 km for five/six/eight passes, with independently reproduced
-refits. Eight-pass mean forecast RMS worsened from 33.830 to 38.380 km and its
-local count below 5 km fell from 5/6 to 4/6. Individual forecasts could regress
-also for five and six passes. Additional cohort evaluations retained all 38
-anchors in success denominators; they were not a holdout.
-
-Source: [published tuning results](../reports/forest-studies/solver-tuning/README.md).
-The earlier fixed-configuration study reached local RMS below 5 km on only
-8/38 anchors; no configuration reached full zero-offset 48-hour RMS below 5 km.
-See [trajectory findings](../reports/forest-studies/trajectories/FINDINGS.md).
+Recorded reference products and contact inventories remain on main for the
+study tools and tests. Previous tuning results are preserved in this file on
+`archive/forest-v5-v7`; they are dataset-specific findings, not benchmark
+defaults. See [the experiment archive](../docs/experiment-archive.md) for results
+and provenance.
 
 ## Reference products and contact inventories
 

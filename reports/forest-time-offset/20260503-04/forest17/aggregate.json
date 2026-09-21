@@ -1,8 +1,0 @@
-{
-  "fitted_contacts": 3,
-  "converged_contacts": 3,
-  "primary_contacts": 3,
-  "scored_primary_contacts": 3,
-  "median_contact_error_km": 4.276082015608044,
-  "metric": "median of same-pass raw-GPS 3D position medians"
-}
