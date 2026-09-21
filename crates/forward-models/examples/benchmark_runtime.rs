@@ -4,7 +4,7 @@ use _forward_models::{
     BatchEvaluationResult, EstimationEngine, MeasurementKind, ObservationRecord,
     filters::{Covariance, DopplerFilter, FilterState, State},
     hifi_evaluate, hifi_evaluate_augmented, lofi_evaluate, lofi_evaluate_augmented,
-    lofi_evaluate_epoch, propagate_arc, propagate_sgp4_gcrf, tle_with_offset,
+    lofi_evaluate_epoch, propagate_sgp4_gcrf, propagate_states, tle_with_offset,
 };
 use numeris::{DynMatrix, DynVector, Vector6};
 use satkit::{ITRFCoord, Instant, TLE, orbitprop::PropSettings};
@@ -171,15 +171,7 @@ fn trajectory(case: &Case, i: &Inputs) -> Result<Output> {
             Ok(Output::Sgp4States(propagate_sgp4_gcrf(&tle, &i.times)?))
         }
         "full_state" => {
-            let arc = propagate_arc(&i.nominal, &i.epoch, &i.times, &i.settings, case.drag)?;
-            let states = i
-                .times
-                .iter()
-                .map(|t| {
-                    let (state, _) = arc.evaluate_at(t)?;
-                    Ok(state)
-                })
-                .collect::<_forward_models::FmResult<Vec<_>>>()?;
+            let states = propagate_states(&i.nominal, &i.epoch, &i.times, &i.settings, case.drag)?;
             Ok(Output::FullStates(states))
         }
         _ => Err(format!("unknown trajectory mode: {}", case.mode).into()),

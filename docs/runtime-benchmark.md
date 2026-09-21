@@ -52,8 +52,10 @@ Residual/Jacobian APIs calculate both together. Thus the default estimated-drag
 case measures the complete evaluation producing a **2500 × 10 Jacobian**:
 six Cartesian corrections, measurement-clock offset, center-frequency offset,
 one pass bias, and Cd A/m. It does not claim to isolate Jacobian assembly.
-Trajectory cases use the existing production path, including STM propagation
-and trajectory lookup where the API performs them.
+Trajectory cases use the production batch sampling path. STM integration is
+retained for numerical compatibility, while unused step STMs, matrix inversions,
+and repeated whole-trajectory validation are omitted. See
+[satkit-optimization.md](satkit-optimization.md) for before/after verification.
 
 The fixture uses the existing ISS test TLE, one receiver at 63° N / 10° E /
 0 m, and a 400 MHz carrier. The Cartesian state is initialized from that TLE

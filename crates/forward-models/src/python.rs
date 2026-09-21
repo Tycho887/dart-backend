@@ -603,23 +603,17 @@ fn full_state_states_gcrf(
             return Err(invalid_input("initial epoch must be finite"));
         }
         let times = trajectory_times(&epochs_unix)?;
-        let mut nodes = times.clone();
-        nodes.sort();
-        nodes.dedup();
-        let arc = crate::propagate_arc(
+        let states = crate::propagate_states(
             &Vector6::from_array(state),
             &Instant::from_unixtime(epoch_unix),
-            &nodes,
+            &times,
             &PropSettings::default(),
             cd_a_over_m_m2_kg,
         )?;
-        times
+        Ok(states
             .iter()
-            .map(|time| {
-                let (state, _) = arc.evaluate_at(time)?;
-                Ok(state.as_slice().to_vec())
-            })
-            .collect()
+            .map(|state| state.as_slice().to_vec())
+            .collect())
     })
     .map_err(python_error)
 }

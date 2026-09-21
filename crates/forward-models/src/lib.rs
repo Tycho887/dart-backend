@@ -38,7 +38,9 @@ use numeris::dynmatrix::DynCholesky;
 use numeris::{DynMatrix, DynVector, Matrix, Quaternion, Vector3, Vector6};
 use pyo3::pyclass;
 use satkit::frametransform::{itrf_to_gcrf_state, rotation, transform_state};
-use satkit::orbitprop::{CovState, PropSettings, SatPropertiesSimple, propagate};
+use satkit::orbitprop::{
+    CovState, PropSettings, PropagationResult, SatPropertiesSimple, propagate,
+};
 use satkit::sgp4::{GravConst, OpsMode, SGP4Error, sgp4_full};
 use satkit::tle::TleFitStatus;
 use satkit::{Duration, Frame, ITRFCoord, Instant, TLE};
@@ -116,6 +118,24 @@ impl TrajectoryArc {
     pub fn evaluate_at(&self, time: &Instant) -> FmResult<(DynVector<f64>, DynMatrix<f64>)> {
         self.validate()?;
         self.evaluate_exact(time)
+    }
+
+    /// Validate the complete arc once, then sample exact nodes in request order.
+    pub fn sample_states(&self, times: &[Instant]) -> FmResult<Vec<DynVector<f64>>> {
+        self.validate()?;
+        times
+            .iter()
+            .map(|time| {
+                self.steps
+                    .binary_search_by_key(time, |step| step.time)
+                    .map(|index| self.steps[index].state.clone())
+                    .map_err(|_| {
+                        ForwardModelError::InvalidTrajectory(format!(
+                            "no trajectory node at {time}"
+                        ))
+                    })
+            })
+            .collect()
     }
 
     fn validate(&self) -> FmResult<()> {
@@ -304,9 +324,7 @@ pub fn range_rate(
     pos_sat: &Vector3<f64>,
     vel_sat: &Vector3<f64>,
 ) -> f64 {
-    let rel_pos = pos_sat - pos_station;
-    let rel_vel = vel_sat - vel_station;
-    rel_vel.dot(&rel_pos) / rel_pos.norm()
+    RelativeGeometry::new(pos_station, vel_station, pos_sat, vel_sat).range_rate
 }
 
 /// Doppler frequency shift (Hz): receding satellite (positive range rate)
@@ -325,18 +343,44 @@ pub fn compute_range_rate_jacobian(
     pos_sat: &Vector3<f64>,
     vel_sat: &Vector3<f64>,
 ) -> Matrix<f64, 1, 6> {
-    let rel_pos = pos_sat - pos_station;
-    let rel_vel = vel_sat - vel_station;
-    let rho = rel_pos.norm();
-    let rho_dot = rel_pos.dot(&rel_vel) / rho;
+    RelativeGeometry::new(pos_station, vel_station, pos_sat, vel_sat).range_rate_jacobian()
+}
 
-    let mut h = Matrix::<f64, 1, 6>::zeros();
-    for i in 0..3 {
-        let u_i = rel_pos[i] / rho;
-        h[(0, i)] = (rel_vel[i] - rho_dot * u_i) / rho;
-        h[(0, i + 3)] = u_i;
+struct RelativeGeometry {
+    position: Vector3<f64>,
+    velocity: Vector3<f64>,
+    range: f64,
+    range_rate: f64,
+}
+
+impl RelativeGeometry {
+    fn new(
+        pos_station: &Vector3<f64>,
+        vel_station: &Vector3<f64>,
+        pos_sat: &Vector3<f64>,
+        vel_sat: &Vector3<f64>,
+    ) -> Self {
+        let position = pos_sat - pos_station;
+        let velocity = vel_sat - vel_station;
+        let range = position.norm();
+        let range_rate = velocity.dot(&position) / range;
+        Self {
+            position,
+            velocity,
+            range,
+            range_rate,
+        }
     }
-    h
+
+    fn range_rate_jacobian(&self) -> Matrix<f64, 1, 6> {
+        let mut h = Matrix::<f64, 1, 6>::zeros();
+        for i in 0..3 {
+            let u_i = self.position[i] / self.range;
+            h[(0, i)] = (self.velocity[i] - self.range_rate * u_i) / self.range;
+            h[(0, i + 3)] = u_i;
+        }
+        h
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -368,7 +412,7 @@ impl EstimationEngine {
         for (index, obs) in observations.iter().enumerate() {
             self.validate_observation(obs, index)?;
             let (state_k, _phi_epoch) = trajectory.evaluate_exact(&obs.time)?;
-            evaluations.push(self.evaluate_local_sensor(&state_k, obs)?);
+            evaluations.push(self.evaluate_validated_sensor(&state_k, obs)?);
         }
         Ok(evaluations)
     }
@@ -384,7 +428,7 @@ impl EstimationEngine {
         observations: &[ObservationRecord],
         pass_biases: &[f64],
     ) -> FmResult<BatchEvaluationResult> {
-        self.validate()?;
+        let lower = self.prepare_observations(observations)?;
         trajectory.validate()?;
         if pass_biases.len() != self.num_passes || !pass_biases.iter().all(|v| v.is_finite()) {
             return Err(ForwardModelError::InvalidInput(format!(
@@ -393,56 +437,20 @@ impl EstimationEngine {
                 pass_biases.len()
             )));
         }
-
-        let num_cols = 6 + self.num_passes;
-        let total_rows: usize = observations.iter().map(|o| o.observed.len()).sum();
-        let mut residuals = DynVector::<f64>::zeros(total_rows);
-        let mut residual_jacobian = DynMatrix::<f64>::zeros(total_rows, num_cols);
-
+        let rows = observations.iter().map(|obs| obs.observed.len()).sum();
+        let mut result = empty_batch(rows, 6 + self.num_passes);
         let mut row0 = 0;
         for (index, obs) in observations.iter().enumerate() {
-            self.validate_observation(obs, index)?;
-            let (state_k, phi_epoch) = trajectory.evaluate_exact(&obs.time)?;
-            let eval = self.evaluate_local_sensor(&state_k, obs)?;
-            let m_dim = eval.residual.len();
-            let j_state = &eval.h_state * &phi_epoch;
-            let mut raw_residual = eval.residual;
-            let mut raw_jacobian = DynMatrix::<f64>::zeros(m_dim, num_cols);
-
-            for r in 0..m_dim {
-                for c in 0..6 {
-                    raw_jacobian[(r, c)] = j_state[(r, c)];
-                }
-            }
-
-            if let Some(h_p) = &eval.h_params {
-                for r in 0..m_dim {
-                    for c in 0..self.num_passes {
-                        raw_residual[r] += h_p[(r, c)] * pass_biases[c];
-                    }
-                }
-                for r in 0..m_dim {
-                    for c in 0..self.num_passes {
-                        raw_jacobian[(r, 6 + c)] = h_p[(r, c)];
-                    }
-                }
-            }
-
-            let (whitened_residual, whitened_jacobian) =
-                whiten_block(&raw_residual, &raw_jacobian, &obs.noise_cov)?;
-            for r in 0..m_dim {
-                residuals[row0 + r] = whitened_residual[r];
-                for c in 0..num_cols {
-                    residual_jacobian[(row0 + r, c)] = whitened_jacobian[(r, c)];
-                }
-            }
-            row0 += m_dim;
+            let (state, phi) = trajectory.evaluate_exact(&obs.time)?;
+            let evaluation = self.evaluate_validated_sensor(&state, obs)?;
+            let (residual, jacobian) = project_sensor(evaluation, &phi, pass_biases);
+            let (residual, jacobian) = whiten_with_lower(&residual, &jacobian, &lower[index]);
+            let end = row0 + residual.len();
+            result.residuals.as_mut_slice()[row0..end].copy_from_slice(residual.as_slice());
+            result.residual_jacobian.set_block(row0, 0, &jacobian);
+            row0 = end;
         }
-
-        Ok(BatchEvaluationResult {
-            residuals,
-            residual_jacobian,
-        })
+        Ok(result)
     }
 
     /// Local measurement model dispatch at a single epoch.
@@ -453,10 +461,22 @@ impl EstimationEngine {
     ) -> FmResult<StepObservationEval> {
         self.validate()?;
         self.validate_observation(obs, 0)?;
-        validate_state(state)?;
+        self.evaluate_validated_sensor(state, obs)
+    }
+
+    // The caller has validated invariant engine/observation data. Candidate
+    // state and geometry checks still run for every evaluation.
+    fn evaluate_validated_sensor(
+        &self,
+        state: &DynVector<f64>,
+        obs: &ObservationRecord,
+    ) -> FmResult<StepObservationEval> {
         match obs.kind {
             MeasurementKind::Doppler => self.evaluate_doppler(state, obs),
-            kind => todo!("MeasurementKind::{kind:?} not yet implemented"),
+            kind => {
+                validate_state(state)?;
+                todo!("MeasurementKind::{kind:?} not yet implemented")
+            }
         }
     }
 
@@ -467,31 +487,10 @@ impl EstimationEngine {
         state: &DynVector<f64>,
         obs: &ObservationRecord,
     ) -> FmResult<StepObservationEval> {
-        let station = self
-            .receivers
-            .get(obs.receiver_id as usize)
-            .ok_or_else(|| {
-                ForwardModelError::InvalidInput(format!(
-                    "receiver index {} is out of range",
-                    obs.receiver_id
-                ))
-            })?;
-        let (pos_stn, vel_stn) = station_gcrf_state(station, &obs.time);
-        let pos_sat = Vector3::from_array([state[0], state[1], state[2]]);
-        let vel_sat = Vector3::from_array([state[3], state[4], state[5]]);
-
-        let range = (pos_sat - pos_stn).norm();
-        if !range.is_finite() || range <= 0.0 {
-            return Err(ForwardModelError::InvalidInput(
-                "satellite and receiver geometry has zero or invalid range".to_string(),
-            ));
-        }
-
-        let rr = range_rate(&pos_stn, &vel_stn, &pos_sat, &vel_sat);
-        let predicted = doppler_shift(rr, self.center_frequency);
-
+        let geometry = self.doppler_geometry(state, &obs.time, obs.receiver_id)?;
+        let predicted = doppler_shift(geometry.range_rate, self.center_frequency);
         let scale = -self.center_frequency / satkit::consts::C;
-        let h_rr = compute_range_rate_jacobian(&pos_stn, &vel_stn, &pos_sat, &vel_sat);
+        let h_rr = geometry.range_rate_jacobian();
         let mut h_state = DynMatrix::<f64>::zeros(1, 6);
         for c in 0..6 {
             h_state[(0, c)] = scale * h_rr[(0, c)];
@@ -515,12 +514,64 @@ impl EstimationEngine {
         })
     }
 
-    fn validate(&self) -> FmResult<()> {
-        if !self.center_frequency.is_finite() || self.center_frequency <= 0.0 {
+    fn prepare_observations(
+        &self,
+        observations: &[ObservationRecord],
+    ) -> FmResult<Vec<DynMatrix<f64>>> {
+        self.validate()?;
+        observations
+            .iter()
+            .enumerate()
+            .map(|(index, obs)| self.validate_observation(obs, index))
+            .collect()
+    }
+
+    // Shared geometry for full sensitivities and prediction-only perturbations.
+    fn doppler_geometry(
+        &self,
+        state: &DynVector<f64>,
+        time: &Instant,
+        receiver_id: u32,
+    ) -> FmResult<RelativeGeometry> {
+        validate_state(state)?;
+        let station = self.receivers.get(receiver_id as usize).ok_or_else(|| {
+            ForwardModelError::InvalidInput(format!("receiver index {receiver_id} is out of range"))
+        })?;
+        let (pos_stn, vel_stn) = station_gcrf_state(station, time);
+        let pos_sat = Vector3::from_array([state[0], state[1], state[2]]);
+        let vel_sat = Vector3::from_array([state[3], state[4], state[5]]);
+        let geometry = RelativeGeometry::new(&pos_stn, &vel_stn, &pos_sat, &vel_sat);
+        if !geometry.range.is_finite() || geometry.range <= 0.0 {
             return Err(ForwardModelError::InvalidInput(
-                "center frequency must be finite and positive".to_string(),
+                "satellite and receiver geometry has zero or invalid range".to_string(),
             ));
         }
+        Ok(geometry)
+    }
+
+    fn predict_doppler(
+        &self,
+        state: &DynVector<f64>,
+        time: &Instant,
+        receiver_id: u32,
+    ) -> FmResult<f64> {
+        self.predict_doppler_at_frequency(state, time, receiver_id, self.center_frequency)
+    }
+
+    fn predict_doppler_at_frequency(
+        &self,
+        state: &DynVector<f64>,
+        time: &Instant,
+        receiver_id: u32,
+        frequency: f64,
+    ) -> FmResult<f64> {
+        validate_frequency(frequency)?;
+        let geometry = self.doppler_geometry(state, time, receiver_id)?;
+        Ok(doppler_shift(geometry.range_rate, frequency))
+    }
+
+    fn validate(&self) -> FmResult<()> {
+        validate_frequency(self.center_frequency)?;
         if self.receivers.iter().any(|receiver| {
             !receiver
                 .itrf
@@ -535,7 +586,11 @@ impl EstimationEngine {
         Ok(())
     }
 
-    fn validate_observation(&self, obs: &ObservationRecord, index: usize) -> FmResult<()> {
+    fn validate_observation(
+        &self,
+        obs: &ObservationRecord,
+        index: usize,
+    ) -> FmResult<DynMatrix<f64>> {
         if obs.kind == MeasurementKind::Doppler && obs.observed.len() != 1 {
             return Err(ForwardModelError::InvalidInput(format!(
                 "observation {index} Doppler value must be scalar"
@@ -562,6 +617,15 @@ impl EstimationEngine {
     }
 }
 
+fn validate_frequency(frequency: f64) -> FmResult<()> {
+    if !frequency.is_finite() || frequency <= 0.0 {
+        return Err(ForwardModelError::InvalidInput(
+            "center frequency must be finite and positive".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_state(state: &DynVector<f64>) -> FmResult<()> {
     if state.len() != 6 || !state.as_slice().iter().all(|v| v.is_finite()) {
         return Err(ForwardModelError::InvalidInput(
@@ -571,7 +635,11 @@ fn validate_state(state: &DynVector<f64>) -> FmResult<()> {
     Ok(())
 }
 
-fn validate_covariance(covariance: &DynMatrix<f64>, size: usize, index: usize) -> FmResult<()> {
+fn validate_covariance(
+    covariance: &DynMatrix<f64>,
+    size: usize,
+    index: usize,
+) -> FmResult<DynMatrix<f64>> {
     if covariance.nrows() != size || covariance.ncols() != size {
         return Err(ForwardModelError::InvalidInput(format!(
             "observation {index} covariance must be {size}x{size}"
@@ -594,14 +662,15 @@ fn validate_covariance(covariance: &DynMatrix<f64>, size: usize, index: usize) -
             }
         }
     }
-    covariance.cholesky().map_err(|error| {
+    let factor = covariance.cholesky().map_err(|error| {
         ForwardModelError::LinearAlgebra(format!(
             "observation {index} covariance is not positive definite: {error:?}"
         ))
     })?;
-    Ok(())
+    Ok(factor.l().clone())
 }
 
+#[cfg(test)]
 fn whiten_block(
     residual: &DynVector<f64>,
     jacobian: &DynMatrix<f64>,
@@ -610,7 +679,14 @@ fn whiten_block(
     let factor = covariance.cholesky().map_err(|error| {
         ForwardModelError::LinearAlgebra(format!("covariance factorization failed: {error:?}"))
     })?;
-    let lower = factor.l();
+    Ok(whiten_with_lower(residual, jacobian, factor.l()))
+}
+
+fn whiten_with_lower(
+    residual: &DynVector<f64>,
+    jacobian: &DynMatrix<f64>,
+    lower: &DynMatrix<f64>,
+) -> (DynVector<f64>, DynMatrix<f64>) {
     let rows = residual.len();
     let mut whitened_residual = DynVector::<f64>::zeros(rows);
     let mut whitened_jacobian = DynMatrix::<f64>::zeros(rows, jacobian.ncols());
@@ -631,7 +707,63 @@ fn whiten_block(
             whitened_jacobian[(row, column)] = value / lower[(row, row)];
         }
     }
-    Ok((whitened_residual, whitened_jacobian))
+    (whitened_residual, whitened_jacobian)
+}
+
+fn project_sensor(
+    evaluation: StepObservationEval,
+    phi: &DynMatrix<f64>,
+    biases: &[f64],
+) -> (DynVector<f64>, DynMatrix<f64>) {
+    let mut residual = evaluation.residual;
+    let mut jacobian = DynMatrix::zeros(residual.len(), 6 + biases.len());
+    jacobian.set_block(0, 0, &(&evaluation.h_state * phi));
+    let Some(h) = evaluation.h_params else {
+        return (residual, jacobian);
+    };
+    jacobian.set_block(0, 6, &h);
+    for row in 0..residual.len() {
+        for (column, bias) in biases.iter().enumerate() {
+            residual[row] += h[(row, column)] * bias;
+        }
+    }
+    (residual, jacobian)
+}
+
+// Doppler is scalar; observation preparation has already factored its noise.
+fn write_doppler_row(
+    result: &mut BatchEvaluationResult,
+    row: usize,
+    evaluation: &StepObservationEval,
+    sensitivity: &DynMatrix<f64>,
+    extra: &[f64],
+    biases: &[f64],
+    lower: &DynMatrix<f64>,
+) {
+    let sigma = lower[(0, 0)];
+    let orbit_columns = sensitivity.ncols();
+    let bias_start = orbit_columns + extra.len();
+    let mut residual = evaluation.residual[0];
+    for column in 0..orbit_columns {
+        result.residual_jacobian[(row, column)] = sensitivity[(0, column)] / sigma;
+    }
+    for (column, value) in extra.iter().enumerate() {
+        result.residual_jacobian[(row, orbit_columns + column)] = value / sigma;
+    }
+    if let Some(h) = &evaluation.h_params {
+        for (pass, bias) in biases.iter().enumerate() {
+            residual += h[(0, pass)] * bias;
+            result.residual_jacobian[(row, bias_start + pass)] = h[(0, pass)] / sigma;
+        }
+    }
+    result.residuals[row] = residual / sigma;
+}
+
+fn empty_batch(rows: usize, columns: usize) -> BatchEvaluationResult {
+    BatchEvaluationResult {
+        residuals: DynVector::zeros(rows),
+        residual_jacobian: DynMatrix::zeros(rows, columns),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -662,48 +794,8 @@ pub fn propagate_arc(
     settings: &PropSettings,
     cd_a_over_m: f64,
 ) -> FmResult<TrajectoryArc> {
-    validate_drag_coefficient(cd_a_over_m)?;
-    let t_end = node_times.last().ok_or_else(|| {
-        ForwardModelError::InvalidInput("propagate_arc requires at least one node".to_string())
-    })?;
-    if !state0.as_slice().iter().all(|value| value.is_finite()) {
-        return Err(ForwardModelError::InvalidInput(
-            "initial state must contain finite values".to_string(),
-        ));
-    }
-    for (index, time) in node_times.iter().enumerate() {
-        if *time < *epoch {
-            return Err(ForwardModelError::InvalidInput(format!(
-                "propagation node {index} precedes the epoch"
-            )));
-        }
-        if index > 0 && *time <= node_times[index - 1] {
-            return Err(ForwardModelError::InvalidInput(format!(
-                "propagation nodes are not strictly increasing at index {index}"
-            )));
-        }
-    }
-
-    // CovState layout: column 0 = state, columns 1..7 = 6x6 STM w.r.t. epoch.
-    let mut cov_state = CovState::zeros();
-    for r in 0..6 {
-        cov_state[(r, 0)] = state0[r];
-    }
-    cov_state.set_block(0, 1, &Matrix::<f64, 6, 6>::eye());
-
-    let samples = if *t_end == *epoch {
-        vec![cov_state]
-    } else {
-        let mut settings = settings.clone();
-        settings.use_spaceweather = false;
-        let properties = SatPropertiesSimple::new(cd_a_over_m, 0.0);
-        let result = propagate(&cov_state, epoch, t_end, &settings, Some(&properties))
-            .map_err(|error| ForwardModelError::Propagation(error.to_string()))?;
-        result
-            .interp_batch(node_times)
-            .map_err(|error| ForwardModelError::Propagation(error.to_string()))?
-    };
-
+    validate_node_order(node_times)?;
+    let samples = propagate_epoch_samples(state0, epoch, node_times, settings, cd_a_over_m)?;
     let mut steps = Vec::with_capacity(samples.len());
     let mut prev_phi: Option<DynMatrix<f64>> = None;
     for (k, s) in samples.iter().enumerate() {
@@ -733,6 +825,123 @@ pub fn propagate_arc(
     };
     arc.validate()?;
     Ok(arc)
+}
+
+fn validate_node_order(times: &[Instant]) -> FmResult<()> {
+    for (index, pair) in times.windows(2).enumerate() {
+        if pair[1] <= pair[0] {
+            return Err(ForwardModelError::InvalidInput(format!(
+                "propagation nodes are not strictly increasing at index {}",
+                index + 1
+            )));
+        }
+    }
+    Ok(())
+}
+
+// Satkit integrates either six states or states plus epoch STM. Sampling is
+// batched once, preserving arbitrary input order and repeated epochs.
+fn propagate_samples<const C: usize>(
+    initial: &Matrix<f64, 6, C>,
+    epoch: &Instant,
+    times: &[Instant],
+    settings: &PropSettings,
+    cd_a_over_m: f64,
+) -> FmResult<Vec<Matrix<f64, 6, C>>> {
+    validate_drag_coefficient(cd_a_over_m)?;
+    if !initial.as_slice().iter().all(|value| value.is_finite()) {
+        return Err(ForwardModelError::InvalidInput(
+            "initial state must contain finite values".into(),
+        ));
+    }
+    let end = times.iter().max().ok_or_else(|| {
+        ForwardModelError::InvalidInput("propagate_arc requires at least one node".into())
+    })?;
+    if let Some(index) = times.iter().position(|time| time < epoch) {
+        return Err(ForwardModelError::InvalidInput(format!(
+            "propagation node {index} precedes the epoch"
+        )));
+    }
+    let samples = if end == epoch {
+        vec![*initial; times.len()]
+    } else {
+        let mut settings = settings.clone();
+        settings.use_spaceweather = false;
+        let properties = SatPropertiesSimple::new(cd_a_over_m, 0.0);
+        let result = propagate(initial, epoch, end, &settings, Some(&properties))
+            .map_err(|error| ForwardModelError::Propagation(error.to_string()))?;
+        sample_propagation(&result, times)?
+    };
+    if samples
+        .iter()
+        .any(|sample| !sample.as_slice().iter().all(|value| value.is_finite()))
+    {
+        return Err(ForwardModelError::InvalidTrajectory(
+            "propagation samples must be finite".into(),
+        ));
+    }
+    Ok(samples)
+}
+
+fn sample_propagation<const C: usize>(
+    result: &PropagationResult<C>,
+    times: &[Instant],
+) -> FmResult<Vec<Matrix<f64, 6, C>>> {
+    // Satkit's dense interpolator advances through intervals and requires an
+    // ascending grid. Restore request order only after that single batch call.
+    let mut nodes = times.to_vec();
+    nodes.sort();
+    nodes.dedup();
+    let samples = result
+        .interp_batch(&nodes)
+        .map_err(|error| ForwardModelError::Propagation(error.to_string()))?;
+    Ok(times
+        .iter()
+        .map(|time| {
+            samples[nodes
+                .binary_search(time)
+                .expect("requested epoch is in sampling grid")]
+        })
+        .collect())
+}
+
+fn propagate_epoch_samples(
+    state0: &Vector6<f64>,
+    epoch: &Instant,
+    times: &[Instant],
+    settings: &PropSettings,
+    cd_a_over_m: f64,
+) -> FmResult<Vec<CovState>> {
+    let mut initial = CovState::zeros();
+    initial.set_block(0, 0, state0);
+    initial.set_block(0, 1, &Matrix::<f64, 6, 6>::eye());
+    propagate_samples(&initial, epoch, times, settings, cd_a_over_m)
+}
+
+fn sample_state<const C: usize>(sample: &Matrix<f64, 6, C>) -> DynVector<f64> {
+    DynVector::from_vec((0..6).map(|row| sample[(row, 0)]).collect())
+}
+
+fn sample_phi(sample: &CovState) -> DynMatrix<f64> {
+    DynMatrix::from_fn(6, 6, |row, col| sample[(row, col + 1)])
+}
+
+/// Sample GCRF states in SI units, preserving requested order and duplicates.
+/// Retain STM integration: satkit's state-only adaptive history does not meet
+/// the existing short/24-hour trajectory compatibility tolerances.
+pub fn propagate_states(
+    state0: &Vector6<f64>,
+    epoch: &Instant,
+    times: &[Instant],
+    settings: &PropSettings,
+    cd_a_over_m: f64,
+) -> FmResult<Vec<DynVector<f64>>> {
+    Ok(
+        propagate_epoch_samples(state0, epoch, times, settings, cd_a_over_m)?
+            .iter()
+            .map(sample_state)
+            .collect(),
+    )
 }
 
 /// High-fidelity batch objective over Doppler observations.
@@ -769,20 +978,31 @@ pub fn hifi_evaluate(
             "state and parameter values must be finite".to_string(),
         ));
     }
-    for (index, observation) in observations.iter().enumerate() {
-        engine.validate_observation(observation, index)?;
-    }
+    let lower = engine.prepare_observations(observations)?;
 
     let mut state0 = *nominal0;
     for r in 0..6 {
         state0[r] += x[r];
     }
 
-    let mut times: Vec<Instant> = observations.iter().map(|o| o.time).collect();
-    times.sort();
-    times.dedup();
-    let arc = propagate_arc(&state0, epoch, &times, settings, cd_a_over_m)?;
-    engine.batch_evaluate(&arc, observations, &x[6..])
+    let times = observations.iter().map(|o| o.time).collect::<Vec<_>>();
+    let samples = propagate_epoch_samples(&state0, epoch, &times, settings, cd_a_over_m)?;
+    let mut result = empty_batch(observations.len(), expected);
+    for (row, observation) in observations.iter().enumerate() {
+        let evaluation =
+            engine.evaluate_validated_sensor(&sample_state(&samples[row]), observation)?;
+        let sensitivity = &evaluation.h_state * &sample_phi(&samples[row]);
+        write_doppler_row(
+            &mut result,
+            row,
+            &evaluation,
+            &sensitivity,
+            &[],
+            &x[6..],
+            &lower[row],
+        );
+    }
+    Ok(result)
 }
 
 const TIME_DERIVATIVE_STEP_S: f64 = 1e-3;
@@ -827,166 +1047,170 @@ pub fn hifi_evaluate_augmented(
     cd_a_over_m_fixed: f64,
 ) -> FmResult<BatchEvaluationResult> {
     let fixed_parameters = 8 + engine.num_passes;
-    let drag_parameters = 9 + engine.num_passes;
-    if x.len() == fixed_parameters {
-        return hifi_augmented_at(
-            engine,
-            x,
-            nominal0,
-            epoch,
-            observations,
-            settings,
-            cd_a_over_m_fixed,
-        );
-    }
-    if x.len() != drag_parameters {
-        return Err(ForwardModelError::InvalidInput(format!(
-            "expected {fixed_parameters} (fixed drag) or {drag_parameters} (estimated drag) finite augmented high-fidelity parameters, got {}",
-            x.len()
-        )));
-    }
-    if cd_a_over_m_fixed != 0.0 {
+    validate_augmented_parameters(x, fixed_parameters, cd_a_over_m_fixed)?;
+    if observations.is_empty() {
         return Err(ForwardModelError::InvalidInput(
-            "supply Cd A/m in the vector or as a fixed value, not both".into(),
+            "hifi_evaluate_augmented requires at least one observation".into(),
         ));
     }
-    let column = x.len() - 1;
-    let coefficient = x[column];
-    validate_drag_coefficient(coefficient)?;
-    let evaluate_at = |value| {
-        hifi_augmented_at(
-            engine,
-            &x[..column],
-            nominal0,
-            epoch,
-            observations,
-            settings,
-            value,
-        )
-    };
-    let central = evaluate_at(coefficient)?;
-    let step = (1e-3 * coefficient).max(1e-6);
-    let plus = evaluate_at(coefficient + step)?;
-    let rows = central.residuals.len();
-    let derivative: Vec<f64> = if coefficient >= step {
-        let minus = evaluate_at(coefficient - step)?;
-        (0..rows)
-            .map(|i| (plus.residuals[i] - minus.residuals[i]) / (2.0 * step))
-            .collect()
+    let lower = engine.prepare_observations(observations)?;
+    let effective = engine_at_frequency(engine, engine.center_frequency + x[7]);
+    effective.validate()?;
+    let state0 = Vector6::from_fn(|row, _| nominal0[row] + x[row]);
+    let shifted = observations
+        .iter()
+        .map(|obs| observation_at(obs, obs.time + Duration::from_seconds(x[6])))
+        .collect::<Vec<_>>();
+    let coefficient = if x.len() == fixed_parameters {
+        cd_a_over_m_fixed
     } else {
-        let twice = evaluate_at(coefficient + 2.0 * step)?;
-        (0..rows)
-            .map(|i| {
-                (-3.0 * central.residuals[i] + 4.0 * plus.residuals[i] - twice.residuals[i])
-                    / (2.0 * step)
-            })
-            .collect()
+        x[fixed_parameters]
     };
-    let mut jacobian = DynMatrix::zeros(rows, x.len());
-    for row in 0..rows {
-        for col in 0..column {
-            jacobian[(row, col)] = central.residual_jacobian[(row, col)];
-        }
-        jacobian[(row, column)] = derivative[row];
+    validate_drag_coefficient(coefficient)?;
+    let (mut result, predictions) = hifi_augmented_at(
+        &effective,
+        &state0,
+        epoch,
+        &shifted,
+        settings,
+        coefficient,
+        &x[8..fixed_parameters],
+        &lower,
+    )?;
+    if x.len() == fixed_parameters {
+        return Ok(result);
     }
-    Ok(BatchEvaluationResult {
-        residuals: central.residuals,
-        residual_jacobian: jacobian,
-    })
+    let predict = |value| hifi_predictions(&effective, &state0, epoch, &shifted, settings, value);
+    let derivative = drag_derivative(predict, coefficient, &predictions)?;
+    append_column(&mut result, &derivative, &lower);
+    Ok(result)
 }
 
-/// Augmented objective evaluated at one fixed Cd A/m coefficient.
-fn hifi_augmented_at(
+fn hifi_predictions(
     engine: &EstimationEngine,
-    x: &[f64],
-    nominal0: &Vector6<f64>,
+    state0: &Vector6<f64>,
     epoch: &Instant,
     observations: &[ObservationRecord],
     settings: &PropSettings,
     cd_a_over_m: f64,
-) -> FmResult<BatchEvaluationResult> {
-    engine.validate()?;
-    let expected = 8 + engine.num_passes;
-    if x.len() != expected || !x.iter().all(|value| value.is_finite()) {
+) -> FmResult<Vec<f64>> {
+    let mut times = observations.iter().map(|obs| obs.time).collect::<Vec<_>>();
+    // Match the central STM integration interval, including its final clock
+    // perturbation. Only observation epochs produce Doppler predictions.
+    let end = *times.iter().max().expect("validated nonempty observations");
+    times.push(end + Duration::from_seconds(TIME_DERIVATIVE_STEP_S));
+    let samples = propagate_epoch_samples(state0, epoch, &times, settings, cd_a_over_m)?;
+    samples
+        .iter()
+        .zip(observations)
+        .map(|(sample, obs)| {
+            engine.predict_doppler(&sample_state(sample), &obs.time, obs.receiver_id)
+        })
+        .collect()
+}
+
+fn validate_augmented_parameters(x: &[f64], fixed: usize, fixed_drag: f64) -> FmResult<()> {
+    if (x.len() != fixed && x.len() != fixed + 1) || !x.iter().all(|value| value.is_finite()) {
         return Err(ForwardModelError::InvalidInput(format!(
-            "expected {expected} finite augmented high-fidelity parameters, got {}",
+            "expected {fixed} (fixed drag) or {} (estimated drag) finite augmented high-fidelity parameters, got {}",
+            fixed + 1,
             x.len()
         )));
     }
-    if observations.is_empty() {
+    if x.len() == fixed + 1 && fixed_drag != 0.0 {
         return Err(ForwardModelError::InvalidInput(
-            "hifi_evaluate_augmented requires at least one observation".to_string(),
+            "supply Cd A/m in the vector or as a fixed value, not both".into(),
         ));
     }
-    for (index, observation) in observations.iter().enumerate() {
-        engine.validate_observation(observation, index)?;
-    }
+    Ok(())
+}
 
-    let effective_frequency = engine.center_frequency + x[7];
-    let effective_engine = engine_at_frequency(engine, effective_frequency);
-    effective_engine.validate()?;
-    let mut state0 = *nominal0;
-    for index in 0..6 {
-        state0[index] += x[index];
+fn drag_derivative(
+    predict: impl Fn(f64) -> FmResult<Vec<f64>>,
+    coefficient: f64,
+    central: &[f64],
+) -> FmResult<Vec<f64>> {
+    let step = (1e-3 * coefficient).max(1e-6);
+    let plus = predict(coefficient + step)?;
+    if coefficient >= step {
+        let minus = predict(coefficient - step)?;
+        return Ok(plus
+            .iter()
+            .zip(minus)
+            .map(|(p, m)| (p - m) / (2.0 * step))
+            .collect());
     }
+    // Every term uses the same STM integration and interval, so the central
+    // predictions can be reused without mixing adaptive integration histories.
+    let twice = predict(coefficient + 2.0 * step)?;
+    Ok(central
+        .iter()
+        .zip(plus)
+        .zip(twice)
+        .map(|((c, p), t)| (-3.0 * c + 4.0 * p - t) / (2.0 * step))
+        .collect())
+}
 
+fn append_column(result: &mut BatchEvaluationResult, derivative: &[f64], lower: &[DynMatrix<f64>]) {
+    let column = result.residual_jacobian.ncols();
+    result.residual_jacobian = DynMatrix::from_fn(derivative.len(), column + 1, |row, col| {
+        if col == column {
+            derivative[row] / lower[row][(0, 0)]
+        } else {
+            result.residual_jacobian[(row, col)]
+        }
+    });
+}
+
+/// Central coefficient only: epoch sensitivities and centered clock derivative.
+fn hifi_augmented_at(
+    engine: &EstimationEngine,
+    state0: &Vector6<f64>,
+    epoch: &Instant,
+    observations: &[ObservationRecord],
+    settings: &PropSettings,
+    cd_a_over_m: f64,
+    biases: &[f64],
+    lower: &[DynMatrix<f64>],
+) -> FmResult<(BatchEvaluationResult, Vec<f64>)> {
     let dt = Duration::from_seconds(TIME_DERIVATIVE_STEP_S);
-    let offset = Duration::from_seconds(x[6]);
-    let shifted_times = observations
+    let times = observations
         .iter()
-        .map(|observation| observation.time + offset)
+        .flat_map(|obs| [obs.time, obs.time - dt, obs.time + dt])
         .collect::<Vec<_>>();
-    let mut node_times = shifted_times
-        .iter()
-        .flat_map(|time| [*time - dt, *time, *time + dt])
-        .collect::<Vec<_>>();
-    node_times.sort();
-    node_times.dedup();
-    let arc = propagate_arc(&state0, epoch, &node_times, settings, cd_a_over_m)?;
-
-    let columns = expected;
-    let mut residuals = DynVector::<f64>::zeros(observations.len());
-    let mut jacobian = DynMatrix::<f64>::zeros(observations.len(), columns);
-    for (row, (observation, shifted_time)) in observations.iter().zip(&shifted_times).enumerate() {
-        let shifted = observation_at(observation, *shifted_time);
-        let (state, phi) = arc.evaluate_exact(shifted_time)?;
-        let central = effective_engine.evaluate_local_sensor(&state, &shifted)?;
-        let state_sensitivity = &central.h_state * &phi;
-
-        let minus_time = *shifted_time - dt;
-        let plus_time = *shifted_time + dt;
-        let (minus_state, _) = arc.evaluate_exact(&minus_time)?;
-        let (plus_state, _) = arc.evaluate_exact(&plus_time)?;
-        let minus = effective_engine
-            .evaluate_local_sensor(&minus_state, &observation_at(observation, minus_time))?;
-        let plus = effective_engine
-            .evaluate_local_sensor(&plus_state, &observation_at(observation, plus_time))?;
-
-        let mut raw_residual = central.residual;
-        let mut raw_jacobian = DynMatrix::<f64>::zeros(1, columns);
-        for column in 0..6 {
-            raw_jacobian[(0, column)] = state_sensitivity[(0, column)];
-        }
-        raw_jacobian[(0, 6)] =
-            (plus.predicted[0] - minus.predicted[0]) / (2.0 * TIME_DERIVATIVE_STEP_S);
-        raw_jacobian[(0, 7)] = central.predicted[0] / effective_frequency;
-        if let Some(h_params) = &central.h_params {
-            for pass in 0..engine.num_passes {
-                raw_residual[0] += h_params[(0, pass)] * x[8 + pass];
-                raw_jacobian[(0, 8 + pass)] = h_params[(0, pass)];
-            }
-        }
-        let (whitened_residual, whitened_jacobian) =
-            whiten_block(&raw_residual, &raw_jacobian, &observation.noise_cov)?;
-        residuals[row] = whitened_residual[0];
-        for column in 0..columns {
-            jacobian[(row, column)] = whitened_jacobian[(0, column)];
-        }
+    let samples = propagate_epoch_samples(state0, epoch, &times, settings, cd_a_over_m)?;
+    let mut result = empty_batch(observations.len(), 8 + engine.num_passes);
+    let mut predictions = Vec::with_capacity(observations.len());
+    for (row, observation) in observations.iter().enumerate() {
+        let sample = &samples[3 * row];
+        let central = engine.evaluate_validated_sensor(&sample_state(sample), observation)?;
+        predictions.push(central.predicted[0]);
+        let sensitivity = &central.h_state * &sample_phi(sample);
+        let minus = engine.predict_doppler(
+            &sample_state(&samples[3 * row + 1]),
+            &(observation.time - dt),
+            observation.receiver_id,
+        )?;
+        let plus = engine.predict_doppler(
+            &sample_state(&samples[3 * row + 2]),
+            &(observation.time + dt),
+            observation.receiver_id,
+        )?;
+        let extra = [
+            (plus - minus) / (2.0 * TIME_DERIVATIVE_STEP_S),
+            central.predicted[0] / engine.center_frequency,
+        ];
+        write_doppler_row(
+            &mut result,
+            row,
+            &central,
+            &sensitivity,
+            &extra,
+            biases,
+            &lower[row],
+        );
     }
-    Ok(BatchEvaluationResult {
-        residuals,
-        residual_jacobian: jacobian,
-    })
+    Ok((result, predictions))
 }
 
 // ---------------------------------------------------------------------------
@@ -1405,44 +1629,27 @@ pub fn lofi_evaluate(
             "lofi_evaluate requires at least one observation".to_string(),
         ));
     }
-    for (index, observation) in observations.iter().enumerate() {
-        engine.validate_observation(observation, index)?;
-    }
+    let lower = engine.prepare_observations(observations)?;
 
     let times: Vec<Instant> = observations.iter().map(|o| o.time).collect();
     let propagation = sgp4_states_and_sensitivities(base_tle, &times, &x[..SGP4_PARAMS.len()])?;
     let pass_biases = &x[SGP4_PARAMS.len()..];
-    let rows = observations.len();
-    let mut residuals = DynVector::<f64>::zeros(rows);
-    let mut residual_jacobian = DynMatrix::<f64>::zeros(rows, expected);
-
-    for (index, observation) in observations.iter().enumerate() {
-        let state = DynVector::from_vec(propagation.states[index].as_slice().to_vec());
-        let evaluation = engine.evaluate_local_sensor(&state, observation)?;
-        let measurement_sensitivity = &evaluation.h_state * &propagation.sensitivities[index];
-        let mut raw_residual = evaluation.residual;
-        let mut raw_jacobian = DynMatrix::<f64>::zeros(1, expected);
-        for parameter in 0..SGP4_PARAMS.len() {
-            raw_jacobian[(0, parameter)] = measurement_sensitivity[(0, parameter)];
-        }
-        if let Some(h_params) = &evaluation.h_params {
-            for pass in 0..engine.num_passes {
-                raw_residual[0] += h_params[(0, pass)] * pass_biases[pass];
-                raw_jacobian[(0, SGP4_PARAMS.len() + pass)] = h_params[(0, pass)];
-            }
-        }
-        let (whitened_residual, whitened_jacobian) =
-            whiten_block(&raw_residual, &raw_jacobian, &observation.noise_cov)?;
-        residuals[index] = whitened_residual[0];
-        for column in 0..expected {
-            residual_jacobian[(index, column)] = whitened_jacobian[(0, column)];
-        }
+    let mut result = empty_batch(observations.len(), expected);
+    for (row, observation) in observations.iter().enumerate() {
+        let state = DynVector::from_vec(propagation.states[row].as_slice().to_vec());
+        let evaluation = engine.evaluate_validated_sensor(&state, observation)?;
+        let sensitivity = &evaluation.h_state * &propagation.sensitivities[row];
+        write_doppler_row(
+            &mut result,
+            row,
+            &evaluation,
+            &sensitivity,
+            &[],
+            pass_biases,
+            &lower[row],
+        );
     }
-
-    Ok(BatchEvaluationResult {
-        residuals,
-        residual_jacobian,
-    })
+    Ok(result)
 }
 
 /// SGP4 objective augmented with global epoch and carrier-frequency offsets.
@@ -1469,10 +1676,19 @@ pub fn lofi_evaluate_augmented(
             "lofi_evaluate_augmented requires at least one observation".to_string(),
         ));
     }
-    for (index, observation) in observations.iter().enumerate() {
-        engine.validate_observation(observation, index)?;
-    }
+    let lower = engine.prepare_observations(observations)?;
 
+    lofi_augmented_at(engine, x, base_tle, observations, &lower)
+}
+
+fn lofi_augmented_at(
+    engine: &EstimationEngine,
+    x: &[f64],
+    base_tle: &TLE,
+    observations: &[ObservationRecord],
+    lower: &[DynMatrix<f64>],
+) -> FmResult<BatchEvaluationResult> {
+    let expected = SGP4_PARAMS.len() + 2 + engine.num_passes;
     let time_index = SGP4_PARAMS.len();
     let frequency_index = time_index + 1;
     let bias_index = frequency_index + 1;
@@ -1496,52 +1712,36 @@ pub fn lofi_evaluate_augmented(
         .iter()
         .map(|time| *time + dt)
         .collect::<Vec<_>>();
-    let minus_states = propagate_sgp4_gcrf(&corrected_tle, &minus_times)?;
-    let plus_states = propagate_sgp4_gcrf(&corrected_tle, &plus_times)?;
+    let minus = sgp4_predictions_at(
+        &effective_engine,
+        &corrected_tle,
+        observations,
+        &minus_times,
+    )?;
+    let plus = sgp4_predictions_at(&effective_engine, &corrected_tle, observations, &plus_times)?;
 
-    let mut residuals = DynVector::<f64>::zeros(observations.len());
-    let mut jacobian = DynMatrix::<f64>::zeros(observations.len(), expected);
+    let mut result = empty_batch(observations.len(), expected);
     for row in 0..observations.len() {
         let observation = &observations[row];
-        let shifted_time = shifted_times[row];
-        let shifted = observation_at(observation, shifted_time);
+        let shifted = observation_at(observation, shifted_times[row]);
         let state = DynVector::from_vec(propagation.states[row].as_slice().to_vec());
-        let central = effective_engine.evaluate_local_sensor(&state, &shifted)?;
-        let orbit_sensitivity = &central.h_state * &propagation.sensitivities[row];
-        let minus = effective_engine.evaluate_local_sensor(
-            &DynVector::from_vec(minus_states[row].as_slice().to_vec()),
-            &observation_at(observation, minus_times[row]),
-        )?;
-        let plus = effective_engine.evaluate_local_sensor(
-            &DynVector::from_vec(plus_states[row].as_slice().to_vec()),
-            &observation_at(observation, plus_times[row]),
-        )?;
-
-        let mut raw_residual = central.residual;
-        let mut raw_jacobian = DynMatrix::<f64>::zeros(1, expected);
-        for column in 0..SGP4_PARAMS.len() {
-            raw_jacobian[(0, column)] = orbit_sensitivity[(0, column)];
-        }
-        raw_jacobian[(0, time_index)] =
-            (plus.predicted[0] - minus.predicted[0]) / (2.0 * TIME_DERIVATIVE_STEP_S);
-        raw_jacobian[(0, frequency_index)] = central.predicted[0] / effective_frequency;
-        if let Some(h_params) = &central.h_params {
-            for pass in 0..engine.num_passes {
-                raw_residual[0] += h_params[(0, pass)] * x[bias_index + pass];
-                raw_jacobian[(0, bias_index + pass)] = h_params[(0, pass)];
-            }
-        }
-        let (whitened_residual, whitened_jacobian) =
-            whiten_block(&raw_residual, &raw_jacobian, &observation.noise_cov)?;
-        residuals[row] = whitened_residual[0];
-        for column in 0..expected {
-            jacobian[(row, column)] = whitened_jacobian[(0, column)];
-        }
+        let central = effective_engine.evaluate_validated_sensor(&state, &shifted)?;
+        let sensitivity = &central.h_state * &propagation.sensitivities[row];
+        let extra = [
+            (plus[row] - minus[row]) / (2.0 * TIME_DERIVATIVE_STEP_S),
+            central.predicted[0] / effective_frequency,
+        ];
+        write_doppler_row(
+            &mut result,
+            row,
+            &central,
+            &sensitivity,
+            &extra,
+            &x[bias_index..],
+            &lower[row],
+        );
     }
-    Ok(BatchEvaluationResult {
-        residuals,
-        residual_jacobian: jacobian,
-    })
+    Ok(result)
 }
 
 // ---------------------------------------------------------------------------
@@ -1566,22 +1766,23 @@ pub(crate) fn shifted_tle(base: &TLE, seconds: f64) -> FmResult<TLE> {
     Ok(tle)
 }
 
-fn predictions(
+fn sgp4_predictions_at(
     engine: &EstimationEngine,
     tle: &TLE,
     observations: &[ObservationRecord],
+    times: &[Instant],
 ) -> FmResult<Vec<f64>> {
-    let times = observations.iter().map(|o| o.time).collect::<Vec<_>>();
-    let states = propagate_sgp4_gcrf(tle, &times)?;
+    let states = propagate_sgp4_gcrf(tle, times)?;
     states
         .iter()
         .zip(observations)
-        .map(|(state, observation)| {
-            let evaluation = engine.evaluate_local_sensor(
+        .zip(times)
+        .map(|((state, observation), time)| {
+            engine.predict_doppler(
                 &DynVector::from_vec(state.as_slice().to_vec()),
-                observation,
-            )?;
-            Ok(evaluation.predicted[0] / observation.noise_cov[(0, 0)].sqrt())
+                time,
+                observation.receiver_id,
+            )
         })
         .collect()
 }
@@ -1600,16 +1801,15 @@ pub fn lofi_evaluate_epoch(
         ));
     }
     let shifted = shifted_tle(base, x[epoch_index])?;
-    let mut result = lofi_evaluate_augmented(engine, &x[..epoch_index], &shifted, observations)?;
-    let derivative = epoch_derivative(engine, x, &shifted, observations)?;
-    let mut jacobian = DynMatrix::zeros(observations.len(), x.len());
-    for row in 0..observations.len() {
-        for column in 0..epoch_index {
-            jacobian[(row, column)] = result.residual_jacobian[(row, column)];
-        }
-        jacobian[(row, epoch_index)] = derivative[row];
+    if observations.is_empty() {
+        return Err(ForwardModelError::InvalidInput(
+            "lofi_evaluate_augmented requires at least one observation".into(),
+        ));
     }
-    result.residual_jacobian = jacobian;
+    let lower = engine.prepare_observations(observations)?;
+    let mut result = lofi_augmented_at(engine, &x[..epoch_index], &shifted, observations, &lower)?;
+    let derivative = epoch_derivative(engine, x, &shifted, observations)?;
+    append_column(&mut result, &derivative, &lower);
     Ok(result)
 }
 
@@ -1625,15 +1825,18 @@ fn epoch_derivative(
         .iter()
         .map(|o| observation_at(o, o.time + Duration::from_seconds(x[7])))
         .collect::<Vec<_>>();
-    let minus = predictions(
+    let times = observations.iter().map(|o| o.time).collect::<Vec<_>>();
+    let minus = sgp4_predictions_at(
         &sensor,
         &shifted_tle(&corrected, -TIME_DERIVATIVE_STEP_S)?,
         &observations,
+        &times,
     )?;
-    let plus = predictions(
+    let plus = sgp4_predictions_at(
         &sensor,
         &shifted_tle(&corrected, TIME_DERIVATIVE_STEP_S)?,
         &observations,
+        &times,
     )?;
     Ok(plus
         .iter()
@@ -2582,6 +2785,65 @@ mod tests {
     }
 
     #[test]
+    fn batch_sampling_preserves_order_and_checks_unrequested_nodes() {
+        let epoch = Instant::from_unixtime(1_700_000_000.0);
+        let later = epoch + Duration::from_seconds(60.0);
+        let mut arc = mock_arc(epoch, &[epoch, later]);
+        arc.steps[1].state[0] += 100.0;
+        let states = arc.sample_states(&[later, epoch, later]).unwrap();
+        assert_eq!(states[0], arc.steps[1].state);
+        assert_eq!(states[1], arc.steps[0].state);
+        assert_eq!(states[2], states[0]);
+        assert!(
+            arc.sample_states(&[later + Duration::from_seconds(1.0)])
+                .is_err()
+        );
+        arc.steps[0].phi_step[(0, 0)] = f64::NAN;
+        assert!(arc.sample_states(&[later]).is_err());
+        assert!(arc.evaluate_at(&later).is_err());
+    }
+
+    #[test]
+    fn epoch_samples_match_sequential_arc_for_unsorted_duplicates() {
+        let epoch = Instant::from_unixtime(1_700_000_000.0);
+        let state = Vector6::from_array([7000e3, 0.0, 0.0, 0.0, 7546.0, 100.0]);
+        let later = epoch + Duration::from_seconds(60.0);
+        let settings = PropSettings::default();
+        let arc = propagate_arc(&state, &epoch, &[epoch, later], &settings, 0.02).unwrap();
+        let times = [later, epoch, later];
+        let samples = propagate_epoch_samples(&state, &epoch, &times, &settings, 0.02).unwrap();
+        for (time, sample) in times.iter().zip(samples) {
+            let (expected_state, expected_phi) = arc.evaluate_at(time).unwrap();
+            assert_eq!(sample_state(&sample), expected_state);
+            assert_eq!(sample_phi(&sample), expected_phi);
+        }
+    }
+
+    #[test]
+    fn state_sampling_checks_inputs_and_epoch_only_duplicates() {
+        let epoch = Instant::from_unixtime(1_700_000_000.0);
+        let state = Vector6::from_array([7000e3, 0.0, 0.0, 0.0, 7546.0, 100.0]);
+        let settings = PropSettings::default();
+        let states = propagate_states(&state, &epoch, &[epoch, epoch], &settings, 0.0).unwrap();
+        assert_eq!(states, vec![sample_state(&state); 2]);
+        assert!(propagate_states(&state, &epoch, &[], &settings, 0.0).is_err());
+        assert!(propagate_states(&state, &epoch, &[epoch], &settings, -0.1).is_err());
+        assert!(
+            propagate_states(
+                &state,
+                &epoch,
+                &[epoch - Duration::from_seconds(1.0)],
+                &settings,
+                0.0
+            )
+            .is_err()
+        );
+        let mut invalid = state;
+        invalid[0] = f64::NAN;
+        assert!(propagate_states(&invalid, &epoch, &[epoch], &settings, 0.0).is_err());
+    }
+
+    #[test]
     fn test_propagate_arc_supports_epoch_only() {
         let epoch = Instant::from_unixtime(1_700_000_000.0);
         let state = Vector6::from_array([7000e3, 0.0, 0.0, 0.0, 7546.0, 100.0]);
@@ -2921,14 +3183,28 @@ mod tests {
             let (mut plus, mut minus) = (x, x);
             plus[parameter] += steps[parameter];
             minus[parameter] -= steps[parameter];
-            let plus_residual =
-                hifi_evaluate(&engine, &plus, &nominal, &epoch, &observation, &settings, 0.0)
-                    .unwrap()
-                    .residuals[0];
-            let minus_residual =
-                hifi_evaluate(&engine, &minus, &nominal, &epoch, &observation, &settings, 0.0)
-                    .unwrap()
-                    .residuals[0];
+            let plus_residual = hifi_evaluate(
+                &engine,
+                &plus,
+                &nominal,
+                &epoch,
+                &observation,
+                &settings,
+                0.0,
+            )
+            .unwrap()
+            .residuals[0];
+            let minus_residual = hifi_evaluate(
+                &engine,
+                &minus,
+                &nominal,
+                &epoch,
+                &observation,
+                &settings,
+                0.0,
+            )
+            .unwrap()
+            .residuals[0];
             let finite_difference = (plus_residual - minus_residual) / (2.0 * steps[parameter]);
             let analytic = evaluation.residual_jacobian[(0, parameter)];
             let tolerance = 1e-4 * finite_difference.abs().max(analytic.abs()).max(1e-8);
@@ -2955,14 +3231,28 @@ mod tests {
             let (mut plus, mut minus) = (x, x);
             plus[parameter] += step;
             minus[parameter] -= step;
-            let plus_residual =
-                hifi_evaluate_augmented(&engine, &plus, &nominal, &epoch, &observation, &settings, 0.0)
-                    .unwrap()
-                    .residuals[0];
-            let minus_residual =
-                hifi_evaluate_augmented(&engine, &minus, &nominal, &epoch, &observation, &settings, 0.0)
-                    .unwrap()
-                    .residuals[0];
+            let plus_residual = hifi_evaluate_augmented(
+                &engine,
+                &plus,
+                &nominal,
+                &epoch,
+                &observation,
+                &settings,
+                0.0,
+            )
+            .unwrap()
+            .residuals[0];
+            let minus_residual = hifi_evaluate_augmented(
+                &engine,
+                &minus,
+                &nominal,
+                &epoch,
+                &observation,
+                &settings,
+                0.0,
+            )
+            .unwrap()
+            .residuals[0];
             let finite_difference = (plus_residual - minus_residual) / (2.0 * step);
             let analytic = evaluation.residual_jacobian[(0, parameter)];
             assert!(
@@ -3065,8 +3355,7 @@ mod tests {
             rel_error: 1e-13,
             ..PropSettings::default()
         };
-        let normal =
-            propagate_arc(&state, &epoch, &times, &PropSettings::default(), 0.02).unwrap();
+        let normal = propagate_arc(&state, &epoch, &times, &PropSettings::default(), 0.02).unwrap();
         let precise = propagate_arc(&state, &epoch, &times, &tight, 0.02).unwrap();
         let (a, _) = normal.evaluate_exact(&times[0]).unwrap();
         let (b, _) = precise.evaluate_exact(&times[0]).unwrap();
@@ -3100,14 +3389,28 @@ mod tests {
         let (mut plus, mut minus) = (x, x);
         plus[9] += step;
         minus[9] -= step;
-        let plus_residual =
-            hifi_evaluate_augmented(&engine, &plus, &nominal, &epoch, &observation, &settings, 0.0)
-                .unwrap()
-                .residuals[0];
-        let minus_residual =
-            hifi_evaluate_augmented(&engine, &minus, &nominal, &epoch, &observation, &settings, 0.0)
-                .unwrap()
-                .residuals[0];
+        let plus_residual = hifi_evaluate_augmented(
+            &engine,
+            &plus,
+            &nominal,
+            &epoch,
+            &observation,
+            &settings,
+            0.0,
+        )
+        .unwrap()
+        .residuals[0];
+        let minus_residual = hifi_evaluate_augmented(
+            &engine,
+            &minus,
+            &nominal,
+            &epoch,
+            &observation,
+            &settings,
+            0.0,
+        )
+        .unwrap()
+        .residuals[0];
         let finite_difference = (plus_residual - minus_residual) / (2.0 * step);
         let analytic = evaluation.residual_jacobian[(0, 9)];
         // Both sides are finite differences of a stiff drag term; agree to ~1%.

@@ -6,12 +6,12 @@
 use std::cell::RefCell;
 
 use numeris::estimate::{Ekf, EstimateError, SrUkf, Ukf};
-use numeris::{DynMatrix, DynVector, Matrix, Vector};
+use numeris::{DynVector, Matrix, Vector};
 use satkit::{Duration, ITRFCoord, Instant, TLE};
 
 use crate::{
-    EstimationEngine, FmResult, ForwardModelError, MeasurementKind, ObservationRecord,
-    TIME_DERIVATIVE_STEP_S, engine_at_frequency, invalid_input, propagate_sgp4_gcrf,
+    EstimationEngine, FmResult, ForwardModelError, TIME_DERIVATIVE_STEP_S, invalid_input,
+    propagate_sgp4_gcrf,
 };
 
 pub type State = Vector<f64, 3>;
@@ -244,22 +244,13 @@ impl DopplerFilter {
         let shifted_epoch = epoch.as_unixtime() + state[0];
         validate_epoch(shifted_epoch)?;
         let time = epoch + Duration::from_seconds(state[0]);
-        let engine = engine_at_frequency(&self.engine, self.engine.center_frequency + state[2]);
-        engine.validate()?;
         let states = propagate_sgp4_gcrf(&self.tle, &[time])?;
-        let observation = ObservationRecord {
-            time,
-            kind: MeasurementKind::Doppler,
-            observed: DynVector::zeros(1),
-            noise_cov: DynMatrix::eye(1),
-            receiver_id: 0,
-            pass_index: 0,
-        };
-        let evaluation = engine.evaluate_local_sensor(
+        let predicted = self.engine.predict_doppler_at_frequency(
             &DynVector::from_vec(states[0].as_slice().to_vec()),
-            &observation,
-        )?;
-        let predicted = evaluation.predicted[0] + state[1];
+            &time,
+            0,
+            self.engine.center_frequency + state[2],
+        )? + state[1];
         if !predicted.is_finite() {
             return Err(invalid_input("predicted Doppler must be finite"));
         }
