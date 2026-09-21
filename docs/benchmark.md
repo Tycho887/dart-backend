@@ -191,6 +191,47 @@ remains a gap. Curves report the latest newly completed fit's next-hour score;
 steps do not represent instantaneous physical error. Worsening scores and scored
 quality rejections stay visible. There is no running minimum or winner selection.
 
+## FOREST experiment v7: time to accuracy
+
+V7 uses the frozen v5 decent-prior cases and compares cumulative L+n with TLE
+epoch timing correction. Both select finite Doppler observations with carrier
+lock and finite Eb/N0 **strictly greater than 5 dB**. Every nonempty pass is
+eligible: there are no sample-count, elevation, or Doppler-magnitude gates.
+The clock starts at the first eligible pass completion under this selection;
+FOREST-18 starts approximately 3 h 13 min earlier than in v5.
+
+At each pass completion through 24 hours, each method fits the full prefix and
+every whole-pass omission. The omitted pass and its bias never enter training.
+Every fit is scored over the same hour after prefix completion, including when
+the latest pass is omitted. Held-out Doppler raw/shape RMSE is a separate check;
+the kilometre thresholds use GPS-derived OEM position-vector RMSE.
+
+The qualification median counts failed and quality-rejected folds as infinite
+error. It retains convergence, inactive bounds, full rank, positive residual
+degrees of freedom, and the 1e6 conditioning limit, but removes the 250-sample
+requirement. Incomplete reference coverage is unavailable; a one-pass prefix
+has no omission CV. All attempts and finite outliers remain in the reports.
+
+Report the first qualification median below 5 km and 2 km for each spacecraft,
+with attainment counts at 8/16/24 hours. The population's 50% attainment time
+is the earliest crossing by at least two of four spacecraft, not a success-only
+arithmetic median. Later regression remains visible. Correlated omission fits
+do not establish population reliability, and FOREST-19 remains a candidate
+reference. No new contacts or accuracy are inferred after the recorded inventory.
+
+```bash
+uv run python -m experiments.forecast_v7 --output raw_results/forest-experiment-v7
+uv run python -m experiments.forecast_v7 --output raw_results/forest-experiment-v7 --resume
+uv run python -m experiments.results_v7 raw_results/forest-experiment-v7
+```
+
+The [V7 report](../raw_results/forest-experiment-v7/README.md) includes curves,
+full-precision fit/prefix/attainment tables, and frozen source/input provenance.
+Per-fit artifacts are checksummed; rebuilding recomputes forecast scores from
+saved residual histories without refitting. Resume verifies the frozen source,
+numerical extension, satkit data, snapshots, and completed artifact checksums.
+V5 and V6 selection and execution defaults remain unchanged.
+
 ## Archive: FOREST experiment v4
 
 The archived v4 layout publishes one table of fits and a portable data

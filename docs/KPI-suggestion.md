@@ -1,5 +1,11 @@
 # Suggested KPIs — CAS500-2 passive-Doppler orbit determination
 
+> **Historical v5 proposal.** The current next-hour-after-fit comparison using
+> 12-hour and 24-hour training selections is in [the report](../report/final.md). This page
+> retains its original first-attainment, update, and ageing-product metrics;
+> its numbers and ≥90% reliability objective must not be substituted for the
+> current collection-window comparison.
+
 These are **provisional design targets aiming for ≥90% reliability**. The
 campaign supports their selection, but four related spacecraft provide too
 little independent evidence to establish that reliability.
