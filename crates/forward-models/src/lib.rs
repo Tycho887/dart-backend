@@ -16,54 +16,41 @@
 //!
 //! Internal units are SI throughout (meters, m/s, Hz) to match `satkit`.
 //!
-//! TODO(python): expose these entry points via PyO3 and convert to DART wire
-//! units (km, km/s) at the boundary — see [`evaluate_objective`].
+//! ## Sections
+//!
+//! 1. Errors
+//! 2. Core data structures (standard wire-facing layout)
+//! 3. Frame transform and rotation cache
+//! 4. Measurement kernels
+//! 5. Estimation engine
+//! 6. High-fidelity model (numerical propagation with drag)
+//! 7. Low-fidelity model (SGP4)
+//! 8. TLE epoch adjustment
+//! 9. TLE re-epoching
+//! 10. Consider covariance
+//! 11. Diagnostics
+//!
+//! The `python` module is the thin PyO3 boundary; it converts to DART wire
+//! units (km, km/s) at the edge and holds no numerical logic.
 
-use numeris::{DynMatrix, DynVector, Matrix, Vector3, Vector6};
-use satkit::frametransform::{itrf_to_gcrf_state, transform_state};
+use lru::LruCache;
+use numeris::dynmatrix::DynCholesky;
+use numeris::{DynMatrix, DynVector, Matrix, Quaternion, Vector3, Vector6};
+use pyo3::pyclass;
+use satkit::frametransform::{itrf_to_gcrf_state, rotation, transform_state};
 use satkit::orbitprop::{CovState, PropSettings, SatPropertiesSimple, propagate};
 use satkit::sgp4::{GravConst, OpsMode, SGP4Error, sgp4_full};
+use satkit::tle::TleFitStatus;
 use satkit::{Duration, Frame, ITRFCoord, Instant, TLE};
 use std::fmt;
+use std::num::NonZeroUsize;
+use std::sync::{Mutex, OnceLock};
 
-pub mod cca;
-pub mod diagnostics;
-pub mod drag;
-pub mod frame_cache;
 mod python;
-pub mod reepoch;
-mod tle_epoch;
 
-/// Transform finite Cartesian SI states using satkit, including frame velocity.
-/// Epoch order and repetitions are preserved; orbit-dependent frames fail.
-pub fn transform_cartesian_states(
-    states: &[Vec<f64>],
-    times: &[Instant],
-    from: Frame,
-    to: Frame,
-) -> FmResult<Vec<Vec<f64>>> {
-    if states.is_empty() || states.len() != times.len() {
-        return Err(ForwardModelError::InvalidInput(
-            "states and epochs must have matching nonempty lengths".into(),
-        ));
-    }
-    states
-        .iter()
-        .zip(times)
-        .map(|(state, time)| {
-            if state.len() != 6 || !state.iter().all(|value| value.is_finite()) {
-                return Err(ForwardModelError::InvalidInput(
-                    "state must contain six finite values".into(),
-                ));
-            }
-            let position = Vector3::from_array([state[0], state[1], state[2]]);
-            let velocity = Vector3::from_array([state[3], state[4], state[5]]);
-            let (r, v) = transform_state(from, to, time, &position, &velocity)
-                .map_err(|error| ForwardModelError::InvalidInput(error.to_string()))?;
-            Ok(r.as_slice().iter().chain(v.as_slice()).copied().collect())
-        })
-        .collect()
-}
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
 
 /// Errors returned by validated forward-model entry points.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,6 +77,10 @@ impl std::error::Error for ForwardModelError {}
 
 /// Result alias for fallible numerical and FFI-facing entry points.
 pub type FmResult<T> = Result<T, ForwardModelError>;
+
+pub(crate) fn invalid_input(message: impl Into<String>) -> ForwardModelError {
+    ForwardModelError::InvalidInput(message.into())
+}
 
 // ---------------------------------------------------------------------------
 // Core data structures (standard wire-facing layout)
@@ -231,6 +222,66 @@ impl BatchEvaluationResult {
     /// on the NumPy side use `np.asarray(s).reshape((n, m), order="F")`.
     pub fn as_slices(&self) -> (&[f64], &[f64]) {
         (self.residuals.as_slice(), self.residual_jacobian.as_slice())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Frame transform and rotation cache
+// ---------------------------------------------------------------------------
+
+/// Transform finite Cartesian SI states using satkit, including frame velocity.
+/// Epoch order and repetitions are preserved; orbit-dependent frames fail.
+pub fn transform_cartesian_states(
+    states: &[Vec<f64>],
+    times: &[Instant],
+    from: Frame,
+    to: Frame,
+) -> FmResult<Vec<Vec<f64>>> {
+    if states.is_empty() || states.len() != times.len() {
+        return Err(ForwardModelError::InvalidInput(
+            "states and epochs must have matching nonempty lengths".into(),
+        ));
+    }
+    states
+        .iter()
+        .zip(times)
+        .map(|(state, time)| {
+            if state.len() != 6 || !state.iter().all(|value| value.is_finite()) {
+                return Err(ForwardModelError::InvalidInput(
+                    "state must contain six finite values".into(),
+                ));
+            }
+            let position = Vector3::from_array([state[0], state[1], state[2]]);
+            let velocity = Vector3::from_array([state[3], state[4], state[5]]);
+            let (r, v) = transform_state(from, to, time, &position, &velocity)
+                .map_err(|error| ForwardModelError::InvalidInput(error.to_string()))?;
+            Ok(r.as_slice().iter().chain(v.as_slice()).copied().collect())
+        })
+        .collect()
+}
+
+// Bounded memoization of exact satkit TEME→GCRF rotations.
+// Epoch keys are satkit's native continuous microseconds, never rounded UTC.
+// Runtime Earth-orientation data must stay fixed during a solve/evaluation.
+type Rotations = LruCache<i64, Quaternion<f64>>;
+static ROTATIONS: OnceLock<Mutex<Rotations>> = OnceLock::new();
+
+pub fn teme_to_gcrf_rotation(time: &Instant) -> FmResult<Quaternion<f64>> {
+    let cache =
+        ROTATIONS.get_or_init(|| Mutex::new(LruCache::new(NonZeroUsize::new(1_048_576).unwrap())));
+    if let Some(value) = cache.lock().unwrap().get(&time.raw) {
+        return Ok(*value);
+    }
+    let value = rotation(Frame::TEME, Frame::GCRF, time)
+        .map_err(|e| ForwardModelError::Propagation(e.to_string()))?;
+    cache.lock().unwrap().put(time.raw, value);
+    Ok(value)
+}
+
+/// Call after replacing satkit Earth-orientation data in a long-running process.
+pub fn clear_frame_cache() {
+    if let Some(cache) = ROTATIONS.get() {
+        cache.lock().unwrap().clear();
     }
 }
 
@@ -586,8 +637,20 @@ fn whiten_block(
 // High-fidelity model: numerical propagation with variational equations
 // ---------------------------------------------------------------------------
 
+/// Validates a Cd A/m drag coefficient (m²/kg): finite and nonnegative.
+pub fn validate_drag_coefficient(value: f64) -> FmResult<()> {
+    if !value.is_finite() || value < 0.0 {
+        return Err(ForwardModelError::InvalidInput(
+            "Cd A/m must be finite and nonnegative (m²/kg)".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Propagates `state0` (meters, m/s GCRF) from `epoch` with the high-fidelity
 /// force model, sampling state + epoch STM at `node_times` (ascending).
+/// Fixed-activity NRLMSISE-00 drag applies when `cd_a_over_m` (Cd A/m in
+/// m²/kg) is positive; 0.0 reproduces drag-free behavior.
 ///
 /// The first `phi_step` maps from `epoch` to the first node. Later steps are
 /// reconstructed as Phi(t_k,t_0) · Phi(t_{k-1},t_0)^{-1}.
@@ -596,19 +659,9 @@ pub fn propagate_arc(
     epoch: &Instant,
     node_times: &[Instant],
     settings: &PropSettings,
-) -> FmResult<TrajectoryArc> {
-    propagate_arc_with_drag(state0, epoch, node_times, settings, 0.0)
-}
-
-/// Fixed-activity NRLMSISE-00 drag; the coefficient is Cd A/m in m²/kg.
-pub fn propagate_arc_with_drag(
-    state0: &Vector6<f64>,
-    epoch: &Instant,
-    node_times: &[Instant],
-    settings: &PropSettings,
     cd_a_over_m: f64,
 ) -> FmResult<TrajectoryArc> {
-    drag::validate_coefficient(cd_a_over_m)?;
+    validate_drag_coefficient(cd_a_over_m)?;
     let t_end = node_times.last().ok_or_else(|| {
         ForwardModelError::InvalidInput("propagate_arc requires at least one node".to_string())
     })?;
@@ -686,8 +739,9 @@ pub fn propagate_arc_with_drag(
 /// `x` is the estimation vector [epoch-state correction (6, m + m/s) | pass
 /// biases (P, Hz)] applied on top of `nominal0`. Observation order and repeated
 /// epochs are preserved; propagation nodes are sorted and deduplicated.
+/// `cd_a_over_m` is a fixed Cd A/m drag coefficient (m²/kg); 0.0 disables drag.
 ///
-/// TODO(params): support estimating force-model parameters (Cd, Cr) through
+/// TODO(params): support estimating force-model parameters (e.g. Cr) through
 /// an augmented STM rather than epoch state only.
 pub fn hifi_evaluate(
     engine: &EstimationEngine,
@@ -696,6 +750,7 @@ pub fn hifi_evaluate(
     epoch: &Instant,
     observations: &[ObservationRecord],
     settings: &PropSettings,
+    cd_a_over_m: f64,
 ) -> FmResult<BatchEvaluationResult> {
     engine.validate()?;
     let expected = 6 + engine.num_passes;
@@ -725,7 +780,7 @@ pub fn hifi_evaluate(
     let mut times: Vec<Instant> = observations.iter().map(|o| o.time).collect();
     times.sort();
     times.dedup();
-    let arc = propagate_arc(&state0, epoch, &times, settings)?;
+    let arc = propagate_arc(&state0, epoch, &times, settings, cd_a_over_m)?;
     engine.batch_evaluate(&arc, observations, &x[6..])
 }
 
@@ -750,11 +805,17 @@ fn engine_at_frequency(engine: &EstimationEngine, center_frequency: f64) -> Esti
     }
 }
 
-/// High-fidelity objective augmented with global epoch and carrier-frequency offsets.
+/// High-fidelity objective augmented with global epoch and carrier-frequency
+/// offsets, plus an optional estimated drag coefficient.
 ///
 /// `x` is `[epoch state correction (6) | time offset (s) | center-frequency
-/// offset (Hz) | pass biases (Hz)]`. The time column differences the complete
-/// Doppler observable at shifted +/- 1 ms nodes from one propagated arc.
+/// offset (Hz) | pass biases (Hz)]`, optionally followed by one Cd A/m entry
+/// (m²/kg). With 8 + P entries the drag coefficient is fixed at
+/// `cd_a_over_m_fixed`; with 9 + P entries the last entry is the estimated
+/// coefficient and `cd_a_over_m_fixed` must be 0.0. The time column differences
+/// the complete Doppler observable at shifted +/- 1 ms nodes from one
+/// propagated arc. State derivatives use satkit's drag-aware STM; only the
+/// drag column (when estimated) is finite-differenced.
 pub fn hifi_evaluate_augmented(
     engine: &EstimationEngine,
     x: &[f64],
@@ -762,12 +823,79 @@ pub fn hifi_evaluate_augmented(
     epoch: &Instant,
     observations: &[ObservationRecord],
     settings: &PropSettings,
+    cd_a_over_m_fixed: f64,
 ) -> FmResult<BatchEvaluationResult> {
-    hifi_evaluate_augmented_with_drag(engine, x, nominal0, epoch, observations, settings, 0.0)
+    let fixed_parameters = 8 + engine.num_passes;
+    let drag_parameters = 9 + engine.num_passes;
+    if x.len() == fixed_parameters {
+        return hifi_augmented_at(
+            engine,
+            x,
+            nominal0,
+            epoch,
+            observations,
+            settings,
+            cd_a_over_m_fixed,
+        );
+    }
+    if x.len() != drag_parameters {
+        return Err(ForwardModelError::InvalidInput(format!(
+            "expected {fixed_parameters} (fixed drag) or {drag_parameters} (estimated drag) finite augmented high-fidelity parameters, got {}",
+            x.len()
+        )));
+    }
+    if cd_a_over_m_fixed != 0.0 {
+        return Err(ForwardModelError::InvalidInput(
+            "supply Cd A/m in the vector or as a fixed value, not both".into(),
+        ));
+    }
+    let column = x.len() - 1;
+    let coefficient = x[column];
+    validate_drag_coefficient(coefficient)?;
+    let evaluate_at = |value| {
+        hifi_augmented_at(
+            engine,
+            &x[..column],
+            nominal0,
+            epoch,
+            observations,
+            settings,
+            value,
+        )
+    };
+    let central = evaluate_at(coefficient)?;
+    let step = (1e-3 * coefficient).max(1e-6);
+    let plus = evaluate_at(coefficient + step)?;
+    let rows = central.residuals.len();
+    let derivative: Vec<f64> = if coefficient >= step {
+        let minus = evaluate_at(coefficient - step)?;
+        (0..rows)
+            .map(|i| (plus.residuals[i] - minus.residuals[i]) / (2.0 * step))
+            .collect()
+    } else {
+        let twice = evaluate_at(coefficient + 2.0 * step)?;
+        (0..rows)
+            .map(|i| {
+                (-3.0 * central.residuals[i] + 4.0 * plus.residuals[i] - twice.residuals[i])
+                    / (2.0 * step)
+            })
+            .collect()
+    };
+    let mut jacobian = DynMatrix::zeros(rows, x.len());
+    for row in 0..rows {
+        for col in 0..column {
+            jacobian[(row, col)] = central.residual_jacobian[(row, col)];
+        }
+        jacobian[(row, column)] = derivative[row];
+    }
+    Ok(BatchEvaluationResult {
+        residuals: central.residuals,
+        residual_jacobian: jacobian,
+    })
 }
 
-/// Existing augmented objective with an externally supplied fixed coefficient.
-pub fn hifi_evaluate_augmented_with_drag(
+/// Augmented objective evaluated at one fixed Cd A/m coefficient.
+fn hifi_augmented_at(
     engine: &EstimationEngine,
     x: &[f64],
     nominal0: &Vector6<f64>,
@@ -813,7 +941,7 @@ pub fn hifi_evaluate_augmented_with_drag(
         .collect::<Vec<_>>();
     node_times.sort();
     node_times.dedup();
-    let arc = propagate_arc_with_drag(&state0, epoch, &node_times, settings, cd_a_over_m)?;
+    let arc = propagate_arc(&state0, epoch, &node_times, settings, cd_a_over_m)?;
 
     let columns = expected;
     let mut residuals = DynVector::<f64>::zeros(observations.len());
@@ -1067,7 +1195,7 @@ pub fn propagate_sgp4_gcrf(tle: &TLE, times: &[Instant]) -> FmResult<Vec<Vector6
         let vel_teme = Vector3::from_array([out.vel[(0, k)], out.vel[(1, k)], out.vel[(2, k)]]);
         // satkit's TEME/GCRF state dispatch applies the same inertial rotation
         // to position and velocity. Reuse it across finite differences/replays.
-        let rotation = frame_cache::teme_to_gcrf(t)?;
+        let rotation = teme_to_gcrf_rotation(t)?;
         let (pos, vel) = (rotation * pos_teme, rotation * vel_teme);
         let state = Vector6::from_array([pos[0], pos[1], pos[2], vel[0], vel[1], vel[2]]);
         if !state.as_slice().iter().all(|value| value.is_finite()) {
@@ -1211,9 +1339,6 @@ fn sgp4_states_and_sensitivities(
 /// row for measurement k is `-fc/c · H_range_rate(1x6) · Phi_sgp4(6xM, t_k)`,
 /// where `Phi_sgp4` comes from central finite differences of the SGP4-mapped
 /// Cartesian state.
-///
-/// TODO(python): wrap with `pyo3` (`#[pyfunction]`, numpy buffers) and convert
-/// SI inputs/outputs to DART wire units (km, km/s) at that boundary.
 pub fn evaluate_objective(
     x: &[f64],
     base_tle: &TLE,
@@ -1419,6 +1544,733 @@ pub fn lofi_evaluate_augmented(
 }
 
 // ---------------------------------------------------------------------------
+// TLE epoch adjustment: the orbit changes, never the observation clock
+// ---------------------------------------------------------------------------
+
+pub(crate) fn shifted_tle(base: &TLE, seconds: f64) -> FmResult<TLE> {
+    let first = Instant::from_datetime(1957, 1, 1, 0, 0, 0.0)
+        .unwrap()
+        .as_unixtime();
+    let stop = Instant::from_datetime(2057, 1, 1, 0, 0, 0.0)
+        .unwrap()
+        .as_unixtime();
+    let epoch = base.epoch.as_unixtime() + seconds;
+    if !epoch.is_finite() || !(first..stop).contains(&epoch) {
+        return Err(ForwardModelError::InvalidInput(
+            "TLE epoch must be within 1957..2057".into(),
+        ));
+    }
+    let mut tle = fresh_tle(base)?;
+    tle.epoch = base.epoch + Duration::from_seconds(seconds);
+    Ok(tle)
+}
+
+fn predictions(
+    engine: &EstimationEngine,
+    tle: &TLE,
+    observations: &[ObservationRecord],
+) -> FmResult<Vec<f64>> {
+    let times = observations.iter().map(|o| o.time).collect::<Vec<_>>();
+    let states = propagate_sgp4_gcrf(tle, &times)?;
+    states
+        .iter()
+        .zip(observations)
+        .map(|(state, observation)| {
+            let evaluation = engine.evaluate_local_sensor(
+                &DynVector::from_vec(state.as_slice().to_vec()),
+                observation,
+            )?;
+            Ok(evaluation.predicted[0] / observation.noise_cov[(0, 0)].sqrt())
+        })
+        .collect()
+}
+
+/// Legacy augmented vector followed by one TLE epoch adjustment in seconds.
+pub(crate) fn lofi_evaluate_epoch(
+    engine: &EstimationEngine,
+    x: &[f64],
+    base: &TLE,
+    observations: &[ObservationRecord],
+) -> FmResult<BatchEvaluationResult> {
+    let epoch_index = SGP4_PARAMS.len() + 2 + engine.num_passes;
+    if x.len() != epoch_index + 1 || !x.iter().all(|v| v.is_finite()) {
+        return Err(ForwardModelError::InvalidInput(
+            "invalid TLE epoch parameter vector".into(),
+        ));
+    }
+    let shifted = shifted_tle(base, x[epoch_index])?;
+    let mut result = lofi_evaluate_augmented(engine, &x[..epoch_index], &shifted, observations)?;
+    let derivative = epoch_derivative(engine, x, &shifted, observations)?;
+    let mut jacobian = DynMatrix::zeros(observations.len(), x.len());
+    for row in 0..observations.len() {
+        for column in 0..epoch_index {
+            jacobian[(row, column)] = result.residual_jacobian[(row, column)];
+        }
+        jacobian[(row, epoch_index)] = derivative[row];
+    }
+    result.residual_jacobian = jacobian;
+    Ok(result)
+}
+
+fn epoch_derivative(
+    engine: &EstimationEngine,
+    x: &[f64],
+    shifted: &TLE,
+    observations: &[ObservationRecord],
+) -> FmResult<Vec<f64>> {
+    let corrected = tle_with_offset(shifted, &x[..SGP4_PARAMS.len()])?;
+    let sensor = engine_at_frequency(engine, engine.center_frequency + x[8]);
+    let observations = observations
+        .iter()
+        .map(|o| observation_at(o, o.time + Duration::from_seconds(x[7])))
+        .collect::<Vec<_>>();
+    let minus = predictions(
+        &sensor,
+        &shifted_tle(&corrected, -TIME_DERIVATIVE_STEP_S)?,
+        &observations,
+    )?;
+    let plus = predictions(
+        &sensor,
+        &shifted_tle(&corrected, TIME_DERIVATIVE_STEP_S)?,
+        &observations,
+    )?;
+    Ok(plus
+        .iter()
+        .zip(minus)
+        .map(|(p, m)| (p - m) / (2.0 * TIME_DERIVATIVE_STEP_S))
+        .collect())
+}
+
+// ---------------------------------------------------------------------------
+// TLE re-epoching: TLE-to-TLE fitting through the unmodified satkit fitter
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+#[pyclass(get_all, frozen)]
+pub struct ReepochedTle {
+    pub original_tle_lines: [String; 2],
+    pub tle_lines: [String; 2],
+    pub epoch_unix_s: f64,
+    pub serialized_epoch_unix_s: f64,
+    pub window_start_unix_s: f64,
+    pub window_stop_unix_s: f64,
+    pub fit_status: String,
+    pub converged: bool,
+    pub position_rms_m: f64,
+    pub position_max_m: f64,
+    pub velocity_rms_m_s: f64,
+    pub velocity_max_m_s: f64,
+}
+
+#[derive(Debug)]
+pub enum ReepochError {
+    Failed(String),
+    Rejected(Box<ReepochedTle>),
+}
+
+impl From<ForwardModelError> for ReepochError {
+    fn from(error: ForwardModelError) -> Self {
+        Self::Failed(error.to_string())
+    }
+}
+
+impl std::fmt::Display for ReepochError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Failed(message) => f.write_str(message),
+            Self::Rejected(report) => write!(
+                f,
+                "failed convergence or serialized preservation limits (stock fit: {}); position RMS {:.3} m, maximum {:.3} m; velocity RMS {:.6} m/s, maximum {:.6} m/s",
+                report.fit_status,
+                report.position_rms_m,
+                report.position_max_m,
+                report.velocity_rms_m_s,
+                report.velocity_max_m_s
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ReepochError {}
+
+fn failed(error: impl std::fmt::Display) -> ReepochError {
+    ReepochError::Failed(error.to_string())
+}
+
+fn validate_epochs(epoch: f64, start: f64, stop: f64) -> Result<(), ReepochError> {
+    if ![epoch, start, stop].iter().all(|v| v.is_finite())
+        || start >= stop
+        || epoch < start
+        || epoch > stop
+    {
+        return Err(failed(
+            "require finite window_start < window_stop and epoch inside the window",
+        ));
+    }
+    // Instant stores microseconds in i64; limit inputs to the TLE epoch range.
+    let first = Instant::from_datetime(1957, 1, 1, 0, 0, 0.0)
+        .unwrap()
+        .as_unixtime();
+    let last = Instant::from_datetime(2057, 1, 1, 0, 0, 0.0)
+        .unwrap()
+        .as_unixtime();
+    if start < first || stop >= last {
+        return Err(failed("TLE epochs and window must be within 1957..2057"));
+    }
+    Ok(())
+}
+
+fn validate_lines(lines: &[String; 2]) -> Result<(), ReepochError> {
+    for (i, line) in lines.iter().enumerate() {
+        if line.len() != 69 || !line.is_ascii() || !line.starts_with(&format!("{} ", i + 1)) {
+            return Err(failed("expected two 69-character ASCII TLE lines"));
+        }
+    }
+    if lines[0][2..7] != lines[1][2..7] {
+        return Err(failed("TLE spacecraft identifiers differ"));
+    }
+    Ok(())
+}
+
+/// Observation-weighted epoch and a preservation interval of at least one orbit.
+pub fn preparation_epochs(
+    lines: &[String; 2],
+    timestamps: &[f64],
+    window: Option<(f64, f64)>,
+) -> Result<(f64, f64, f64), ReepochError> {
+    validate_lines(lines)?;
+    if timestamps.is_empty() || timestamps.iter().any(|t| !t.is_finite()) {
+        return Err(failed("timestamps must be nonempty and finite"));
+    }
+    let mut times = timestamps.to_vec();
+    times.sort_by(f64::total_cmp);
+    let first = times[0];
+    let last = times[times.len() - 1];
+    // Center before summing to retain precision for contemporary Unix epochs.
+    let epoch = first
+        + times
+            .iter()
+            .map(|t| (t - first) / times.len() as f64)
+            .sum::<f64>();
+    let tle = TLE::load_2line(&lines[0], &lines[1]).map_err(failed)?;
+    if !tle.mean_motion.is_finite() || tle.mean_motion <= 0.0 {
+        return Err(failed("TLE mean motion must be finite and positive"));
+    }
+    let half_period = 43200.0 / tle.mean_motion;
+    let mut start = first.min(epoch - half_period);
+    let mut stop = last.max(epoch + half_period);
+    if let Some((a, b)) = window {
+        validate_epochs(epoch, a, b)?;
+        start = start.min(a);
+        stop = stop.max(b);
+    }
+    validate_epochs(epoch, start, stop)?;
+    Ok((epoch, start, stop))
+}
+
+pub(crate) fn serialize_tle_lines(
+    fitted: &TLE,
+    original: &[String; 2],
+) -> Result<[String; 2], ReepochError> {
+    let mut lines = fitted.to_2line().map_err(failed)?;
+    // satkit does not retain classification and can truncate the launch designator.
+    lines[0].replace_range(2..17, &original[0][2..17]);
+    lines[1].replace_range(2..7, &original[1][2..7]);
+    for line in &mut lines {
+        if line.len() != 69 || !line.is_ascii() {
+            return Err(failed(
+                "fitted TLE cannot be serialized to fixed-width lines",
+            ));
+        }
+        let checksum: u32 = line[..68]
+            .chars()
+            .map(|c| c.to_digit(10).unwrap_or(u32::from(c == '-')))
+            .sum();
+        line.replace_range(68..69, &(checksum % 10).to_string());
+    }
+    Ok(lines)
+}
+
+fn preservation(
+    original: &TLE,
+    derived: &TLE,
+    times: &[Instant],
+) -> Result<[f64; 4], ReepochError> {
+    let reference = propagate_sgp4_gcrf(original, times)?;
+    let candidate = propagate_sgp4_gcrf(derived, times)?;
+    let mut sum = [0.0; 2];
+    let mut maximum = [0.0_f64; 2];
+    for (a, b) in reference.iter().zip(candidate) {
+        let delta: Vector6<f64> = b - a;
+        for kind in 0..2 {
+            let squared = delta.as_slice()[kind * 3..kind * 3 + 3]
+                .iter()
+                .map(|v| v * v)
+                .sum::<f64>();
+            sum[kind] += squared;
+            maximum[kind] = maximum[kind].max(squared.sqrt());
+        }
+    }
+    let errors = [
+        (sum[0] / times.len() as f64).sqrt(),
+        maximum[0],
+        (sum[1] / times.len() as f64).sqrt(),
+        maximum[1],
+    ];
+    if errors.iter().any(|e| !e.is_finite()) {
+        return Err(failed("nonfinite preservation errors"));
+    }
+    Ok(errors)
+}
+
+fn accept(report: ReepochedTle) -> Result<ReepochedTle, ReepochError> {
+    let errors = [
+        report.position_rms_m,
+        report.position_max_m,
+        report.velocity_rms_m_s,
+        report.velocity_max_m_s,
+    ];
+    let within_limits = errors
+        .iter()
+        .zip([10.0, 20.0, 0.01, 0.02])
+        .all(|(e, limit)| e.is_finite() && *e < limit);
+    if report.converged && within_limits {
+        Ok(report)
+    } else {
+        Err(ReepochError::Rejected(Box::new(report)))
+    }
+}
+
+/// Stock satkit fit with strict preservation checks. Rejected finite candidates
+/// remain available in diagnostics for refinement by the Python adapter.
+pub fn reepoch_tle(
+    lines: [String; 2],
+    epoch: f64,
+    start: f64,
+    stop: f64,
+) -> Result<ReepochedTle, ReepochError> {
+    validate_epochs(epoch, start, stop)?;
+    validate_lines(&lines)?;
+    let original = TLE::load_2line(&lines[0], &lines[1]).map_err(failed)?;
+    let times = validation_times(start, stop);
+    let fit_times: Vec<Instant> = times.iter().step_by(2).copied().collect();
+    let states: Vec<[f64; 6]> = propagate_sgp4_gcrf(&original, &fit_times)?
+        .iter()
+        .map(|s| s.as_slice().try_into().unwrap())
+        .collect();
+    let (mut fitted, fit_status, converged) =
+        if (original.epoch.as_unixtime() - epoch).abs() <= 0.000433 {
+            (original.clone(), String::from("AlreadyCentered"), true)
+        } else {
+            let (fitted, fit) =
+                TLE::fit_from_states(&states, &fit_times, Instant::from_unixtime(epoch))
+                    .map_err(failed)?;
+            let converged = matches!(
+                fit.status,
+                TleFitStatus::GradientConverged
+                    | TleFitStatus::StepConverged
+                    | TleFitStatus::CostConverged
+            );
+            (fitted, format!("{:?}", fit.status), converged)
+        };
+    fitted.name = original.name.clone();
+    fitted.sat_num = original.sat_num;
+    fitted.intl_desig = original.intl_desig.clone();
+    let serialized = serialize_tle_lines(&fitted, &lines)?;
+    let derived = TLE::load_2line(&serialized[0], &serialized[1]).map_err(failed)?;
+    let [
+        position_rms_m,
+        position_max_m,
+        velocity_rms_m_s,
+        velocity_max_m_s,
+    ] = preservation(&original, &derived, &times)?;
+    accept(ReepochedTle {
+        original_tle_lines: lines,
+        tle_lines: serialized,
+        epoch_unix_s: epoch,
+        serialized_epoch_unix_s: derived.epoch.as_unixtime(),
+        window_start_unix_s: start,
+        window_stop_unix_s: stop,
+        fit_status,
+        converged,
+        position_rms_m,
+        position_max_m,
+        velocity_rms_m_s,
+        velocity_max_m_s,
+    })
+}
+
+/// Check a refined, serialized candidate against the original at independent nodes.
+pub fn validate_refinement(
+    mut report: ReepochedTle,
+    offsets: &[f64],
+    converged: bool,
+) -> Result<ReepochedTle, ReepochError> {
+    let base = TLE::load_2line(&report.tle_lines[0], &report.tle_lines[1]).map_err(failed)?;
+    let corrected = tle_with_offset(&base, offsets)?;
+    let times = validation_times(report.window_start_unix_s, report.window_stop_unix_s);
+    let fit_times = times.iter().step_by(2).copied().collect::<Vec<_>>();
+    report.tle_lines = serialize_refinement(&corrected, &report.original_tle_lines, &fit_times)?;
+    let derived = TLE::load_2line(&report.tle_lines[0], &report.tle_lines[1]).map_err(failed)?;
+    let original = TLE::load_2line(&report.original_tle_lines[0], &report.original_tle_lines[1])
+        .map_err(failed)?;
+    [
+        report.position_rms_m,
+        report.position_max_m,
+        report.velocity_rms_m_s,
+        report.velocity_max_m_s,
+    ] = preservation(&original, &derived, &times)?;
+    report.serialized_epoch_unix_s = derived.epoch.as_unixtime();
+    report.converged = converged;
+    accept(report)
+}
+
+/// Independent rounding of argument of perigee and mean anomaly can add a
+/// whole 0.0001-degree phase error. Select the nearest serialized phase using
+/// the continuous fitted trajectory at the fitting nodes, before validation.
+fn serialize_refinement(
+    fitted: &TLE,
+    original: &[String; 2],
+    fit_times: &[Instant],
+) -> Result<[String; 2], ReepochError> {
+    let mut best = serialize_tle_lines(fitted, original)?;
+    let parsed = TLE::load_2line(&best[0], &best[1]).map_err(failed)?;
+    let mut minimum = preservation(fitted, &parsed, fit_times)?[0];
+    for step in [-0.0001, 0.0001] {
+        let mut candidate = fresh_tle(fitted)?;
+        candidate.mean_anomaly = (fitted.mean_anomaly + step).rem_euclid(360.0);
+        let lines = serialize_tle_lines(&candidate, original)?;
+        let parsed = TLE::load_2line(&lines[0], &lines[1]).map_err(failed)?;
+        let rms = preservation(fitted, &parsed, fit_times)?[0];
+        if rms < minimum {
+            minimum = rms;
+            best = lines;
+        }
+    }
+    Ok(best)
+}
+
+fn validation_times(start: f64, stop: f64) -> Vec<Instant> {
+    (0..241)
+        .map(|i| Instant::from_unixtime(start + (stop - start) * i as f64 / 240.0))
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Consider covariance: classical linearized consider-covariance analysis
+// ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub struct ConsiderCovariance {
+    pub unconsidered: DynMatrix<f64>,
+    pub estimated: DynMatrix<f64>,
+    pub sensitivity: DynMatrix<f64>,
+    pub perturbation: DynMatrix<f64>,
+    pub joint: DynMatrix<f64>,
+    pub rank: usize,
+}
+
+fn validate_matrix(
+    matrix: &DynMatrix<f64>,
+    rows: usize,
+    columns: usize,
+    name: &str,
+) -> FmResult<()> {
+    if matrix.nrows() != rows || matrix.ncols() != columns {
+        return Err(invalid_input(format!("{name} must be {rows}x{columns}")));
+    }
+    if matrix.as_slice().iter().any(|value| !value.is_finite()) {
+        return Err(invalid_input(format!(
+            "{name} must contain only finite values"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_prior(matrix: &DynMatrix<f64>, size: usize, name: &str) -> FmResult<()> {
+    validate_matrix(matrix, size, size, name)?;
+    for row in 0..size {
+        for column in 0..row {
+            let scale = matrix[(row, column)]
+                .abs()
+                .max(matrix[(column, row)].abs())
+                .max(1.0);
+            if (matrix[(row, column)] - matrix[(column, row)]).abs() > 1e-12 * scale {
+                return Err(invalid_input(format!("{name} must be symmetric")));
+            }
+        }
+    }
+    matrix
+        .cholesky()
+        .map_err(|_| invalid_input(format!("{name} must be positive definite")))?;
+    Ok(())
+}
+
+fn solve_matrix(factor: &DynCholesky<f64>, rhs: &DynMatrix<f64>) -> DynMatrix<f64> {
+    let mut result = DynMatrix::zeros(rhs.nrows(), rhs.ncols());
+    for column in 0..rhs.ncols() {
+        let vector = DynVector::from_vec((0..rhs.nrows()).map(|row| rhs[(row, column)]).collect());
+        let solution = factor.solve(&vector);
+        for row in 0..rhs.nrows() {
+            result[(row, column)] = solution[row];
+        }
+    }
+    result
+}
+
+fn symmetrize(matrix: &mut DynMatrix<f64>) {
+    for row in 0..matrix.nrows() {
+        for column in 0..row {
+            let value = 0.5 * (matrix[(row, column)] + matrix[(column, row)]);
+            matrix[(row, column)] = value;
+            matrix[(column, row)] = value;
+        }
+    }
+}
+
+fn numerical_rank(matrix: &DynMatrix<f64>) -> FmResult<usize> {
+    let singular = matrix
+        .svd()
+        .map_err(|error| ForwardModelError::LinearAlgebra(error.to_string()))?
+        .singular_values()
+        .to_vec();
+    let largest = singular.first().copied().unwrap_or(0.0);
+    let tolerance = matrix.nrows().max(matrix.ncols()) as f64 * f64::EPSILON * largest;
+    Ok(singular.iter().filter(|value| **value > tolerance).count())
+}
+
+/// Compute CCA blocks from complete whitened estimated/consider Jacobians.
+pub fn compute_consider_covariance(
+    h_estimated: &DynMatrix<f64>,
+    h_consider: &DynMatrix<f64>,
+    prior_estimated: &DynMatrix<f64>,
+    prior_consider: &DynMatrix<f64>,
+) -> FmResult<ConsiderCovariance> {
+    let observations = h_estimated.nrows();
+    let estimated = h_estimated.ncols();
+    let considered = h_consider.ncols();
+    if observations == 0 || estimated == 0 {
+        return Err(invalid_input(
+            "CCA requires observations and at least one estimated parameter",
+        ));
+    }
+    validate_matrix(h_consider, observations, considered, "consider Jacobian")?;
+    validate_matrix(h_estimated, observations, estimated, "estimated Jacobian")?;
+    validate_prior(prior_estimated, estimated, "estimated prior covariance")?;
+    if considered > 0 {
+        validate_prior(prior_consider, considered, "consider prior covariance")?;
+    } else {
+        validate_matrix(prior_consider, 0, 0, "consider prior covariance")?;
+    }
+
+    let prior_factor = prior_estimated
+        .cholesky()
+        .map_err(|error| ForwardModelError::LinearAlgebra(error.to_string()))?;
+    let prior_information = solve_matrix(&prior_factor, &DynMatrix::eye(estimated));
+    let mut information = &h_estimated.transpose() * h_estimated;
+    information += &prior_information;
+    let information_factor = information
+        .cholesky()
+        .map_err(|_| invalid_input("estimated information matrix must be positive definite"))?;
+    let mut unconsidered = solve_matrix(&information_factor, &DynMatrix::eye(estimated));
+    symmetrize(&mut unconsidered);
+
+    let cross_information = &h_estimated.transpose() * h_consider;
+    let mut sensitivity = solve_matrix(&information_factor, &cross_information);
+    sensitivity *= -1.0;
+    let mut estimated_covariance = if considered == 0 {
+        unconsidered.clone()
+    } else {
+        &unconsidered + &(&(&sensitivity * prior_consider) * &sensitivity.transpose())
+    };
+    symmetrize(&mut estimated_covariance);
+    let mut perturbation = sensitivity.clone();
+    for column in 0..considered {
+        let sigma = prior_consider[(column, column)].sqrt();
+        for row in 0..estimated {
+            perturbation[(row, column)] *= sigma;
+        }
+    }
+    if unconsidered
+        .as_slice()
+        .iter()
+        .chain(estimated_covariance.as_slice())
+        .chain(sensitivity.as_slice())
+        .chain(perturbation.as_slice())
+        .any(|v| !v.is_finite())
+    {
+        return Err(invalid_input("CCA result contains non-finite values"));
+    }
+    unconsidered
+        .cholesky()
+        .map_err(|_| invalid_input("unconsidered covariance is not positive definite"))?;
+    estimated_covariance
+        .cholesky()
+        .map_err(|_| invalid_input("estimated covariance is not positive definite"))?;
+    let mut joint = DynMatrix::zeros(estimated + considered, estimated + considered);
+    for row in 0..estimated {
+        for column in 0..estimated {
+            joint[(row, column)] = estimated_covariance[(row, column)];
+        }
+    }
+    if considered > 0 {
+        let cross = &sensitivity * prior_consider;
+        for row in 0..estimated {
+            for column in 0..considered {
+                joint[(row, estimated + column)] = cross[(row, column)];
+                joint[(estimated + column, row)] = cross[(row, column)];
+            }
+        }
+        for row in 0..considered {
+            for column in 0..considered {
+                joint[(estimated + row, estimated + column)] = prior_consider[(row, column)];
+            }
+        }
+    }
+    symmetrize(&mut joint);
+    if joint.as_slice().iter().any(|value| !value.is_finite()) {
+        return Err(invalid_input("joint covariance contains non-finite values"));
+    }
+    joint
+        .cholesky()
+        .map_err(|_| invalid_input("joint covariance is not positive definite"))?;
+    Ok(ConsiderCovariance {
+        unconsidered,
+        estimated: estimated_covariance,
+        sensitivity,
+        perturbation,
+        joint,
+        rank: numerical_rank(h_estimated)?,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics: local information and reference-frame scores; no provider or
+// fitting IO
+// ---------------------------------------------------------------------------
+
+pub type Information = (Vec<f64>, usize, Option<f64>, Option<f64>);
+
+/// Six scaled orbit columns, marginalizing the seventh (constant bias) column.
+/// Zero loss_scale means linear; positive means Soft-L1 curvature weighting.
+/// Returns singular values, rank, FIM condition, inverse-information trace.
+/// The latter two are absent for deficient rank, never pseudoinverse scores.
+pub fn orbit_information(
+    jacobian: &[Vec<f64>],
+    residuals: &[f64],
+    scales: &[f64],
+    loss_scale: f64,
+) -> FmResult<Information> {
+    validate_information(jacobian, residuals, scales, loss_scale)?;
+    let count = residuals.len();
+    let weights: Vec<f64> = residuals
+        .iter()
+        .map(|r| {
+            if loss_scale == 0.0 {
+                1.0
+            } else {
+                (1.0 + (r / loss_scale).powi(2)).powf(-0.75)
+            }
+        })
+        .collect();
+    let bias = DynVector::from_vec((0..count).map(|i| jacobian[i][6] * weights[i]).collect());
+    let norm = bias.norm();
+    if !norm.is_finite() || norm == 0.0 {
+        return Err(invalid_input("bias sensitivity has zero or nonfinite norm"));
+    }
+    let unit = DynVector::from_vec(bias.as_slice().iter().map(|b| b / norm).collect());
+    let mut matrix = DynMatrix::<f64>::zeros(count, 6);
+    for column in 0..6 {
+        let values = DynVector::from_vec(
+            (0..count)
+                .map(|i| jacobian[i][column] * scales[column] * weights[i])
+                .collect(),
+        );
+        let coefficient = unit.dot(&values);
+        for row in 0..count {
+            matrix[(row, column)] = values[row] - unit[row] * coefficient;
+        }
+    }
+    let svd = matrix
+        .svd()
+        .map_err(|e| ForwardModelError::LinearAlgebra(e.to_string()))?;
+    let singular = svd.singular_values().to_vec();
+    let tolerance = count.max(6) as f64 * f64::EPSILON * singular[0];
+    let rank = singular.iter().filter(|s| **s > tolerance).count();
+    if rank < 6 {
+        return Ok((singular, rank, None, None));
+    }
+    let condition = (singular[0] / singular[5]).powi(2);
+    let trace = singular.iter().map(|s| 1.0 / s.powi(2)).sum::<f64>();
+    if !condition.is_finite() || !trace.is_finite() {
+        return Err(invalid_input("information metrics overflow"));
+    }
+    Ok((singular, rank, Some(condition), Some(trace)))
+}
+
+fn validate_information(j: &[Vec<f64>], r: &[f64], s: &[f64], loss: f64) -> FmResult<()> {
+    if j.is_empty() || j.len() != r.len() || s.len() != 6 {
+        return Err(invalid_input(
+            "information needs matching nonempty rows and six scales",
+        ));
+    }
+    if j.iter()
+        .any(|row| row.len() != 7 || row.iter().any(|x| !x.is_finite()))
+    {
+        return Err(invalid_input("Jacobian needs seven finite columns"));
+    }
+    if r.iter().any(|x| !x.is_finite()) || s.iter().any(|x| !x.is_finite() || *x <= 0.0) {
+        return Err(invalid_input(
+            "residuals must be finite and scales positive finite",
+        ));
+    }
+    if !loss.is_finite() || loss < 0.0 {
+        return Err(invalid_input("invalid loss scale"));
+    }
+    Ok(())
+}
+
+/// Project predicted-minus-reference position onto the reference RTN triad.
+pub fn position_errors_rtn(
+    predicted: &[Vec<f64>],
+    reference: &[Vec<f64>],
+) -> FmResult<Vec<Vec<f64>>> {
+    if predicted.is_empty() || predicted.len() != reference.len() {
+        return Err(invalid_input(
+            "state arrays must have matching nonempty lengths",
+        ));
+    }
+    predicted
+        .iter()
+        .zip(reference)
+        .map(|(p, r)| project_rtn(p, r))
+        .collect()
+}
+
+fn project_rtn(p: &[f64], r: &[f64]) -> FmResult<Vec<f64>> {
+    if p.len() != 6 || r.len() != 6 || p.iter().chain(r).any(|v| !v.is_finite()) {
+        return Err(invalid_input(
+            "RTN projection needs six finite state components",
+        ));
+    }
+    let position = Vector3::from_array([r[0], r[1], r[2]]);
+    let velocity = Vector3::from_array([r[3], r[4], r[5]]);
+    let normal = position.cross(&velocity);
+    if position.norm() == 0.0 || normal.norm() == 0.0 {
+        return Err(invalid_input("degenerate reference RTN frame"));
+    }
+    let radial = position / position.norm();
+    let normal = normal / normal.norm();
+    let tangent = normal.cross(&radial);
+    let error = Vector3::from_array([p[0] - r[0], p[1] - r[1], p[2] - r[2]]);
+    Ok(vec![
+        error.dot(&radial),
+        error.dot(&tangent),
+        error.dot(&normal),
+    ])
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1426,7 +2278,7 @@ pub fn lofi_evaluate_augmented(
 mod tests {
     use super::*;
     use numeris::vector;
-    use satkit::Duration;
+    use satkit::sgp4::sgp4;
 
     #[test]
     fn cartesian_frames_include_velocity_and_preserve_order() {
@@ -1450,7 +2302,6 @@ mod tests {
                 .is_err()
         );
     }
-    use satkit::sgp4::sgp4;
 
     fn generate_mock_vectors() -> (Vector3<f64>, Vector3<f64>, Vector3<f64>, Vector3<f64>) {
         let pos_stn = vector![6378137.0, 0.0, 0.0];
@@ -1733,7 +2584,7 @@ mod tests {
     fn test_propagate_arc_supports_epoch_only() {
         let epoch = Instant::from_unixtime(1_700_000_000.0);
         let state = Vector6::from_array([7000e3, 0.0, 0.0, 0.0, 7546.0, 100.0]);
-        let arc = propagate_arc(&state, &epoch, &[epoch], &PropSettings::default()).unwrap();
+        let arc = propagate_arc(&state, &epoch, &[epoch], &PropSettings::default(), 0.0).unwrap();
 
         assert_eq!(arc.steps.len(), 1);
         for row in 0..6 {
@@ -1746,7 +2597,8 @@ mod tests {
         }
 
         let later = epoch + Duration::from_seconds(15.0);
-        let later_arc = propagate_arc(&state, &epoch, &[later], &PropSettings::default()).unwrap();
+        let later_arc =
+            propagate_arc(&state, &epoch, &[later], &PropSettings::default(), 0.0).unwrap();
         for row in 0..6 {
             for column in 0..6 {
                 assert_eq!(
@@ -2061,7 +2913,7 @@ mod tests {
         let settings = PropSettings::default();
         let x = [0.0; 7];
         let evaluation =
-            hifi_evaluate(&engine, &x, &nominal, &epoch, &observation, &settings).unwrap();
+            hifi_evaluate(&engine, &x, &nominal, &epoch, &observation, &settings, 0.0).unwrap();
         let steps = [1.0, 1.0, 1.0, 1e-3, 1e-3, 1e-3, 1e-3];
 
         for parameter in 0..x.len() {
@@ -2069,11 +2921,11 @@ mod tests {
             plus[parameter] += steps[parameter];
             minus[parameter] -= steps[parameter];
             let plus_residual =
-                hifi_evaluate(&engine, &plus, &nominal, &epoch, &observation, &settings)
+                hifi_evaluate(&engine, &plus, &nominal, &epoch, &observation, &settings, 0.0)
                     .unwrap()
                     .residuals[0];
             let minus_residual =
-                hifi_evaluate(&engine, &minus, &nominal, &epoch, &observation, &settings)
+                hifi_evaluate(&engine, &minus, &nominal, &epoch, &observation, &settings, 0.0)
                     .unwrap()
                     .residuals[0];
             let finite_difference = (plus_residual - minus_residual) / (2.0 * steps[parameter]);
@@ -2095,7 +2947,7 @@ mod tests {
         let settings = PropSettings::default();
         let x = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 1.0e5, 2.0];
         let evaluation =
-            hifi_evaluate_augmented(&engine, &x, &nominal, &epoch, &observation, &settings)
+            hifi_evaluate_augmented(&engine, &x, &nominal, &epoch, &observation, &settings, 0.0)
                 .unwrap();
 
         for (parameter, step, tolerance) in [(6, 1e-2, 2e-3), (7, 1e2, 1e-7)] {
@@ -2103,11 +2955,11 @@ mod tests {
             plus[parameter] += step;
             minus[parameter] -= step;
             let plus_residual =
-                hifi_evaluate_augmented(&engine, &plus, &nominal, &epoch, &observation, &settings)
+                hifi_evaluate_augmented(&engine, &plus, &nominal, &epoch, &observation, &settings, 0.0)
                     .unwrap()
                     .residuals[0];
             let minus_residual =
-                hifi_evaluate_augmented(&engine, &minus, &nominal, &epoch, &observation, &settings)
+                hifi_evaluate_augmented(&engine, &minus, &nominal, &epoch, &observation, &settings, 0.0)
                     .unwrap()
                     .residuals[0];
             let finite_difference = (plus_residual - minus_residual) / (2.0 * step);
@@ -2138,6 +2990,7 @@ mod tests {
             &epoch,
             &observations,
             &PropSettings::default(),
+            0.0,
         )
         .unwrap();
 
@@ -2166,5 +3019,322 @@ mod tests {
         assert!(jacobian.iter().all(|v| v.is_finite()));
         // Jacobian should be sensitive to the parameters it estimates.
         assert!(jacobian.iter().any(|v| v.abs() > 1e-12));
+    }
+
+    // --- drag in the high-fidelity model ---
+
+    #[test]
+    fn drag_opposes_relative_velocity_and_scales_with_coefficient() {
+        let epoch = Instant::from_unixtime(1_700_000_000.0);
+        let state = Vector6::from_array([6878e3, 0.0, 0.0, 0.0, 4700.0, 5980.0]);
+        let times = [epoch + Duration::from_seconds(1.0)];
+        let settings = PropSettings {
+            abs_error: 1e-10,
+            rel_error: 1e-13,
+            ..PropSettings::default()
+        };
+        let velocity = |coefficient| {
+            let arc = propagate_arc(&state, &epoch, &times, &settings, coefficient).unwrap();
+            let (final_state, _) = arc.evaluate_exact(&times[0]).unwrap();
+            [final_state[3], final_state[4], final_state[5]]
+        };
+        let zero = velocity(0.0);
+        let one = velocity(0.02);
+        let two = velocity(0.04);
+        let relative = [
+            0.0,
+            state[4] - satkit::consts::OMEGA_EARTH * state[0],
+            state[5],
+        ];
+        let work: f64 = (0..3).map(|i| (one[i] - zero[i]) * relative[i]).sum();
+        assert!(work < 0.0);
+        for i in 1..3 {
+            let ratio = (two[i] - zero[i]) / (one[i] - zero[i]);
+            assert!((ratio - 2.0).abs() < 0.01);
+        }
+    }
+
+    #[test]
+    fn day_long_trajectory_is_tolerance_stable() {
+        let epoch = Instant::from_unixtime(1_700_000_000.0);
+        let state = Vector6::from_array([6878e3, 0.0, 0.0, 0.0, 4700.0, 5980.0]);
+        let times = [epoch + Duration::from_seconds(86400.0)];
+        let tight = PropSettings {
+            abs_error: 1e-10,
+            rel_error: 1e-13,
+            ..PropSettings::default()
+        };
+        let normal =
+            propagate_arc(&state, &epoch, &times, &PropSettings::default(), 0.02).unwrap();
+        let precise = propagate_arc(&state, &epoch, &times, &tight, 0.02).unwrap();
+        let (a, _) = normal.evaluate_exact(&times[0]).unwrap();
+        let (b, _) = precise.evaluate_exact(&times[0]).unwrap();
+        for i in 0..3 {
+            assert!((a[i] - b[i]).abs() < 0.1, "position {i}: {}", a[i] - b[i]);
+            assert!((a[i + 3] - b[i + 3]).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn test_augmented_hifi_drag_column_against_finite_difference() {
+        let epoch = Instant::from_unixtime(1_700_000_000.0);
+        let observation = [mock_observation(epoch + Duration::from_seconds(600.0), 0)];
+        let engine = mock_engine(1);
+        let nominal = Vector6::from_array([6878e3, 0.0, 0.0, 0.0, 4700.0, 5980.0]);
+        let settings = PropSettings::default();
+        // [state (6) | time | frequency | bias | Cd A/m]
+        let x = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.02];
+        let evaluation =
+            hifi_evaluate_augmented(&engine, &x, &nominal, &epoch, &observation, &settings, 0.0)
+                .unwrap();
+        assert_eq!(evaluation.residual_jacobian.ncols(), x.len());
+
+        // A fixed coefficient alongside an estimated one is rejected.
+        assert!(
+            hifi_evaluate_augmented(&engine, &x, &nominal, &epoch, &observation, &settings, 0.01)
+                .is_err()
+        );
+
+        let step = 1e-5;
+        let (mut plus, mut minus) = (x, x);
+        plus[9] += step;
+        minus[9] -= step;
+        let plus_residual =
+            hifi_evaluate_augmented(&engine, &plus, &nominal, &epoch, &observation, &settings, 0.0)
+                .unwrap()
+                .residuals[0];
+        let minus_residual =
+            hifi_evaluate_augmented(&engine, &minus, &nominal, &epoch, &observation, &settings, 0.0)
+                .unwrap()
+                .residuals[0];
+        let finite_difference = (plus_residual - minus_residual) / (2.0 * step);
+        let analytic = evaluation.residual_jacobian[(0, 9)];
+        // Both sides are finite differences of a stiff drag term; agree to ~1%.
+        let tolerance = 1e-2 * finite_difference.abs().max(analytic.abs()).max(1e-12);
+        assert!(
+            (finite_difference - analytic).abs() < tolerance,
+            "drag residual derivative mismatch: {finite_difference} vs {analytic}"
+        );
+    }
+
+    // --- frame rotation cache ---
+
+    #[test]
+    fn cached_rotations_match_state_dispatch_at_distinct_subsecond_epochs() {
+        let r = Vector3::from_array([7e6, -1e5, 2e5]);
+        let v = Vector3::from_array([100.0, 7500.0, -200.0]);
+        for delta in [-1.0, -0.707, 0.0, 0.350, 0.350001, 1.0] {
+            let t = Instant::from_unixtime(1777852800.0 + delta);
+            let (expected_r, expected_v) =
+                transform_state(Frame::TEME, Frame::GCRF, &t, &r, &v).unwrap();
+            for _ in 0..2 {
+                let q = teme_to_gcrf_rotation(&t).unwrap();
+                assert!((q * r - expected_r).norm() < 1e-9);
+                assert!((q * v - expected_v).norm() < 1e-12);
+            }
+        }
+        clear_frame_cache();
+    }
+
+    // --- TLE epoch adjustment ---
+
+    const EPOCH_LINES: [&str; 2] = [
+        "1 90916U 00000AAA 26123.39151149  .00000000  00000-0  15851-2 0  9994",
+        "2 90916  97.7617  21.4277 0002400 218.8820 102.0181 14.92272573    07",
+    ];
+
+    #[test]
+    fn epoch_adjustment_does_not_change_mean_elements_or_keep_stale_cache() {
+        let mut base = TLE::load_2line(EPOCH_LINES[0], EPOCH_LINES[1]).unwrap();
+        let epoch = base.epoch;
+        satkit::sgp4::sgp4(&mut base, &[epoch]).unwrap();
+        let shifted = shifted_tle(&base, 70.0).unwrap();
+        assert_eq!((shifted.epoch - base.epoch).as_seconds(), 70.0);
+        assert_eq!(shifted.mean_anomaly, base.mean_anomaly);
+        assert_eq!(shifted.mean_motion, base.mean_motion);
+        let mut independent = TLE::load_2line(EPOCH_LINES[0], EPOCH_LINES[1]).unwrap();
+        independent.epoch += Duration::from_seconds(70.0);
+        assert_eq!(
+            propagate_sgp4_gcrf(&shifted, &[epoch]).unwrap(),
+            propagate_sgp4_gcrf(&independent, &[epoch]).unwrap()
+        );
+        assert!(shifted_tle(&base, f64::NAN).is_err());
+        assert!(shifted_tle(&base, 1e20).is_err());
+    }
+
+    // --- TLE re-epoching ---
+
+    #[test]
+    fn preparation_uses_sample_mean_and_covers_at_least_one_orbit() {
+        let lines: [String; 2] = [
+            "1 25544U 98067A   08264.51782528 -.00002182  00000-0 -11606-4 0  2927".into(),
+            "2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391563537".into(),
+        ];
+        let tle = TLE::load_2line(&lines[0], &lines[1]).unwrap();
+        let t = tle.epoch.as_unixtime();
+        let (mean, start, stop) = preparation_epochs(&lines, &[t + 100.0, t, t], None).unwrap();
+        assert!((mean - t - 100.0 / 3.0).abs() < 1e-6);
+        assert!((stop - start - 86400.0 / tle.mean_motion).abs() < 1e-6);
+        assert_eq!(
+            preparation_epochs(&lines, &[t, t + 100.0, t], None).unwrap(),
+            (mean, start, stop)
+        );
+        let single = preparation_epochs(&lines, &[t], Some((t - 10000.0, t + 10000.0))).unwrap();
+        assert_eq!(single, (t, t - 10000.0, t + 10000.0));
+        for times in [vec![], vec![f64::NAN], vec![f64::INFINITY], vec![1e100]] {
+            assert!(preparation_epochs(&lines, &times, None).is_err());
+        }
+    }
+
+    fn report() -> ReepochedTle {
+        ReepochedTle {
+            original_tle_lines: [String::new(), String::new()],
+            tle_lines: [String::new(), String::new()],
+            epoch_unix_s: 0.0,
+            serialized_epoch_unix_s: 0.0,
+            window_start_unix_s: 0.0,
+            window_stop_unix_s: 1.0,
+            fit_status: "StepConverged".into(),
+            converged: true,
+            position_rms_m: 1.0,
+            position_max_m: 2.0,
+            velocity_rms_m_s: 0.001,
+            velocity_max_m_s: 0.002,
+        }
+    }
+
+    #[test]
+    fn convergence_alone_cannot_accept_a_bad_serialized_product() {
+        assert!(accept(report()).is_ok());
+        for metric in 0..4 {
+            let mut candidate = report();
+            match metric {
+                0 => candidate.position_rms_m = 10.0,
+                1 => candidate.position_max_m = 20.0,
+                2 => candidate.velocity_rms_m_s = 0.01,
+                _ => candidate.velocity_max_m_s = 0.02,
+            }
+            assert!(matches!(accept(candidate), Err(ReepochError::Rejected(_))));
+        }
+        let mut candidate = report();
+        candidate.position_rms_m = f64::NAN;
+        assert!(accept(candidate).is_err());
+    }
+
+    #[test]
+    fn nonconvergence_is_rejected_even_with_small_errors() {
+        let mut candidate = report();
+        candidate.converged = false;
+        candidate.fit_status = "DampingSaturated".into();
+        let Err(ReepochError::Rejected(diagnostics)) = accept(candidate) else {
+            panic!("nonconvergence accepted")
+        };
+        assert_eq!(diagnostics.fit_status, "DampingSaturated");
+        assert_eq!(diagnostics.position_rms_m, 1.0);
+    }
+
+    #[test]
+    fn serialized_phase_avoids_compounded_angle_rounding() {
+        let lines: [String; 2] = [EPOCH_LINES[0].into(), EPOCH_LINES[1].into()];
+        let mut fitted = TLE::load_2line(&lines[0], &lines[1]).unwrap();
+        fitted.arg_of_perigee += 0.000049;
+        fitted.mean_anomaly += 0.000049;
+        let t = fitted.epoch.as_unixtime();
+        let nodes = validation_times(t - 3000.0, t + 3000.0);
+        let plain_lines = serialize_tle_lines(&fitted, &lines).unwrap();
+        let plain = TLE::load_2line(&plain_lines[0], &plain_lines[1]).unwrap();
+        let selected_lines = serialize_refinement(&fitted, &lines, &nodes).unwrap();
+        let selected = TLE::load_2line(&selected_lines[0], &selected_lines[1]).unwrap();
+        assert!(preservation(&fitted, &plain, &nodes).unwrap()[0] > 10.0);
+        assert!(preservation(&fitted, &selected, &nodes).unwrap()[0] < 1.0);
+        assert_eq!(selected.epoch, fitted.epoch);
+        assert_eq!(&selected_lines[0][2..17], &lines[0][2..17]);
+    }
+
+    // --- consider covariance ---
+
+    fn matrix(rows: usize, columns: usize, values: &[f64]) -> DynMatrix<f64> {
+        DynMatrix::from_rows(rows, columns, values)
+    }
+
+    #[test]
+    fn computes_cross_covariance_inputs_and_rank() {
+        let result = compute_consider_covariance(
+            &matrix(3, 2, &[1.0, 0.0, 0.0, 2.0, 1.0, 1.0]),
+            &matrix(3, 2, &[0.5, 0.2, 0.3, -0.1, -0.2, 0.4]),
+            &matrix(2, 2, &[4.0, 0.0, 0.0, 9.0]),
+            &matrix(2, 2, &[1.0, 0.4, 0.4, 4.0]),
+        )
+        .unwrap();
+        assert_eq!(result.rank, 2);
+        assert_eq!(result.sensitivity.ncols(), 2);
+        assert!(result.estimated.cholesky().is_ok());
+        assert!(result.joint.cholesky().is_ok());
+        for row in 0..2 {
+            for column in 0..2 {
+                assert!(
+                    (result.estimated[(row, column)] - result.estimated[(column, row)]).abs()
+                        < 1e-12
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn permits_rank_deficiency_and_empty_consider_set() {
+        let result = compute_consider_covariance(
+            &matrix(2, 2, &[1.0, 1.0, 2.0, 2.0]),
+            &matrix(2, 0, &[]),
+            &DynMatrix::eye(2),
+            &matrix(0, 0, &[]),
+        )
+        .unwrap();
+        assert_eq!(result.rank, 1);
+        assert_eq!(result.sensitivity.ncols(), 0);
+        assert_eq!(result.unconsidered, result.estimated);
+    }
+
+    #[test]
+    fn rejects_invalid_inputs() {
+        assert!(
+            compute_consider_covariance(
+                &matrix(1, 1, &[f64::NAN]),
+                &matrix(1, 0, &[]),
+                &DynMatrix::eye(1),
+                &matrix(0, 0, &[]),
+            )
+            .is_err()
+        );
+        assert!(
+            compute_consider_covariance(
+                &matrix(1, 1, &[1.0]),
+                &matrix(1, 1, &[1.0]),
+                &matrix(1, 1, &[0.0]),
+                &DynMatrix::eye(1),
+            )
+            .is_err()
+        );
+    }
+
+    // --- diagnostics ---
+
+    #[test]
+    fn rank_deficient_information_has_no_inverse_score() {
+        let j = vec![vec![1.0; 7]; 20];
+        let (_, rank, condition, trace) =
+            orbit_information(&j, &[0.0; 20], &[1.0; 6], 200.0).unwrap();
+        assert!(rank < 6);
+        assert_eq!(condition, None);
+        assert_eq!(trace, None);
+    }
+
+    #[test]
+    fn rtn_sign_and_units() {
+        let r = vec![vec![7e6, 0.0, 0.0, 0.0, 7500.0, 0.0]];
+        let p = vec![vec![7e6 + 10.0, -20.0, 30.0, 0.0, 7500.0, 0.0]];
+        assert_eq!(
+            position_errors_rtn(&p, &r).unwrap(),
+            vec![vec![10.0, -20.0, 30.0]]
+        );
     }
 }

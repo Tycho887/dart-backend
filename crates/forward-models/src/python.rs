@@ -6,7 +6,7 @@
 
 use crate::{
     BatchEvaluationResult, EstimationEngine, FmResult, ForwardModelError, MeasurementKind,
-    ObservationRecord, hifi_evaluate, hifi_evaluate_augmented_with_drag, lofi_evaluate,
+    ObservationRecord, hifi_evaluate, hifi_evaluate_augmented, lofi_evaluate,
     lofi_evaluate_augmented, propagate_sgp4_gcrf, tle_with_offset,
 };
 use numeris::{DynMatrix, DynVector, Vector6};
@@ -59,7 +59,7 @@ fn consider_covariance(
                 &values.into_iter().flatten().collect::<Vec<_>>(),
             ))
         };
-    let result = crate::cca::compute(
+    let result = crate::compute_consider_covariance(
         &convert(h_estimated, observations, estimated)?,
         &convert(h_consider, observations, considered)?,
         &convert(prior_estimated, estimated, estimated)?,
@@ -78,7 +78,7 @@ fn consider_covariance(
 
 #[pyfunction]
 fn clear_frame_cache() {
-    crate::frame_cache::clear();
+    crate::clear_frame_cache();
 }
 
 #[pyfunction]
@@ -87,9 +87,8 @@ fn orbit_information(
     residuals: Vec<f64>,
     scales: Vec<f64>,
     loss_scale: f64,
-) -> PyResult<crate::diagnostics::Information> {
-    crate::diagnostics::orbit_information(&jacobian, &residuals, &scales, loss_scale)
-        .map_err(python_error)
+) -> PyResult<crate::Information> {
+    crate::orbit_information(&jacobian, &residuals, &scales, loss_scale).map_err(python_error)
 }
 
 #[pyfunction]
@@ -97,7 +96,7 @@ fn position_errors_rtn(
     predicted: Vec<Vec<f64>>,
     reference: Vec<Vec<f64>>,
 ) -> PyResult<Vec<Vec<f64>>> {
-    crate::diagnostics::position_errors_rtn(&predicted, &reference).map_err(python_error)
+    crate::position_errors_rtn(&predicted, &reference).map_err(python_error)
 }
 
 struct EvaluationInputs {
@@ -225,7 +224,7 @@ fn evaluate_sgp4_epoch(
     py.allow_threads(move || {
         let inputs = build_inputs(inputs)?;
         let tle = TLE::load_2line(&line1, &line2).map_err(|e| invalid_input(e.to_string()))?;
-        crate::tle_epoch::evaluate(&inputs.engine, &x, &tle, &inputs.observations)
+        crate::lofi_evaluate_epoch(&inputs.engine, &x, &tle, &inputs.observations)
             .map(python_result)
     })
     .map_err(python_error)
@@ -240,9 +239,8 @@ fn corrected_tle_lines(
     let base =
         TLE::load_2line(&lines[0], &lines[1]).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let corrected = tle_with_offset(&base, &offsets).map_err(python_error)?;
-    let shifted =
-        crate::tle_epoch::shifted_tle(&corrected, epoch_offset_s).map_err(python_error)?;
-    crate::reepoch::serialize(&shifted, &lines).map_err(|e| PyValueError::new_err(e.to_string()))
+    let shifted = crate::shifted_tle(&corrected, epoch_offset_s).map_err(python_error)?;
+    crate::serialize_tle_lines(&shifted, &lines).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 #[pyfunction]
@@ -305,6 +303,7 @@ fn evaluate_full_state(
             &Instant::from_unixtime(epoch_unix),
             &inputs.observations,
             &PropSettings::default(),
+            0.0,
         )
         .map(python_result)
     })
@@ -340,16 +339,17 @@ fn evaluate_full_state_augmented(
                     "supply Cd A/m in the vector or as a fixed value, not both",
                 ));
             }
-            crate::drag::evaluate(
+            hifi_evaluate_augmented(
                 &inputs.engine,
                 &x,
                 &nominal,
                 &Instant::from_unixtime(epoch_unix),
                 &inputs.observations,
                 &PropSettings::default(),
+                0.0,
             )
         } else {
-            hifi_evaluate_augmented_with_drag(
+            hifi_evaluate_augmented(
                 &inputs.engine,
                 &x,
                 &nominal,
@@ -417,7 +417,7 @@ fn sgp4_preparation_epochs(
     timestamps: Vec<f64>,
     window: Option<(f64, f64)>,
 ) -> PyResult<(f64, f64, f64)> {
-    crate::reepoch::preparation_epochs(&lines, &timestamps, window).map_err(reepoch_error)
+    crate::preparation_epochs(&lines, &timestamps, window).map_err(reepoch_error)
 }
 
 #[pyfunction]
@@ -427,13 +427,13 @@ fn reepoch_tle(
     epoch: f64,
     start: f64,
     stop: f64,
-) -> PyResult<crate::reepoch::ReepochedTle> {
-    py.allow_threads(move || crate::reepoch::reepoch_tle(lines, epoch, start, stop))
+) -> PyResult<crate::ReepochedTle> {
+    py.allow_threads(move || crate::reepoch_tle(lines, epoch, start, stop))
         .map_err(reepoch_error)
 }
 
-fn reepoch_error(error: crate::reepoch::ReepochError) -> PyErr {
-    use crate::reepoch::ReepochError;
+fn reepoch_error(error: crate::ReepochError) -> PyErr {
+    use crate::ReepochError;
     let message = error.to_string();
     match error {
         ReepochError::Failed(_) => PyValueError::new_err(message),
@@ -444,11 +444,11 @@ fn reepoch_error(error: crate::reepoch::ReepochError) -> PyErr {
 #[pyfunction]
 fn validate_reepoch_refinement(
     py: Python<'_>,
-    report: crate::reepoch::ReepochedTle,
+    report: crate::ReepochedTle,
     offsets: Vec<f64>,
     converged: bool,
-) -> PyResult<crate::reepoch::ReepochedTle> {
-    py.allow_threads(move || crate::reepoch::validate_refinement(report, &offsets, converged))
+) -> PyResult<crate::ReepochedTle> {
+    py.allow_threads(move || crate::validate_refinement(report, &offsets, converged))
         .map_err(reepoch_error)
 }
 
@@ -526,7 +526,7 @@ fn full_state_states_gcrf(
         let mut nodes = times.clone();
         nodes.sort();
         nodes.dedup();
-        let arc = crate::propagate_arc_with_drag(
+        let arc = crate::propagate_arc(
             &Vector6::from_array(state),
             &Instant::from_unixtime(epoch_unix),
             &nodes,
